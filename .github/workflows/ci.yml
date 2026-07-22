@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,gpu,plots]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest --cov=mlxde --cov-report=term-missing
