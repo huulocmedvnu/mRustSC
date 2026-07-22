@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "scrust-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "candle-core",
  "ndarray",
@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "scrust-gpu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "candle-core",
  "metal",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "scrust-py"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "candle-core",
  "ndarray",
