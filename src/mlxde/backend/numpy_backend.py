@@ -61,6 +61,10 @@ class NumpyBackend:
         return np.transpose(values, axes)
 
     def solve(self, matrices: Array, vectors: Array) -> Array:
+        # NumPy 2 reads a 2-D right-hand side as a stack of matrices, so a batch of
+        # vectors has to be given its own trailing axis to keep the contract's shape.
+        if vectors.ndim == matrices.ndim - 1:
+            return np.linalg.solve(matrices, vectors[..., None])[..., 0]
         return np.linalg.solve(matrices, vectors)
 
     def inverse(self, matrices: Array) -> Array:

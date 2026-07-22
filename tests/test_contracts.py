@@ -67,3 +67,13 @@ def test_registry_always_offers_a_working_backend():
 def test_registry_rejects_unknown_backend():
     with pytest.raises(KeyError):
         get_backend("quantum")
+
+
+def test_backend_solves_a_batch_of_vector_systems(numpy_backend):
+    matrices = np.array([[[2.0, 0.0], [0.0, 4.0]], [[1.0, 0.0], [0.0, 1.0]]])
+    vectors = np.array([[2.0, 8.0], [3.0, 5.0]])
+
+    solutions = numpy_backend.solve(matrices, vectors)
+
+    assert solutions.shape == (2, 2)
+    np.testing.assert_allclose(solutions, [[1.0, 2.0], [3.0, 5.0]])
