@@ -1,8 +1,4 @@
-"""Tools, mirroring `scanpy.tl`. Owned by feat/python-tl.
-
-Like `scrust.pp` this is plumbing only; the AnnData conventions it needs live in
-`scrust.pp` as private helpers.
-"""
+"""Differential expression, mirroring `scanpy.tl.rank_genes_groups`."""
 
 from __future__ import annotations
 
@@ -10,14 +6,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scrust.pp import _VALUE_DTYPE, _csr_args, _extension, _representation
+from scrust._shared import _LABEL_DTYPE, _csr_args, _extension
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from anndata import AnnData
 
-__all__ = ["rank_genes_groups", "tsne", "umap"]
+__all__ = ["filter_rank_genes_groups", "rank_genes_groups"]
 
 # scanpy's dtype per `uns["rank_genes_groups"]` field; its plotting reads these.
 _DE_FIELD_DTYPES = {
@@ -28,81 +24,9 @@ _DE_FIELD_DTYPES = {
     "pvals_adj": "float64",
 }
 
-# Only Wilcoxon is wired up, and the core's tie handling is not exposed yet.
+# Only Wilcoxon is wired up so far; feat/de-methods adds the rest.
 _SUPPORTED_METHODS = ("wilcoxon",)
 _TIE_CORRECT = False
-
-# Defaults the contract does not expose but the core still requires.
-_DEFAULT_EPOCHS = 200
-_UMAP_LEARNING_RATE = 1.0
-_UMAP_NEGATIVE_SAMPLE_RATE = 5
-_TSNE_COMPONENTS = 2
-_TSNE_ITERATIONS = 1000
-# scikit-learn's `learning_rate="auto"`. scanpy still passes its legacy 1000,
-# which is far too large for small datasets: at 108 cells it costs scanpy an
-# order of magnitude in KL divergence, and costs us more than that.
-_MINIMUM_LEARNING_RATE = 50.0
-
-
-def _automatic_learning_rate(n_obs: int, early_exaggeration: float) -> float:
-    return max(n_obs / early_exaggeration / 4.0, _MINIMUM_LEARNING_RATE)
-
-
-# The core labels cells with unsigned indices; exclusion is expressed by omission.
-_LABEL_DTYPE = np.uint32
-
-
-def umap(
-    adata: AnnData,
-    *,
-    n_components: int = 2,
-    min_dist: float = 0.5,
-    spread: float = 1.0,
-    n_epochs: int | None = None,
-    random_state: int = 0,
-    device: str = "auto",
-) -> None:
-    """Lay the neighbour graph out with UMAP, writing `obsm["X_umap"]`."""
-    graph = _neighbor_graph(adata)
-    embedding = _extension().umap(
-        *_csr_args(graph),
-        n_components,
-        _DEFAULT_EPOCHS if n_epochs is None else n_epochs,
-        min_dist,
-        spread,
-        _UMAP_LEARNING_RATE,
-        _UMAP_NEGATIVE_SAMPLE_RATE,
-        random_state,
-        device,
-    )
-    adata.obsm["X_umap"] = np.asarray(embedding, dtype=_VALUE_DTYPE)
-
-
-def tsne(
-    adata: AnnData,
-    *,
-    n_pcs: int = 50,
-    perplexity: float = 30.0,
-    early_exaggeration: float = 12.0,
-    learning_rate: float | None = None,
-    random_state: int = 0,
-    device: str = "auto",
-) -> None:
-    """Lay the principal components out with t-SNE, writing `obsm["X_tsne"]`."""
-    embedding = _representation(adata, "X_pca")[:, :n_pcs]
-    if learning_rate is None:
-        learning_rate = _automatic_learning_rate(embedding.shape[0], early_exaggeration)
-    result = _extension().tsne(
-        np.ascontiguousarray(embedding),
-        _TSNE_COMPONENTS,
-        perplexity,
-        early_exaggeration,
-        learning_rate,
-        _TSNE_ITERATIONS,
-        random_state,
-        device,
-    )
-    adata.obsm["X_tsne"] = np.asarray(result, dtype=_VALUE_DTYPE)
 
 
 def rank_genes_groups(
@@ -170,13 +94,6 @@ def rank_genes_groups(
     }
 
 
-def _neighbor_graph(adata: AnnData):
-    """Return the connectivities graph UMAP lays out."""
-    if "connectivities" not in adata.obsp:
-        raise KeyError("adata.obsp has no 'connectivities'; run scrust.pp.neighbors first")
-    return adata.obsp["connectivities"]
-
-
 def _group_order(
     adata: AnnData, groupby: str, groups: str | Sequence[str], reference: str
 ) -> tuple[list[str], list[str]]:
@@ -219,3 +136,17 @@ def _record_array(columns: Sequence[np.ndarray], group_names: Sequence[str], dty
         [np.asarray(column, dtype=dtype) for column in columns],
         dtype=[(name, dtype) for name in group_names],
     )
+
+
+def filter_rank_genes_groups(
+    adata: AnnData,
+    *,
+    key: str = "rank_genes_groups",
+    groupby: str | None = None,
+    key_added: str = "rank_genes_groups_filtered",
+    min_in_group_fraction: float = 0.25,
+    max_out_group_fraction: float = 0.5,
+    min_fold_change: float = 2.0,
+) -> None:
+    """Blank out genes failing the expression-fraction filters, as scanpy does."""
+    raise NotImplementedError("feat/scoring")

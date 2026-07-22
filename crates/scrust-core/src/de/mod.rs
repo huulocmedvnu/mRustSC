@@ -6,3 +6,5 @@ pub mod glm;
 pub mod hypothesis;
 pub mod multiple_testing;
 pub mod wilcoxon;
+
+pub mod parametric;

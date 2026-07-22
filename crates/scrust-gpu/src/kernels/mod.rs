@@ -2,5 +2,6 @@
 //! function that dispatches it.
 
 pub mod knn;
+pub mod spmm;
 pub mod tsne_gradient;
 pub mod umap_sgd;

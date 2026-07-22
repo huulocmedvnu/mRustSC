@@ -5,12 +5,22 @@
 //! the inner loops that candle cannot express live in `scrust-gpu` as hand
 //! written Metal kernels.
 
+pub mod autocorrelation;
+pub mod batch;
+pub mod chunked;
+pub mod cluster;
 pub mod de;
 pub mod device;
+pub mod diffusion;
 pub mod error;
+pub mod layout;
 pub mod neighbors;
+pub mod paga;
 pub mod pca;
 pub mod preprocess;
+pub mod qc;
+pub mod sampling;
+pub mod scoring;
 pub mod sparse;
 pub mod tsne;
 pub mod umap;

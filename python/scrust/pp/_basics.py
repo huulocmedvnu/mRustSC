@@ -1,4 +1,4 @@
-"""Preprocessing, mirroring `scanpy.pp`. Owned by feat/python-pp.
+"""Filtering, normalisation, scaling, HVG, PCA and neighbours.
 
 This module is AnnData plumbing and defaults only: it pulls a matrix out of an
 `AnnData`, hands it to the Rust core as flat typed arrays, and writes the result
@@ -8,15 +8,22 @@ back into the slot scanpy uses. It also holds the private helpers that
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import scipy.sparse as sp
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from types import ModuleType
+from scrust._shared import (
+    _DEFAULT_DEVICE,
+    _INDEX_DTYPE,
+    _VALUE_DTYPE,
+    _csr_args,
+    _csr_from_parts,
+    _extension,
+    _representation,
+)
 
+if TYPE_CHECKING:
     import pandas as pd
     from anndata import AnnData
 
@@ -33,72 +40,6 @@ __all__ = [
 
 # The three CSR arrays cross the boundary with these dtypes: `f32` values match
 # the core's "f32 throughout" rule, 32-bit offsets match its index type.
-_INDEX_DTYPE = np.uint32
-_VALUE_DTYPE = np.float32
-
-# The contract gives no `device` argument to these functions, so they always ask
-# the core to choose.
-_DEFAULT_DEVICE = "auto"
-
-
-def _extension() -> ModuleType:
-    """Import the compiled core on use, not on import.
-
-    `scrust.pp` must stay importable while the extension is still being built,
-    and tests replace it wholesale in `sys.modules`.
-    """
-    from scrust import _scrust
-
-    return _scrust
-
-
-def _as_csr(matrix: Any) -> sp.csr_matrix:
-    """Return `matrix` as CSR, the one format the Rust core accepts."""
-    if isinstance(matrix, sp.csr_matrix):
-        return matrix
-    if sp.issparse(matrix):
-        return matrix.tocsr()
-    if isinstance(matrix, np.ndarray):
-        return sp.csr_matrix(matrix)
-    raise TypeError(
-        f"adata.X must be a scipy.sparse matrix or a numpy.ndarray, got {type(matrix).__name__}"
-    )
-
-
-def _csr_args(matrix: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """Flatten a matrix into the `(indptr, indices, values, n_cols)` call convention."""
-    csr = _as_csr(matrix)
-    return (
-        csr.indptr.astype(_INDEX_DTYPE, copy=False),
-        csr.indices.astype(_INDEX_DTYPE, copy=False),
-        csr.data.astype(_VALUE_DTYPE, copy=False),
-        csr.shape[1],
-    )
-
-
-def _csr_from_parts(parts: Sequence[np.ndarray], shape: tuple[int, int]) -> sp.csr_matrix:
-    """Rebuild a CSR matrix from a sparse return value.
-
-    Only the first three entries are read, so a core that echoes `n_cols` back
-    as a fourth element is accepted unchanged.
-    """
-    indptr, indices, values = parts[0], parts[1], parts[2]
-    return sp.csr_matrix((values, indices, indptr), shape=shape)
-
-
-def _dense(matrix: Any) -> np.ndarray:
-    """Return a C-contiguous `f32` dense view, for the cell-by-k embeddings."""
-    array = matrix.toarray() if sp.issparse(matrix) else np.asarray(matrix)
-    return np.ascontiguousarray(array, dtype=_VALUE_DTYPE)
-
-
-def _representation(adata: AnnData, use_rep: str) -> np.ndarray:
-    """Resolve scanpy's `use_rep` to a dense embedding."""
-    if use_rep == "X":
-        return _dense(adata.X)
-    if use_rep not in adata.obsm:
-        raise KeyError(f"adata.obsm has no {use_rep!r}; run scrust.pp.pca first or pass use_rep")
-    return _dense(adata.obsm[use_rep])
 
 
 def filter_cells(

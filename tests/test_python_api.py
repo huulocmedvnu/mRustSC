@@ -28,7 +28,7 @@ except ImportError:
     _PLACEHOLDER.gpu_available = lambda: False
     sys.modules["scrust._scrust"] = _PLACEHOLDER
 
-from scrust import pp, tl
+from scrust import _shared, pp, tl
 
 N_OBS = 6
 N_VARS = 4
@@ -250,12 +250,12 @@ def test_any_supported_x_reaches_the_core_as_csr(core: FakeCore, matrix) -> None
 
 def test_other_sparse_formats_are_converted(core: FakeCore) -> None:
     # AnnData refuses COO in X, so the conversion is exercised on the helper.
-    assert isinstance(pp._as_csr(sp.coo_matrix(_counts())), sp.csr_matrix)
+    assert isinstance(_shared._as_csr(sp.coo_matrix(_counts())), sp.csr_matrix)
 
 
 def test_unsupported_x_raises_a_clear_error() -> None:
     with pytest.raises(TypeError, match=r"scipy\.sparse matrix or a numpy\.ndarray"):
-        pp._csr_args([[1, 2], [3, 4]])
+        _shared._csr_args([[1, 2], [3, 4]])
 
 
 # --- filtering ---------------------------------------------------------------

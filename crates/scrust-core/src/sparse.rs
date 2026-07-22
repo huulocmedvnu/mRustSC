@@ -102,6 +102,11 @@ impl CsrMatrix {
         &self.values
     }
 
+    /// Mutable access to the stored values, for kernels that scale in place.
+    pub fn values_mut(&mut self) -> &mut [f32] {
+        &mut self.values
+    }
+
     /// Densify rows `start..end` into a row-major buffer.
     pub fn densify_rows(&self, start: usize, end: usize) -> Vec<f32> {
         let end = end.min(self.n_rows());
