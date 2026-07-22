@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 
 mod convert;
 mod de;
+mod diffusion;
 mod embedding;
 mod preprocess;
 
@@ -35,5 +36,6 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     preprocess::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
+    diffusion::register(module)?;
     Ok(())
 }
