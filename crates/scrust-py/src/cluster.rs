@@ -1,7 +1,8 @@
 //! Bindings: clustering. Owned by feat/leiden.
 //!
-//! Not registered in `lib.rs`, which `main` owns; `main` has to add
-//! `mod cluster;` and `cluster::register(module)?` for these to appear.
+//! `lib.rs` belongs to `main`; the two lines registering this module (`mod
+//! cluster;` and `cluster::register(module)?`) are the only edit this branch
+//! makes to it, and are a known conflict point when the branches merge.
 //!
 //! The contract fixes a flat, typed function per algorithm, so the argument
 //! lists are long by design.

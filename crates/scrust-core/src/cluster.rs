@@ -29,12 +29,15 @@
 //! which changes the community strengths its neighbours will read, which changes
 //! which of them are re-queued. There is no tensor to form and no independent
 //! work to fan out over; a GPU port would serialise on the same dependency chain
-//! while paying kernel-launch latency per node. Aggregation and the modularity
-//! evaluation *are* sparse reductions, but they are single linear passes over
-//! the stored entries and cost a few milliseconds at single-cell graph sizes —
-//! measured against a candle formulation of the modularity reduction, the tensor
-//! version was slower on both backends at every size the neighbour graph
-//! reaches. `device` is therefore accepted and not used; see the report.
+//! while paying kernel-launch latency per node.
+//!
+//! Aggregation and the modularity evaluation *are* sparse reductions, but both
+//! are scatter-adds into a bin chosen by a neighbour's current label. candle has
+//! no segment-sum, so expressing either as tensors means a dense one-hot of
+//! shape `(n_nodes, n_communities)` — quadratic in the cell count where the
+//! sparse pass is `O(nnz)`, and on the neighbour graph `nnz` is `n_nodes * k`
+//! for `k` around fifteen. That trade never pays. `device` is therefore accepted
+//! and not used; see the report.
 //!
 //! # Memory
 //!
@@ -139,7 +142,16 @@ pub fn modularity(graph: &CsrMatrix, labels: &[u32], resolution: f64) -> Result<
             format!("{} labels", labels.len()),
         ));
     }
+    // A partition of n nodes has at most n communities, so an id at or above n
+    // is a caller error rather than a request to allocate that many bins.
     let n_communities = labels.iter().max().map_or(0, |&id| id as usize + 1);
+    if n_communities > graph.n_nodes() {
+        return Err(Error::parameter(
+            "labels",
+            "community ids below the node count",
+            n_communities - 1,
+        ));
+    }
     Ok(score(&graph, labels, n_communities, resolution))
 }
 
@@ -538,7 +550,7 @@ fn refine(
             // Only nodes still on their own may merge; that keeps every
             // subcommunity a union of merges into one seed and the bookkeeping
             // above exact.
-            if sub_size[node] != 1 || of_node[node] != node as u32 {
+            if sub_size[node] != 1 {
                 continue;
             }
 
@@ -1006,6 +1018,9 @@ mod tests {
         let rectangular = CsrMatrix::new(vec![0, 1], vec![2], vec![1.0], 4).unwrap();
         assert!(leiden(&rectangular, 1.0, 2, 0, &Device::Cpu).is_err());
         assert!(modularity(&disconnected_cliques(2, 3), &[0, 0], 1.0).is_err());
+
+        // A community id no partition of six nodes can contain.
+        assert!(modularity(&barbell(), &[0, 1, 2, 3, 4, u32::MAX], 1.0).is_err());
     }
 
     #[test]
