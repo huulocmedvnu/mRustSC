@@ -10,8 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "huulocmedvnu" }]
 keywords = ["single-cell", "scanpy", "anndata", "rust", "metal", "gpu"]
-# No licence is declared: the repository has no LICENSE file yet. Add one, then
-# set `license = "..."` and `license-files` here — do not guess it.
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",

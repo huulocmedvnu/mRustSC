@@ -6,6 +6,7 @@ members = ["crates/scrust-core", "crates/scrust-gpu", "crates/scrust-py"]
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
+license = "MIT"
 
 [workspace.dependencies]
 scrust-core = { path = "crates/scrust-core" }
