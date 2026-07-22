@@ -12,6 +12,7 @@ mod convert;
 mod de;
 mod diffusion;
 mod embedding;
+mod metrics;
 mod paga;
 mod preprocess;
 mod qc;
@@ -43,6 +44,7 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     embedding::register(module)?;
     de::register(module)?;
     diffusion::register(module)?;
+    metrics::register(module)?;
     paga::register(module)?;
     qc::register(module)?;
     sampling::register(module)?;
