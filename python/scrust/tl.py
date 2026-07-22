@@ -32,6 +32,13 @@ _DE_FIELD_DTYPES = {
 _SUPPORTED_METHODS = ("wilcoxon",)
 _TIE_CORRECT = False
 
+# Defaults the contract does not expose but the core still requires.
+_DEFAULT_EPOCHS = 200
+_UMAP_LEARNING_RATE = 1.0
+_UMAP_NEGATIVE_SAMPLE_RATE = 5
+_TSNE_COMPONENTS = 2
+_TSNE_ITERATIONS = 1000
+
 
 def umap(
     adata: AnnData,
@@ -46,7 +53,15 @@ def umap(
     """Lay the neighbour graph out with UMAP, writing `obsm["X_umap"]`."""
     graph = _neighbor_graph(adata)
     embedding = _extension().umap(
-        *_csr_args(graph), n_components, min_dist, spread, n_epochs, random_state, device
+        *_csr_args(graph),
+        n_components,
+        _DEFAULT_EPOCHS if n_epochs is None else n_epochs,
+        min_dist,
+        spread,
+        _UMAP_LEARNING_RATE,
+        _UMAP_NEGATIVE_SAMPLE_RATE,
+        random_state,
+        device,
     )
     adata.obsm["X_umap"] = np.asarray(embedding, dtype=_VALUE_DTYPE)
 
@@ -65,9 +80,11 @@ def tsne(
     embedding = _representation(adata, "X_pca")[:, :n_pcs]
     result = _extension().tsne(
         np.ascontiguousarray(embedding),
+        _TSNE_COMPONENTS,
         perplexity,
         early_exaggeration,
         learning_rate,
+        _TSNE_ITERATIONS,
         random_state,
         device,
     )

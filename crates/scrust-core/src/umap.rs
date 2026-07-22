@@ -216,7 +216,7 @@ fn rescale_to_init_range(embedding: &mut [f32], n_components: usize) {
 /// umap-learn calls `scipy.optimize.curve_fit`; this is the same least squares
 /// problem solved by damped Gauss-Newton from the same starting point, and
 /// agrees with it to better than 1e-3.
-fn fit_ab_params(min_dist: f32, spread: f32) -> Result<(f32, f32)> {
+pub fn fit_ab_params(min_dist: f32, spread: f32) -> Result<(f32, f32)> {
     if spread <= 0.0 {
         return Err(Error::parameter("spread", "greater than 0", spread));
     }

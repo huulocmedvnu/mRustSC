@@ -1,6 +1,6 @@
 use ndarray::Array2;
 use scrust_core::error::{Error, Result};
-use scrust_core::umap::UmapParams;
+use scrust_core::umap::{fit_ab_params, UmapParams};
 
 use crate::context::MetalContext;
 
@@ -64,7 +64,7 @@ pub fn umap_epoch(
         return Ok(());
     }
 
-    let (a, b) = fit_curve_params(params.min_dist, params.spread)?;
+    let (a, b) = fit_ab_params(params.min_dist, params.spread)?;
     let uniforms = EpochUniforms {
         a,
         b,
@@ -174,104 +174,6 @@ fn validate(
         ));
     }
     Ok(())
-}
-
-/// `a` and `b` of UMAP's smooth membership curve `1 / (1 + a d^(2b))`, fitted so
-/// the curve matches `exp(-(d - min_dist) / spread)` beyond `min_dist`.
-///
-/// This is umap-learn's `find_ab_params`, which reaches for `scipy.curve_fit`;
-/// here it is a damped Gauss-Newton fit of the same two parameters over the same
-/// sample points, which is enough for a two-parameter, well-conditioned problem.
-fn fit_curve_params(min_dist: f32, spread: f32) -> Result<(f32, f32)> {
-    if spread <= 0.0 || spread.is_nan() || min_dist < 0.0 || min_dist > spread * 3.0 {
-        return Err(Error::parameter(
-            "min_dist",
-            "in [0, 3 * spread] with a positive spread",
-            format!("{min_dist} with spread {spread}"),
-        ));
-    }
-    const SAMPLES: usize = 300;
-    const MAX_ITERATIONS: usize = 200;
-
-    let points: Vec<(f64, f64)> = (0..SAMPLES)
-        .map(|i| {
-            let x = 3.0 * spread as f64 * i as f64 / (SAMPLES - 1) as f64;
-            let y = if x < min_dist as f64 {
-                1.0
-            } else {
-                (-(x - min_dist as f64) / spread as f64).exp()
-            };
-            (x, y)
-        })
-        .collect();
-
-    let (mut a, mut b) = (1.0f64, 1.0f64);
-    let mut damping = 1e-3;
-    let residual = |a: f64, b: f64| -> f64 {
-        points
-            .iter()
-            .map(|&(x, y)| {
-                let r = 1.0 / (1.0 + a * x.powf(2.0 * b)) - y;
-                r * r
-            })
-            .sum()
-    };
-    let mut cost = residual(a, b);
-
-    for iteration in 0..MAX_ITERATIONS {
-        // Normal equations of the 2x2 Gauss-Newton system, with Levenberg damping.
-        let (mut jtj, mut jtr) = ([[0.0f64; 2]; 2], [0.0f64; 2]);
-        for &(x, y) in &points {
-            if x == 0.0 {
-                continue; // the curve is pinned to 1 here and both derivatives vanish
-            }
-            let u = x.powf(2.0 * b);
-            let denominator = 1.0 + a * u;
-            let d_a = -u / (denominator * denominator);
-            let d_b = -2.0 * a * u * x.ln() / (denominator * denominator);
-            let r = 1.0 / denominator - y;
-            jtj[0][0] += d_a * d_a;
-            jtj[0][1] += d_a * d_b;
-            jtj[1][1] += d_b * d_b;
-            jtr[0] += d_a * r;
-            jtr[1] += d_b * r;
-        }
-        jtj[1][0] = jtj[0][1];
-
-        let m00 = jtj[0][0] * (1.0 + damping);
-        let m11 = jtj[1][1] * (1.0 + damping);
-        let determinant = m00 * m11 - jtj[0][1] * jtj[1][0];
-        if determinant.abs() < f64::EPSILON {
-            break;
-        }
-        let step_a = -(m11 * jtr[0] - jtj[0][1] * jtr[1]) / determinant;
-        let step_b = -(m00 * jtr[1] - jtj[1][0] * jtr[0]) / determinant;
-        let (candidate_a, candidate_b) = (a + step_a, b + step_b);
-        if !candidate_a.is_finite() || !candidate_b.is_finite() || candidate_a <= 0.0 {
-            damping *= 10.0;
-            continue;
-        }
-        let candidate_cost = residual(candidate_a, candidate_b);
-        if candidate_cost < cost {
-            let converged = cost - candidate_cost < 1e-14;
-            a = candidate_a;
-            b = candidate_b;
-            cost = candidate_cost;
-            damping = (damping * 0.3).max(1e-12);
-            if converged {
-                return Ok((a as f32, b as f32));
-            }
-        } else {
-            damping *= 10.0;
-        }
-        if iteration + 1 == MAX_ITERATIONS {
-            return Err(Error::NotConverged {
-                operation: "UMAP curve fit",
-                iterations: MAX_ITERATIONS,
-            });
-        }
-    }
-    Ok((a as f32, b as f32))
 }
 
 /// Mirrors `EpochUniforms` in the Metal source; both are 12 tightly packed
@@ -440,7 +342,7 @@ mod tests {
         epoch: usize,
         params: &UmapParams,
     ) {
-        let (a, b) = fit_curve_params(params.min_dist, params.spread).unwrap();
+        let (a, b) = fit_ab_params(params.min_dist, params.spread).unwrap();
         let alpha = params.learning_rate * (1.0 - epoch as f32 / params.n_epochs as f32);
         let dim = embedding.ncols();
         let clip = |value: f32| value.clamp(-4.0, 4.0);
@@ -542,10 +444,10 @@ mod tests {
     #[test]
     fn fits_the_same_curve_parameters_as_umap_learn() {
         // scipy's curve_fit on umap-learn's own sample points.
-        let (a, b) = fit_curve_params(0.5, 1.0).unwrap();
+        let (a, b) = fit_ab_params(0.5, 1.0).unwrap();
         assert!((a - 0.583_030).abs() < 1e-3, "a was {a}");
         assert!((b - 1.334_167).abs() < 1e-3, "b was {b}");
-        let (a, b) = fit_curve_params(0.1, 1.0).unwrap();
+        let (a, b) = fit_ab_params(0.1, 1.0).unwrap();
         assert!((a - 1.576_943).abs() < 1e-3, "a was {a}");
         assert!((b - 0.895_061).abs() < 1e-3, "b was {b}");
     }
@@ -594,7 +496,7 @@ mod tests {
         // attractive coefficient is -2ab / (1 + a) ~ -0.98, under the +-4 clip.
         // The x separation head - tail is -1, so the head moves by +0.98 and the
         // tail by the negative of that.
-        let (a, b) = fit_curve_params(params.min_dist, params.spread).unwrap();
+        let (a, b) = fit_ab_params(params.min_dist, params.spread).unwrap();
         let step = 2.0 * a * b / (1.0 + a);
         assert!((embedding[[0, 0]] - step).abs() < 1e-6, "{embedding:?}");
         assert!(

@@ -33,7 +33,7 @@ __all__ = [
 
 # The three CSR arrays cross the boundary with these dtypes: `f32` values match
 # the core's "f32 throughout" rule, 32-bit offsets match its index type.
-_INDEX_DTYPE = np.int32
+_INDEX_DTYPE = np.uint32
 _VALUE_DTYPE = np.float32
 
 # The contract gives no `device` argument to these functions, so they always ask
@@ -182,7 +182,7 @@ def highly_variable_genes(
         {
             "highly_variable": np.asarray(result["highly_variable"], dtype=bool),
             "means": np.asarray(result["means"], dtype=_VALUE_DTYPE),
-            "dispersions_norm": np.asarray(result["dispersions_norm"], dtype=_VALUE_DTYPE),
+            "dispersions_norm": np.asarray(result["normalised_dispersions"], dtype=_VALUE_DTYPE),
         },
         index=adata.var_names,
     )
@@ -221,10 +221,12 @@ def pca(
 ) -> None:
     """Principal component analysis by randomised SVD."""
     result = _extension().pca(*_csr_args(adata.X), n_comps, zero_center, random_state, device)
-    adata.obsm["X_pca"] = np.asarray(result["X_pca"], dtype=_VALUE_DTYPE)
-    adata.varm["PCs"] = np.asarray(result["PCs"], dtype=_VALUE_DTYPE)
+    adata.obsm["X_pca"] = np.asarray(result["embedding"], dtype=_VALUE_DTYPE)
+    # The core returns components as (n_components, n_genes); scanpy stores the transpose.
+    adata.varm["PCs"] = np.asarray(result["components"], dtype=_VALUE_DTYPE).T.copy()
     adata.uns["pca"] = {
-        "variance_ratio": np.asarray(result["variance_ratio"], dtype=_VALUE_DTYPE),
+        "variance_ratio": np.asarray(result["explained_variance_ratio"], dtype=_VALUE_DTYPE),
+        "variance": np.asarray(result["explained_variance"], dtype=_VALUE_DTYPE),
         "params": {"zero_center": zero_center, "n_comps": n_comps, "random_state": random_state},
     }
 
