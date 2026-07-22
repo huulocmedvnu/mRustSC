@@ -115,8 +115,36 @@ branch must state what it measured. What agreement means differs per algorithm:
 | `highly_variable_genes` | the selected gene set overlaps by >= 95% |
 | `pca` | `abs(corr)` per component >= 0.99 (sign is arbitrary), variance ratios to `rtol=1e-3` |
 | `neighbors` | >= 90% of each cell's neighbour set shared |
-| `umap`, `tsne` | neighbourhood preservation: >= 80% of a cell's 15 nearest neighbours in the scanpy embedding are within its 30 nearest in ours. Coordinates are **not** comparable |
+| `umap`, `tsne` | neighbourhood preservation **relative to the reference implementation's agreement with itself** — see below. Coordinates are **not** comparable |
 | `rank_genes_groups` | identical gene ranking for the top 100 per group, scores to `rtol=1e-3` |
+
+### The stochastic-embedding criterion, corrected
+
+An earlier version of this contract asked for >= 80% neighbourhood preservation
+against scanpy for UMAP and t-SNE. That number is not reachable on real data by
+*any* implementation. Measured on the PBMC 3k connectivity graph (2 638 cells,
+15 nearest neighbours in the reference embedding sought within the 30 nearest in
+the other):
+
+| Comparison | Preservation |
+| --- | --- |
+| scanpy's embedding against itself | 100% |
+| umap-learn, spectral init, a different `random_state` | 44.7% |
+| umap-learn, random init, seeds 0 and 1 | 44.3%, 42.3% |
+| scrust | 43.8% |
+
+Run-to-run agreement saturates near 44%, so 80% would fail forever for correct
+code — and the tempting fix, lowering the threshold until it passes, would hide
+real regressions instead.
+
+What is asserted instead:
+
+1. On a small, well-separated synthetic fixture, where cluster structure does
+   dominate the neighbour sets, preservation must exceed 80%. This is what
+   catches a genuinely broken layout; scrust measures 99.9% there.
+2. On real data, the reference implementation is run twice with different seeds
+   to establish its own ceiling, and scrust must come within that band rather
+   than clear an absolute number.
 
 Where a deviation is real and defensible, document it rather than loosening a
 threshold silently.
