@@ -29,8 +29,8 @@ N_DCS = 10
 # A diffusion map is deterministic up to the arbitrary basis of a degenerate eigenspace,
 # and pseudotime is a weighted distance in that basis — so rotations inside a degenerate
 # plane move it slightly. Ordering is what pseudotime means, and on a connected neighbour
-# graph the measured Spearman correlation against scanpy is above 0.999; 0.99 leaves room
-# for f32 and for those rotations without admitting a genuinely different ordering.
+# graph the measured Spearman correlation against scanpy is 1.00000 on both fixtures;
+# 0.99 leaves room for f32 and for those rotations without admitting a different ordering.
 PSEUDOTIME_SPEARMAN = 0.99
 
 
@@ -48,9 +48,7 @@ def _path_graph(n: int) -> AnnData:
         cols += [cell + 1, cell]
     rows += [0, n - 1]
     cols += [0, n - 1]
-    graph = sparse.csr_matrix(
-        (np.ones(len(rows), dtype=np.float32), (rows, cols)), shape=(n, n)
-    )
+    graph = sparse.csr_matrix((np.ones(len(rows), dtype=np.float32), (rows, cols)), shape=(n, n))
     adata = AnnData(np.zeros((n, 1), dtype=np.float32))
     adata.obsp["connectivities"] = graph
     return adata
@@ -140,8 +138,18 @@ def test_dpt_orders_cells_like_scanpy(
 
 def test_path_graph_gives_a_monotone_component_and_pseudotime() -> None:
     """The one test here that does not consult scanpy: on a path, the first non-trivial
-    diffusion component is the discrete cosine and pseudotime from an end is its rank."""
-    n = 120
+    diffusion component is the discrete cosine and pseudotime from an end is its rank.
+
+    The length is bounded by scanpy's stationary cutoff, not by taste. A path of `n`
+    cells has `lambda_1 = cos(pi / n)`, and every component with `lambda >= 0.9994`
+    enters the pseudotime with weight 1 instead of `lambda / (1 - lambda)`. Above
+    `n = 90` the first component crosses that cutoff, loses its weight of several
+    hundred, and the second component — which is symmetric about the middle of the
+    path — takes over, so pseudotime folds back. That is scanpy's own arithmetic, not a
+    disagreement with it; at `n = 60`, `lambda_1 = 0.9986` and the first component keeps
+    the weight that makes pseudotime the distance along the path.
+    """
+    n = 60
     adata = _path_graph(n)
     scrust_call("tl.diffmap", adata, n_comps=6)
 
@@ -185,9 +193,7 @@ def test_cpu_and_gpu_agree() -> None:
     for adata in (cpu, gpu):
         adata.uns["iroot"] = 0
         scrust_call("tl.dpt", adata, n_dcs=8)
-    assert_allclose(
-        cpu.obs["dpt_pseudotime"], gpu.obs["dpt_pseudotime"], rtol=1e-3, atol=1e-5
-    )
+    assert_allclose(cpu.obs["dpt_pseudotime"], gpu.obs["dpt_pseudotime"], rtol=1e-3, atol=1e-5)
 
 
 def test_a_disconnected_graph_is_refused() -> None:

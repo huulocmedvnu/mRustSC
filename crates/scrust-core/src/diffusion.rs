@@ -186,7 +186,11 @@ pub fn dpt(map: &DiffusionMap, root: usize, n_dcs: usize) -> Result<Vec<f32>> {
 /// result is the input pattern with rescaled values.
 fn symmetric_transitions(graph: &CsrMatrix) -> Result<CsrMatrix> {
     let n_cells = graph.n_rows();
-    let degree = column_sums(graph.indices(), graph.values().iter().map(|&v| v as f64), n_cells);
+    let degree = column_sums(
+        graph.indices(),
+        graph.values().iter().map(|&v| v as f64),
+        n_cells,
+    );
     if let Some(cell) = degree.iter().position(|&value| value <= 0.0) {
         return Err(Error::parameter(
             "graph",
@@ -197,10 +201,10 @@ fn symmetric_transitions(graph: &CsrMatrix) -> Result<CsrMatrix> {
 
     let scaled = |values: &[f64], left: &[f64], right: &[f64]| -> Vec<f64> {
         let mut out = Vec::with_capacity(graph.nnz());
-        for row in 0..n_cells {
-            for entry in graph.indptr()[row] as usize..graph.indptr()[row + 1] as usize {
-                let column = graph.indices()[entry] as usize;
-                out.push(values[entry] / (left[row] * right[column]));
+        for (row, &row_scale) in left.iter().enumerate() {
+            let span = graph.indptr()[row] as usize..graph.indptr()[row + 1] as usize;
+            for (&column, &value) in graph.indices()[span.clone()].iter().zip(&values[span]) {
+                out.push(value / (row_scale * right[column as usize]));
             }
         }
         out
@@ -392,11 +396,13 @@ fn leading_eigen(
                 .all(|(old, new)| (old - new).abs() < RITZ_TOLERANCE)
         });
         if converged {
-            let mut embedding = to_array2(&block.matmul(&ritz_basis(
-                &vectors, width, &selected, device,
-            )?)?)?;
+            let mut embedding =
+                to_array2(&block.matmul(&ritz_basis(&vectors, width, &selected, device)?)?)?;
             fix_component_signs(&mut embedding);
-            return Ok((ritz.into_iter().map(|value| value as f32).collect(), embedding));
+            return Ok((
+                ritz.into_iter().map(|value| value as f32).collect(),
+                embedding,
+            ));
         }
         previous = Some(ritz);
         block = orthonormalize(&image)?;
@@ -643,7 +649,11 @@ mod tests {
     fn the_leading_component_is_stationary() {
         let map = diffmap(&path_graph(60), 5, &Device::Cpu).unwrap();
         assert_eq!(map.embedding.dim(), (60, 5));
-        assert!((map.eigenvalues[0] - 1.0).abs() < 1e-4, "{:?}", map.eigenvalues);
+        assert!(
+            (map.eigenvalues[0] - 1.0).abs() < 1e-4,
+            "{:?}",
+            map.eigenvalues
+        );
         for pair in map.eigenvalues.windows(2) {
             assert!(pair[0] >= pair[1], "{:?}", map.eigenvalues);
         }

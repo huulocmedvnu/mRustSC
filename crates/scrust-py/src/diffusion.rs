@@ -1,7 +1,6 @@
 //! Bindings: diffusion maps and pseudotime. Owned by feat/diffusion.
 //!
-//! Not registered in `lib.rs` — that file belongs to `main`. See the branch
-//! report.
+//! `lib.rs` belongs to `main` and already calls `register` from here.
 
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
