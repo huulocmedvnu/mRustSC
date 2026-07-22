@@ -69,6 +69,11 @@ tl.rank_genes_groups(adata, groupby, *, groups="all", reference="rest",
 | --- | --- |
 | `pp.pca` | `obsm["X_pca"]`, `varm["PCs"]`, `uns["pca"]["variance_ratio"]` |
 | `pp.neighbors` | `obsp["distances"]`, `obsp["connectivities"]`, `uns["neighbors"]` |
+
+**Off-by-one, verified against scanpy:** scanpy's `n_neighbors` counts the cell
+itself, while `KnnGraph` excludes it. `pp.neighbors(n_neighbors=15)` must call
+`knn(embedding, 14)`. Getting this wrong shifts every neighbour set by one and
+is invisible in a smoke test.
 | `pp.highly_variable_genes` | `var["highly_variable"]`, `var["means"]`, `var["dispersions_norm"]` |
 | `tl.umap` | `obsm["X_umap"]` |
 | `tl.tsne` | `obsm["X_tsne"]` |
