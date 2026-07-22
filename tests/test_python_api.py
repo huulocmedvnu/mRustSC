@@ -17,13 +17,18 @@ import pytest
 import scipy.sparse as sp
 from anndata import AnnData
 
-# `scrust/__init__.py` imports the extension eagerly; stand a placeholder in for
-# it so this file can be collected without a compiled core.
-_PLACEHOLDER = types.ModuleType("scrust._scrust")
-_PLACEHOLDER.gpu_available = lambda: False
-sys.modules.setdefault("scrust._scrust", _PLACEHOLDER)
+# `scrust/__init__.py` imports the extension eagerly, so this file needs one to be
+# collectible without a compiled core. Only stand in when there is genuinely none:
+# leaving a placeholder in `sys.modules` next to a working extension makes every
+# later test module skip itself as "not bound yet" while reporting green.
+try:
+    import scrust._scrust  # noqa: F401
+except ImportError:
+    _PLACEHOLDER = types.ModuleType("scrust._scrust")
+    _PLACEHOLDER.gpu_available = lambda: False
+    sys.modules["scrust._scrust"] = _PLACEHOLDER
 
-from scrust import pp, tl  # noqa: E402
+from scrust import pp, tl
 
 N_OBS = 6
 N_VARS = 4
@@ -191,8 +196,17 @@ class FakeCore:
 
 @pytest.fixture
 def core(monkeypatch: pytest.MonkeyPatch) -> FakeCore:
+    """Stand a recording double in for the compiled core.
+
+    `from scrust import _scrust` resolves the attribute on the package, which is
+    bound once at import; patching `sys.modules` alone would leave a real
+    extension in place and silently test it instead of the double.
+    """
+    import scrust
+
     fake = FakeCore()
     monkeypatch.setitem(sys.modules, "scrust._scrust", fake)
+    monkeypatch.setattr(scrust, "_scrust", fake, raising=False)
     return fake
 
 
