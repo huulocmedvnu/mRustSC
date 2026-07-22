@@ -237,8 +237,11 @@ def neighbors(
     device: str = "auto",
 ) -> None:
     """Build the k-nearest-neighbour graph and its UMAP connectivities."""
+    if n_neighbors < 2:
+        raise ValueError(f"n_neighbors must be at least 2, got {n_neighbors}")
     extension = _extension()
-    indices, distances = extension.knn(_representation(adata, use_rep), n_neighbors, device)
+    # scanpy counts the cell itself among its n_neighbors; the core does not.
+    indices, distances = extension.knn(_representation(adata, use_rep), n_neighbors - 1, device)
     indices = np.asarray(indices)
     distances = np.asarray(distances, dtype=_VALUE_DTYPE)
 

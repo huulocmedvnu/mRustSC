@@ -10,4 +10,4 @@ from scrust._scrust import gpu_available
 
 __version__ = "0.1.0"
 
-__all__ = ["gpu_available", "pp", "tl", "__version__"]
+__all__ = ["__version__", "gpu_available", "pp", "tl"]
