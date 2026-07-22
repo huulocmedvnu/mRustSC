@@ -13,6 +13,7 @@ mod de;
 mod diffusion;
 mod embedding;
 mod metrics;
+mod layout;
 mod paga;
 mod preprocess;
 mod qc;
@@ -51,5 +52,6 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     sampling::register(module)?;
     batch::register(module)?;
     scoring::register(module)?;
+    layout::register(module)?;
     Ok(())
 }
