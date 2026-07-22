@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 mod cluster;
 mod convert;
 mod de;
+mod diffusion;
 mod embedding;
 mod paga;
 mod preprocess;
@@ -40,6 +41,7 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     preprocess::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
+    diffusion::register(module)?;
     paga::register(module)?;
     qc::register(module)?;
     sampling::register(module)?;
