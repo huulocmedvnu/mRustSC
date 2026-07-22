@@ -10,6 +10,7 @@ mod convert;
 mod de;
 mod embedding;
 mod paga;
+mod parametric;
 mod preprocess;
 
 /// Map a core error onto the closest Python exception.
@@ -36,6 +37,7 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     preprocess::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
+    parametric::register(module)?;
     paga::register(module)?;
     Ok(())
 }

@@ -24,9 +24,15 @@ _DE_FIELD_DTYPES = {
     "pvals_adj": "float64",
 }
 
-# Only Wilcoxon is wired up so far; feat/de-methods adds the rest.
-_SUPPORTED_METHODS = ("wilcoxon",)
+_SUPPORTED_METHODS = ("wilcoxon", "t-test", "t-test_overestim_var", "logreg")
 _TIE_CORRECT = False
+
+# scanpy reports neither p-values nor fold changes for `logreg`: a coefficient is
+# not a test statistic, so its `uns` entry holds only `names` and `scores`.
+_LOGREG_FIELDS = ("names", "scores")
+
+# sklearn's `max_iter`, which scanpy does not override.
+_LOGREG_MAX_ITER = 100
 
 
 def rank_genes_groups(
@@ -52,12 +58,12 @@ def rank_genes_groups(
     compared = codes >= 0
     matrix = adata.X[compared] if not compared.all() else adata.X
 
-    result = _extension().rank_genes_groups_wilcoxon(
-        *_csr_args(matrix),
+    result = _compare(
+        matrix,
         codes[compared].astype(_LABEL_DTYPE),
         len(label_names),
         reference_index,
-        _TIE_CORRECT,
+        method,
         device,
     )
 
@@ -77,7 +83,7 @@ def rank_genes_groups(
         "pvals": [np.asarray(result["p_values"])[row][order[row]] for row in rows],
         "pvals_adj": [np.asarray(result["adjusted_p_values"])[row][order[row]] for row in rows],
     }
-    fields = columns
+    fields = {key: columns[key] for key in _LOGREG_FIELDS} if method == "logreg" else columns
     adata.uns["rank_genes_groups"] = {
         "params": {
             "groupby": groupby,
@@ -92,6 +98,27 @@ def rank_genes_groups(
             for key, columns in fields.items()
         },
     }
+
+
+def _compare(
+    matrix, codes: np.ndarray, n_labels: int, reference_index: int | None, method: str, device: str
+) -> dict:
+    """Dispatch one method to the core, which returns per-group statistics in gene order."""
+    extension = _extension()
+    csr = _csr_args(matrix)
+    if method == "wilcoxon":
+        return extension.rank_genes_groups_wilcoxon(
+            *csr, codes, n_labels, reference_index, _TIE_CORRECT, device
+        )
+    if method == "logreg":
+        # One multinomial fit over every labelled cell, as scanpy does: a named
+        # reference takes part as a further class, not as a comparison.
+        return extension.rank_genes_groups_logreg(*csr, codes, n_labels, _LOGREG_MAX_ITER, device)
+    t_test = {
+        "t-test": extension.rank_genes_groups_t_test,
+        "t-test_overestim_var": extension.rank_genes_groups_t_test_overestim_var,
+    }[method]
+    return t_test(*csr, codes, n_labels, reference_index, device)
 
 
 def _group_order(

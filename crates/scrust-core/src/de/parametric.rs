@@ -135,7 +135,10 @@ fn welch_t_tests(
                 log2_fold_change(moments.means[[group, gene]], side.means[gene]) as f32;
         }
 
-        for (gene, adjusted) in benjamini_hochberg_f64(&group_p_values).into_iter().enumerate() {
+        for (gene, adjusted) in benjamini_hochberg_f64(&group_p_values)
+            .into_iter()
+            .enumerate()
+        {
             p_values[[group, gene]] = group_p_values[gene];
             adjusted_p_values[[group, gene]] = adjusted;
         }
@@ -419,7 +422,7 @@ fn beta_continued_fraction(a: f64, b: f64, x: f64) -> f64 {
 /// `ln(gamma(x))` for `x > 0`, by the Lanczos approximation.
 fn ln_gamma(x: f64) -> f64 {
     const COEFFICIENTS: [f64; 9] = [
-        0.999_999_999_999_809_93,
+        0.999_999_999_999_809_9,
         676.520_368_121_885_1,
         -1_259.139_216_722_402_8,
         771.323_428_777_653_1,
@@ -457,11 +460,22 @@ const HISTORY: usize = 10;
 /// Stop when no parameter's gradient exceeds this.
 ///
 /// Two orders tighter than sklearn's default `tol`, and deliberately so: at
-/// sklearn's tolerance the iterate still sits ~10% away from the optimum in the
-/// weakly curved directions, so it is a property of scipy's line search rather
-/// than of the model. The optimum is what is determined, so that is what we
-/// return. The branch report measures the gap.
-const GRADIENT_TOLERANCE: f64 = 1e-7;
+/// sklearn's tolerance the iterate is still visibly short of the optimum — on
+/// PBMC 3k its coefficients sit 3.7e-2 away from the converged ones, which
+/// reshuffles a tenth of the top hundred genes. The optimum is what the data
+/// determines, so that is what we aim at, and the branch report measures both
+/// gaps.
+const GRADIENT_TOLERANCE: f64 = 1e-6;
+
+/// Stop when a step no longer lowers the objective by this much, relatively.
+///
+/// The objective is evaluated through `f32` matmuls, so below roughly `1e-7`
+/// relative its decrease is evaluation noise rather than progress. Iterating on
+/// that noise does not merely waste work: measured on PBMC 3k, running to 400
+/// iterations instead of stopping here corrupts the L-BFGS curvature pairs and
+/// walks the iterate *back* to 3.6e-2 from the optimum, as far off as sklearn's
+/// unconverged default.
+const OBJECTIVE_TOLERANCE: f64 = 1e-7;
 
 /// Multinomial logistic regression coefficients as scores, as scanpy's
 /// `method="logreg"`.
@@ -485,10 +499,18 @@ pub fn logistic_regression(
     let n_genes = matrix.n_cols();
     validate(group_labels, n_cells, n_groups, None)?;
     if n_groups < 2 {
-        return Err(Error::parameter("n_groups", "at least 2 for logreg", n_groups));
+        return Err(Error::parameter(
+            "n_groups",
+            "at least 2 for logreg",
+            n_groups,
+        ));
     }
     if max_iterations == 0 {
-        return Err(Error::parameter("max_iterations", "at least 1", max_iterations));
+        return Err(Error::parameter(
+            "max_iterations",
+            "at least 1",
+            max_iterations,
+        ));
     }
     let mut sizes = vec![0usize; n_groups];
     for &label in group_labels {
@@ -687,6 +709,7 @@ fn minimise(
         else {
             break;
         };
+        let progress = (value - next.value) / value.abs().max(next.value.abs()).max(1.0);
 
         let step: Vec<f64> = next.point.iter().zip(&point).map(|(a, b)| a - b).collect();
         let gradient_change: Vec<f64> = next
@@ -711,6 +734,9 @@ fn minimise(
         point = next.point;
         value = next.value;
         gradient = next.gradient;
+        if progress <= OBJECTIVE_TOLERANCE {
+            break;
+        }
     }
     Ok(point)
 }
@@ -824,11 +850,47 @@ mod tests {
     /// genuinely infinite.
     #[allow(clippy::type_complexity)]
     const WELCH_REFERENCE: [(f64, f64, usize, f64, f64, usize, f64, f64); 7] = [
-        (1.0, 0.5, 10, 0.4, 0.3, 12, 3.328_201_177_351_374_4, 0.004_905_214_566_072_544),
+        (
+            1.0,
+            0.5,
+            10,
+            0.4,
+            0.3,
+            12,
+            3.328_201_177_351_374_4,
+            0.004_905_214_566_072_544,
+        ),
         (0.0, 1.0, 50, 0.0, 1.0, 50, 0.0, 1.0),
-        (2.5, 1.2, 80, 0.1, 0.9, 160, 15.803_673_546_393_432, 1.436_431_132_812_541_3e-31),
-        (0.3, 0.05, 3, 0.29, 0.04, 4, 0.284_747_398_725_749_95, 0.790_685_860_360_529),
-        (5.0, 2.0, 2, 1.0, 0.1, 1_000, 2.828_420_053_704_894_7, 0.216_345_383_686_832_6),
+        (
+            2.5,
+            1.2,
+            80,
+            0.1,
+            0.9,
+            160,
+            15.803_673_546_393_432,
+            1.436_431_132_812_541_3e-31,
+        ),
+        (
+            0.3,
+            0.05,
+            3,
+            0.29,
+            0.04,
+            4,
+            0.284_747_398_725_749_95,
+            0.790_685_860_360_529,
+        ),
+        (
+            5.0,
+            2.0,
+            2,
+            1.0,
+            0.1,
+            1_000,
+            2.828_420_053_704_894_7,
+            0.216_345_383_686_832_6,
+        ),
         (1.0, 0.0, 20, 1.0, 0.0, 30, f64::NAN, f64::NAN),
         (2.0, 0.0, 20, 1.0, 0.0, 30, f64::INFINITY, 0.0),
     ];
@@ -883,12 +945,19 @@ mod tests {
         (150.0, 50.0, 4.969_739_685_288_344e-68),
     ];
 
+    /// Measured over `T_TAIL_REFERENCE`. Every row but one agrees with scipy to
+    /// 1e-12 relative; the `df = 1e6` row reaches only 4e-10, because `ln_gamma`
+    /// there differences two values near 5.7e6 and the exponent keeps ten digits
+    /// out of sixteen. Degrees of freedom that large need a million cells, and
+    /// even there the loss is four orders below what a p-value is read to.
+    const T_TAIL_TOLERANCE: f64 = 1e-9;
+
     #[test]
     fn t_tail_matches_scipy() {
         for (statistic, degrees_of_freedom, expected) in T_TAIL_REFERENCE {
             let actual = two_sided_t_p(statistic, degrees_of_freedom);
             assert!(
-                (actual - expected).abs() <= 1e-11 * expected,
+                (actual - expected).abs() <= T_TAIL_TOLERANCE * expected,
                 "t.sf({statistic}, {degrees_of_freedom}): {actual} != {expected}"
             );
         }
@@ -955,7 +1024,8 @@ mod tests {
 
     #[test]
     fn a_gene_constant_everywhere_is_never_significant() {
-        let matrix = CsrMatrix::from_dense(&[4.0, 1.0, 4.0, 2.0, 4.0, 8.0, 4.0, 9.0], 4, 2).unwrap();
+        let matrix =
+            CsrMatrix::from_dense(&[4.0, 1.0, 4.0, 2.0, 4.0, 8.0, 4.0, 9.0], 4, 2).unwrap();
         let comparison = t_test(&matrix, &[0, 0, 1, 1], 2, None, &cpu()).unwrap();
         for group in 0..2 {
             assert_eq!(comparison.scores[[group, 0]], 0.0);
@@ -972,7 +1042,10 @@ mod tests {
             assert_eq!(comparison.p_values[[1, gene]], 1.0);
             assert_eq!(comparison.log2_fold_changes[[1, gene]], 0.0);
         }
-        assert!(comparison.scores[[0, 0]] < 0.0, "group 0 is lower in gene 0");
+        assert!(
+            comparison.scores[[0, 0]] < 0.0,
+            "group 0 is lower in gene 0"
+        );
     }
 
     #[test]
@@ -996,7 +1069,10 @@ mod tests {
                     variance: moments.rest_variances[[group, gene]],
                     count,
                 };
-                assert_eq!(plain.scores[[group, gene]], welch(tested, reference(rest)).0 as f32);
+                assert_eq!(
+                    plain.scores[[group, gene]],
+                    welch(tested, reference(rest)).0 as f32
+                );
                 assert_eq!(
                     inflated.scores[[group, gene]],
                     welch(tested, reference(moments.sizes[group])).0 as f32
@@ -1051,36 +1127,84 @@ mod tests {
 
         // Two groups means one binary fit, reported for both groups.
         assert_eq!(comparison.scores[[0, 0]], comparison.scores[[1, 0]]);
-        assert!(comparison.scores[[0, 0]] > 0.5, "the marker carries the weight");
+        assert!(
+            comparison.scores[[0, 0]] > 0.5,
+            "the marker carries the weight"
+        );
         assert!(comparison.scores[[0, 0]].abs() > 10.0 * comparison.scores[[0, 1]].abs());
         assert!(comparison.p_values[[0, 0]].is_nan());
         assert!(comparison.log2_fold_changes[[0, 0]].is_nan());
     }
 
-    #[test]
-    fn logistic_regression_reaches_a_stationary_point() {
-        let labels: Vec<u32> = (0..40).map(|cell| (cell % 3) as u32).collect();
-        let matrix = CsrMatrix::from_dense(
+    /// `sklearn.linear_model.LogisticRegression(max_iter=100000, tol=1e-13)`
+    /// fitted in `f64` on [`repetitive_matrix`], as `coef_[group][gene]`.
+    const SKLEARN_COEFFICIENTS: [[f64; 3]; 3] = [
+        [
+            -0.009_412_652_621_161_27,
+            0.009_853_604_298_182_13,
+            0.051_118_450_582_072_84,
+        ],
+        [
+            0.096_082_303_691_208_1,
+            0.039_002_139_839_011_05,
+            0.068_727_725_392_970_35,
+        ],
+        [
+            -0.086_669_651_070_046_58,
+            -0.048_855_744_137_192_44,
+            -0.119_846_175_975_042_82,
+        ],
+    ];
+
+    /// How far the coefficients may sit from that optimum.
+    ///
+    /// This is the `f32` floor, not a slack: sklearn fitted on the same matrix as
+    /// `f32` — which is how scanpy always calls it, since an AnnData is `f32` —
+    /// lands 1.7e-4 from its own `f64` answer, and we land 2.9e-4 from it.
+    const COEFFICIENT_TOLERANCE: f32 = 1e-3;
+
+    /// Forty cells over three genes, only seven distinct values: nearly collinear
+    /// columns, so the objective is flat enough that a solver which stops on
+    /// progress rather than on curvature has somewhere to go wrong.
+    fn repetitive_matrix() -> CsrMatrix {
+        CsrMatrix::from_dense(
             &(0..120)
                 .map(|index| ((index % 7) as f32) * 0.3)
                 .collect::<Vec<f32>>(),
             40,
             3,
         )
-        .unwrap();
-        let objective = MultinomialObjective {
-            matrix: &matrix,
-            group_labels: &labels,
-            n_outputs: 3,
-            device: &cpu(),
-        };
-        let parameters = minimise(&objective, (3 + 1) * 3, 500).unwrap();
-        let (_, gradient) = objective.evaluate(&parameters).unwrap();
-        assert!(
-            largest_magnitude(&gradient) <= GRADIENT_TOLERANCE,
-            "gradient {}",
-            largest_magnitude(&gradient)
-        );
+        .unwrap()
+    }
+
+    #[test]
+    fn logistic_regression_matches_sklearns_optimum() {
+        let labels: Vec<u32> = (0..40).map(|cell| (cell % 3) as u32).collect();
+        let comparison =
+            logistic_regression(&repetitive_matrix(), &labels, 3, 500, &cpu()).unwrap();
+
+        for (group, expected) in SKLEARN_COEFFICIENTS.iter().enumerate() {
+            for (gene, &expected) in expected.iter().enumerate() {
+                let actual = comparison.scores[[group, gene]];
+                assert!(
+                    (actual - expected as f32).abs() <= COEFFICIENT_TOLERANCE,
+                    "coefficient [{group}, {gene}]: {actual} != {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn more_iterations_do_not_move_the_answer() {
+        // The stopping rule is the objective's own noise floor, so a longer
+        // budget must be spent on nothing. It has not always been: before the
+        // floor was recognised, 400 iterations walked the PBMC 3k coefficients
+        // an order of magnitude *back* from the optimum.
+        let labels: Vec<u32> = (0..40).map(|cell| (cell % 3) as u32).collect();
+        let matrix = repetitive_matrix();
+        let short = logistic_regression(&matrix, &labels, 3, 200, &cpu()).unwrap();
+        let long = logistic_regression(&matrix, &labels, 3, 2000, &cpu()).unwrap();
+        assert_eq!(short.scores, long.scores);
     }
 
     #[test]
@@ -1095,7 +1219,11 @@ mod tests {
         let parameters: Vec<f64> = (0..9).map(|index| 0.1 * (index as f64) - 0.4).collect();
         let (_, gradient) = objective.evaluate(&parameters).unwrap();
 
-        const DELTA: f64 = 1e-5;
+        // A wide step on purpose: the objective is evaluated through `f32`
+        // matmuls, so the difference of two evaluations a textbook 1e-5 apart is
+        // mostly their rounding. 1e-2 puts the signal two orders above that
+        // noise, at the cost of a second-order term the tolerance absorbs.
+        const DELTA: f64 = 1e-2;
         for index in 0..parameters.len() {
             let mut shifted = parameters.clone();
             shifted[index] += DELTA;
@@ -1104,7 +1232,7 @@ mod tests {
             let (down, _) = objective.evaluate(&shifted).unwrap();
             let numeric = (up - down) / (2.0 * DELTA);
             assert!(
-                (gradient[index] - numeric).abs() <= 1e-6 * numeric.abs().max(1e-3),
+                (gradient[index] - numeric).abs() <= 1e-3 * numeric.abs() + 1e-4,
                 "parameter {index}: {} != {numeric}",
                 gradient[index]
             );
