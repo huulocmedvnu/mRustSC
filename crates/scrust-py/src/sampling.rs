@@ -1,7 +1,4 @@
 //! Bindings: sampling. Owned by feat/sampling.
-//!
-//! Not yet registered: `lib.rs` belongs to `main`, so `mod sampling;` and the
-//! `sampling::register(module)?` call still have to be added there.
 
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;

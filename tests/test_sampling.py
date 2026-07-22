@@ -1,22 +1,16 @@
 """Cell subsampling and count thinning: `pp.subsample`, `pp.sample`, `pp.downsample_counts`.
 
-Two layers are checked here, and they need different machinery.
+Two layers are checked here.
 
 The AnnData plumbing — `copy` versus in place, obs/var alignment, the argument
-errors — is checked against a NumPy stand-in for the core that implements the
-same contract, including scanpy's own downsampling algorithm. That keeps the
-plumbing tests honest and runnable while `crates/scrust-py/src/sampling.rs` is
-still unregistered in `lib.rs`.
+errors — goes through the public `pp` functions.
 
-The statistics are checked against the compiled core itself, and skip when the
-binding is not there. They are the real bar: exact totals, no entry growing, and
-per-gene expectations proportional to the original counts.
+The statistics go through the compiled core directly, and are the real bar:
+exact totals, no entry growing without replacement, and per-gene expectations
+proportional to the original counts.
 """
 
 from __future__ import annotations
-
-import sys
-import types
 
 import numpy as np
 import pandas as pd
@@ -24,16 +18,7 @@ import pytest
 import scipy.sparse as sp
 from anndata import AnnData
 
-# `scrust/__init__.py` imports the extension eagerly, so this file needs one to be
-# collectible without a compiled core. Only stand in when there is genuinely none.
-try:
-    import scrust._scrust  # noqa: F401
-except ImportError:
-    _PLACEHOLDER = types.ModuleType("scrust._scrust")
-    _PLACEHOLDER.gpu_available = lambda: False
-    sys.modules["scrust._scrust"] = _PLACEHOLDER
-
-from scrust import pp  # noqa: E402
+from scrust import _scrust, pp
 
 N_OBS = 8
 N_VARS = 5
@@ -48,76 +33,6 @@ DEEP_TARGET = 1000
 REPEATS = 400
 
 
-# --- a NumPy stand-in for the core -------------------------------------------
-
-
-def _draw(block: np.ndarray, target: int, replace: bool, rng: np.random.Generator) -> np.ndarray:
-    """scanpy's `_downsample_array`: pick `target` of the block's count slots."""
-    cumulative = np.cumsum(block)
-    slots = rng.choice(int(cumulative[-1]), target, replace=replace)
-    drawn = np.zeros_like(block)
-    np.add.at(drawn, np.searchsorted(cumulative, slots, side="right"), 1)
-    return drawn
-
-
-class NumpyCore:
-    """Stands in for `scrust._scrust`, implementing the documented contract.
-
-    Only the two functions this branch owns are provided; every other name is a
-    missing attribute, which is what an unregistered binding looks like anyway.
-    """
-
-    def gpu_available(self) -> bool:
-        return False
-
-    def subsample(self, n_cells: int, n_keep: int, replace: bool, seed: int) -> np.ndarray:
-        if not replace and n_keep > n_cells:
-            raise ValueError(f"n_keep must be at most {n_cells} unless replace is set")
-        rng = np.random.default_rng(seed)
-        return rng.choice(n_cells, size=n_keep, replace=replace).astype(np.uint32)
-
-    def downsample_counts(  # noqa: PLR0913
-        self, indptr, indices, values, n_cols, counts_per_cell, total_counts, replace, seed
-    ):
-        if (counts_per_cell is None) is (total_counts is None):
-            raise ValueError("counts_per_cell/total_counts must be exactly one of the two")
-        matrix = sp.csr_matrix(
-            (values.astype(np.float32).copy(), indices, indptr), shape=(len(indptr) - 1, n_cols)
-        )
-        rng = np.random.default_rng(seed)
-        if total_counts is not None:
-            if matrix.data.sum() > total_counts:
-                matrix.data[:] = _draw(matrix.data, int(total_counts), replace, rng)
-        else:
-            for row in range(matrix.shape[0]):
-                span = slice(matrix.indptr[row], matrix.indptr[row + 1])
-                block = matrix.data[span]
-                if block.size and block.sum() > counts_per_cell:
-                    matrix.data[span] = _draw(block, int(counts_per_cell), replace, rng)
-        matrix.eliminate_zeros()
-        return (
-            matrix.indptr.astype(np.uint32),
-            matrix.indices.astype(np.uint32),
-            matrix.data.astype(np.float32),
-            n_cols,
-        )
-
-
-@pytest.fixture
-def core(monkeypatch: pytest.MonkeyPatch) -> NumpyCore:
-    """Stand the NumPy core in for the compiled one.
-
-    `from scrust import _scrust` resolves the attribute on the package, which is
-    bound once at import, so `sys.modules` alone is not enough.
-    """
-    import scrust
-
-    fake = NumpyCore()
-    monkeypatch.setitem(sys.modules, "scrust._scrust", fake)
-    monkeypatch.setattr(scrust, "_scrust", fake, raising=False)
-    return fake
-
-
 def _adata(counts: np.ndarray | None = None) -> AnnData:
     if counts is None:
         counts = np.arange(1, N_OBS * N_VARS + 1, dtype=np.float32).reshape(N_OBS, N_VARS)
@@ -128,16 +43,14 @@ def _adata(counts: np.ndarray | None = None) -> AnnData:
             {"group": pd.Categorical(GROUPS[:n_obs])},
             index=[f"cell{i}" for i in range(n_obs)],
         ),
-        var=pd.DataFrame(
-            {"marker": np.arange(n_vars)}, index=[f"gene{j}" for j in range(n_vars)]
-        ),
+        var=pd.DataFrame({"marker": np.arange(n_vars)}, index=[f"gene{j}" for j in range(n_vars)]),
     )
 
 
 # --- the Python layer --------------------------------------------------------
 
 
-def test_subsample_in_place_keeps_obs_and_var_aligned(core: NumpyCore) -> None:
+def test_subsample_in_place_keeps_obs_and_var_aligned() -> None:
     adata = _adata()
     assert pp.subsample(adata, n_obs=3) is None
     assert adata.n_obs == 3
@@ -151,7 +64,7 @@ def test_subsample_in_place_keeps_obs_and_var_aligned(core: NumpyCore) -> None:
         assert row[0] == expected
 
 
-def test_subsample_copy_leaves_the_input_untouched(core: NumpyCore) -> None:
+def test_subsample_copy_leaves_the_input_untouched() -> None:
     adata = _adata()
     before = adata.X.toarray()
     subset = pp.subsample(adata, n_obs=3, copy=True)
@@ -162,14 +75,14 @@ def test_subsample_copy_leaves_the_input_untouched(core: NumpyCore) -> None:
     assert set(subset.obs_names) <= set(adata.obs_names)
 
 
-def test_subsample_by_fraction_matches_the_equivalent_count(core: NumpyCore) -> None:
+def test_subsample_by_fraction_matches_the_equivalent_count() -> None:
     by_fraction = pp.subsample(_adata(), 0.5, copy=True)
     by_count = pp.subsample(_adata(), n_obs=N_OBS // 2, copy=True)
     assert by_fraction is not None and by_count is not None
     assert list(by_fraction.obs_names) == list(by_count.obs_names)
 
 
-def test_subsample_is_reproducible_and_seed_dependent(core: NumpyCore) -> None:
+def test_subsample_is_reproducible_and_seed_dependent() -> None:
     first = pp.subsample(_adata(), n_obs=4, random_state=3, copy=True)
     again = pp.subsample(_adata(), n_obs=4, random_state=3, copy=True)
     other = pp.subsample(_adata(), n_obs=4, random_state=4, copy=True)
@@ -177,14 +90,14 @@ def test_subsample_is_reproducible_and_seed_dependent(core: NumpyCore) -> None:
     assert list(first.obs_names) != list(other.obs_names)
 
 
-def test_sample_with_replacement_may_draw_more_cells_than_exist(core: NumpyCore) -> None:
+def test_sample_with_replacement_may_draw_more_cells_than_exist() -> None:
     drawn = pp.sample(_adata(), n=N_OBS * 2, replace=True, copy=True)
     assert drawn is not None
     assert drawn.n_obs == N_OBS * 2
     assert len(set(drawn.obs_names)) < drawn.n_obs
 
 
-def test_sample_rejects_both_or_neither_criterion(core: NumpyCore) -> None:
+def test_sample_rejects_both_or_neither_criterion() -> None:
     with pytest.raises(TypeError, match="exactly one"):
         pp.sample(_adata(), 0.5, n=2)
     with pytest.raises(TypeError, match="exactly one"):
@@ -193,14 +106,14 @@ def test_sample_rejects_both_or_neither_criterion(core: NumpyCore) -> None:
         pp.subsample(_adata(), 0.5, n_obs=2)
 
 
-def test_subsample_rejects_more_cells_than_exist_without_replacement(core: NumpyCore) -> None:
+def test_subsample_rejects_more_cells_than_exist_without_replacement() -> None:
     with pytest.raises(ValueError, match="at most"):
         pp.subsample(_adata(), n_obs=N_OBS + 1)
     # With replacement the same request is legitimate.
     assert pp.sample(_adata(), n=N_OBS + 1, replace=True, copy=True).n_obs == N_OBS + 1
 
 
-def test_subsample_rejects_a_negative_or_oversized_fraction(core: NumpyCore) -> None:
+def test_subsample_rejects_a_negative_or_oversized_fraction() -> None:
     with pytest.raises(ValueError, match="nonnegative"):
         pp.subsample(_adata(), -0.5)
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
@@ -209,7 +122,7 @@ def test_subsample_rejects_a_negative_or_oversized_fraction(core: NumpyCore) -> 
     assert pp.sample(_adata(), 1.5, replace=True, copy=True).n_obs == int(1.5 * N_OBS)
 
 
-def test_downsample_copy_leaves_the_input_untouched(core: NumpyCore) -> None:
+def test_downsample_copy_leaves_the_input_untouched() -> None:
     adata = _adata()
     before = adata.X.toarray()
     thinned = pp.downsample_counts(adata, counts_per_cell=5, copy=True)
@@ -220,7 +133,7 @@ def test_downsample_copy_leaves_the_input_untouched(core: NumpyCore) -> None:
     assert list(thinned.var_names) == list(adata.var_names)
 
 
-def test_downsample_in_place_replaces_x_and_keeps_the_shape(core: NumpyCore) -> None:
+def test_downsample_in_place_replaces_x_and_keeps_the_shape() -> None:
     adata = _adata()
     assert pp.downsample_counts(adata, counts_per_cell=5) is None
     assert adata.shape == (N_OBS, N_VARS)
@@ -228,7 +141,15 @@ def test_downsample_in_place_replaces_x_and_keeps_the_shape(core: NumpyCore) -> 
     np.testing.assert_array_equal(adata.X.toarray().sum(axis=1), np.full(N_OBS, 5.0))
 
 
-def test_downsample_rejects_both_or_neither_criterion(core: NumpyCore) -> None:
+def test_downsample_by_total_counts_hits_the_matrix_total() -> None:
+    """The other criterion, end to end: the wrapper passes the two positionally."""
+    adata = _adata()
+    pp.downsample_counts(adata, total_counts=100)
+    assert adata.X.sum() == 100.0
+    assert adata.shape == (N_OBS, N_VARS)
+
+
+def test_downsample_rejects_both_or_neither_criterion() -> None:
     with pytest.raises(ValueError, match="exactly one"):
         pp.downsample_counts(_adata(), counts_per_cell=5, total_counts=50)
     with pytest.raises(ValueError, match="exactly one"):
@@ -236,22 +157,6 @@ def test_downsample_rejects_both_or_neither_criterion(core: NumpyCore) -> None:
 
 
 # --- the core itself ---------------------------------------------------------
-
-
-def _core():
-    """The compiled core, or a skip.
-
-    `crates/scrust-py/src/sampling.rs` is written but `lib.rs` belongs to `main`,
-    so until it registers the module the binding is simply absent.
-    """
-    try:
-        from scrust import _scrust
-    except ImportError as exc:  # pragma: no cover - depends on the build
-        pytest.skip(f"scrust is not installed: {exc}")
-    for name in ("subsample", "downsample_counts"):
-        if not hasattr(_scrust, name):
-            pytest.skip(f"scrust._scrust.{name} is not registered in lib.rs yet")
-    return _scrust
 
 
 def _csr_args(matrix: sp.csr_matrix):
@@ -266,7 +171,7 @@ def _csr_args(matrix: sp.csr_matrix):
 def _thin(counts: np.ndarray, target: int, *, replace: bool = False, seed: int = 0) -> np.ndarray:
     """Thin a dense count block through the compiled core, back to dense."""
     original = sp.csr_matrix(counts.astype(np.float32))
-    indptr, indices, values, n_cols = _core().downsample_counts(
+    indptr, indices, values, _ = _scrust.downsample_counts(
         *_csr_args(original), float(target), None, replace, seed
     )
     thinned = sp.csr_matrix((values, indices, indptr), shape=original.shape)
@@ -313,7 +218,7 @@ def test_with_replacement_a_gene_may_take_more_than_it_had() -> None:
 
 def test_total_counts_thins_the_whole_matrix() -> None:
     original = sp.csr_matrix(_rows())
-    indptr, indices, values, _ = _core().downsample_counts(
+    indptr, _indices, values, _ = _scrust.downsample_counts(
         *_csr_args(original), None, 50.0, False, 0
     )
     assert values.sum() == 50.0
@@ -367,19 +272,19 @@ def test_a_cell_draws_the_same_counts_whatever_it_is_processed_with() -> None:
 
 
 def test_subsample_returns_the_right_cells() -> None:
-    kept = np.asarray(_core().subsample(100, 30, False, 0))
+    kept = np.asarray(_scrust.subsample(100, 30, False, 0))
     assert kept.shape == (30,)
     assert len(set(kept.tolist())) == 30
     assert kept.max() < 100
-    np.testing.assert_array_equal(kept, np.asarray(_core().subsample(100, 30, False, 0)))
-    assert not np.array_equal(kept, np.asarray(_core().subsample(100, 30, False, 1)))
+    np.testing.assert_array_equal(kept, np.asarray(_scrust.subsample(100, 30, False, 0)))
+    assert not np.array_equal(kept, np.asarray(_scrust.subsample(100, 30, False, 1)))
 
-    with_replacement = np.asarray(_core().subsample(5, 50, True, 0))
+    with_replacement = np.asarray(_scrust.subsample(5, 50, True, 0))
     assert with_replacement.shape == (50,)
     assert len(set(with_replacement.tolist())) < 50
 
     with pytest.raises(ValueError, match="n_keep"):
-        _core().subsample(10, 11, False, 0)
+        _scrust.subsample(10, 11, False, 0)
 
 
 # --- against scanpy ----------------------------------------------------------

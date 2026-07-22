@@ -253,6 +253,9 @@ impl DescendingDraws {
 /// Rebuild the matrix from thinned values, dropping the entries that went to
 /// zero — scanpy calls `eliminate_zeros` for the same reason, and a CSR full of
 /// stored zeros is a different matrix to every consumer that counts nnz.
+///
+/// Not `preprocess::filter::subset`: that keeps or drops whole rows and columns,
+/// and thinning empties individual entries of rows it otherwise keeps.
 fn compact(matrix: &CsrMatrix, thinned: &[f32]) -> Result<CsrMatrix> {
     let indptr_in = matrix.indptr();
     let mut indptr = Vec::with_capacity(matrix.n_rows() + 1);
