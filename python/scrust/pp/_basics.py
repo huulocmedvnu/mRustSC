@@ -14,11 +14,11 @@ import numpy as np
 import scipy.sparse as sp
 
 from scrust._shared import (
-    _DEFAULT_DEVICE,
     _INDEX_DTYPE,
     _VALUE_DTYPE,
     _csr_args,
     _csr_from_parts,
+    _default_device,
     _extension,
     _representation,
 )
@@ -87,7 +87,7 @@ def normalize_total(
     inplace: bool = True,
 ) -> sp.csr_matrix | None:
     """Normalise every cell to `target_sum` counts, or to the median count if `None`."""
-    parts = _extension().normalize_total(*_csr_args(adata.X), target_sum, _DEFAULT_DEVICE)
+    parts = _extension().normalize_total(*_csr_args(adata.X), target_sum, _default_device())
     normalized = _csr_from_parts(parts, adata.shape)
     if not inplace:
         return normalized
@@ -117,7 +117,7 @@ def highly_variable_genes(
     import pandas as pd
 
     result = _extension().highly_variable_genes(
-        *_csr_args(adata.X), n_top_genes, flavor, _DEFAULT_DEVICE
+        *_csr_args(adata.X), n_top_genes, flavor, _default_device()
     )
     table = pd.DataFrame(
         {
@@ -143,7 +143,7 @@ def scale(
 ) -> np.ndarray | None:
     """Scale genes to unit variance, optionally centring and clipping at `max_value`."""
     scaled = np.asarray(
-        _extension().scale(*_csr_args(adata.X), zero_center, max_value, _DEFAULT_DEVICE),
+        _extension().scale(*_csr_args(adata.X), zero_center, max_value, _default_device()),
         dtype=_VALUE_DTYPE,
     )
     if not inplace:
