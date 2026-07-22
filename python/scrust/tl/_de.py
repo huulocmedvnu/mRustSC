@@ -148,5 +148,73 @@ def filter_rank_genes_groups(
     max_out_group_fraction: float = 0.5,
     min_fold_change: float = 2.0,
 ) -> None:
-    """Blank out genes failing the expression-fraction filters, as scanpy does."""
-    raise NotImplementedError("feat/scoring")
+    """Blank out genes failing the expression-fraction filters, as scanpy does.
+
+    The result keeps the shape of `uns[key]` and replaces the names of the genes
+    that fail with `NaN`, which is what scanpy's plotting expects to find.
+    """
+    # Imported here, and the two helpers defined here, because another branch
+    # owns the rest of this file: this keeps the diff inside one function.
+    import pandas as pd
+
+    def expressed_fraction(expression) -> np.ndarray:
+        """Fraction of cells with a stored, non-zero count, per gene."""
+        n_expressing = (
+            expression.getnnz(axis=0)
+            if hasattr(expression, "getnnz")
+            else np.count_nonzero(expression, axis=0)
+        )
+        return n_expressing / expression.shape[0]
+
+    def log_fold_change(inside, outside) -> np.ndarray:
+        """Log2 fold change, undoing the log the counts were stored in.
+
+        The 1e-9 is scanpy's guard against a gene expressed in neither group.
+        """
+        base = adata.uns.get("log1p", {}).get("base")
+        expm1 = np.expm1 if base is None else (lambda values: np.expm1(values * np.log(base)))
+        return np.log2(
+            (expm1(np.ravel(inside.mean(0))) + 1e-9) / (expm1(np.ravel(outside.mean(0))) + 1e-9)
+        )
+
+    def frame(columns: dict):
+        """One column per group, in the order `names` stores them."""
+        return pd.DataFrame(columns, index=gene_names.index, columns=gene_names.columns)
+
+    if key not in adata.uns:
+        raise KeyError(f"adata.uns has no {key!r}; run rank_genes_groups first")
+    result = adata.uns[key]
+    params = result["params"]
+    if groupby is None:
+        groupby = params["groupby"]
+    # The stored statistics describe one particular comparison, so scanpy only
+    # reuses them when that is the comparison being filtered, and recomputes
+    # them from X otherwise.
+    same_params = params["groupby"] == groupby and params["reference"] == "rest"
+    use_logfolds = same_params and "logfoldchanges" in result
+    use_fractions = same_params and "pts_rest" in result
+
+    gene_names = pd.DataFrame(result["names"])
+    in_fractions, out_fractions, fold_changes = {}, {}, {}
+    for group in gene_names.columns:
+        genes = gene_names[group].to_numpy()
+        if use_fractions:
+            in_fractions[group] = result["pts"][group].loc[genes].to_numpy()
+            out_fractions[group] = result["pts_rest"][group].loc[genes].to_numpy()
+        if not (use_fractions and use_logfolds):
+            in_group = (adata.obs[groupby] == group).to_numpy()
+            expression = adata[:, genes].X
+            inside, outside = expression[in_group], expression[~in_group]
+        if not use_fractions:
+            in_fractions[group] = expressed_fraction(inside)
+            out_fractions[group] = expressed_fraction(outside)
+        if not use_logfolds:
+            fold_changes[group] = log_fold_change(inside, outside)
+
+    fold_change = pd.DataFrame(result["logfoldchanges"]) if use_logfolds else frame(fold_changes)
+    kept = (
+        (frame(in_fractions) > min_in_group_fraction)
+        & (frame(out_fractions) < max_out_group_fraction)
+        & (fold_change > min_fold_change)
+    )
+    adata.uns[key_added] = {**result, "names": gene_names[kept].to_records(index=False)}
