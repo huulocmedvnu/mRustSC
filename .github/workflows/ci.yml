@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # macos-14 is Apple silicon, so the Metal code compiles. GitHub's hosted macOS
+  # runners have no usable GPU, so `gpu_available()` is false there and the GPU
+  # kernels are exercised on the CPU path only. Running the Metal kernels for real
+  # needs a self-hosted runner on physical Apple silicon.
+  quality:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace
+
+      - name: Install the extension and the test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin ruff pytest
+          maturin develop --release
+
+      - run: ruff format --check python tests benches
+      - run: ruff check python tests benches
+      # Everything that does not need the PBMC download; the reference job owns the rest.
+      - run: pytest -m "not reference"
+
+  reference:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # The two h5ad files never change, so the key is fixed; bump it to refetch.
+      - name: Cache the PBMC 3k dataset
+        uses: actions/cache@v4
+        with:
+          path: .cache/scanpy
+          key: scanpy-datasets-pbmc3k-v1
+
+      - name: Build and install the wheel
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin
+          maturin build --release --out dist
+          pip install --find-links dist scrust
+          pip install "scanpy>=1.10" pytest
+
+      - run: pytest -m reference -rA
