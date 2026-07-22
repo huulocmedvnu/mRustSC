@@ -60,9 +60,11 @@ GLM fit over 60 000 genes: 0.043 s on the GPU vs 0.291 s on the CPU (6.8x, M3 Pr
 The GPU only wins once the gene batch is large enough to hide kernel launch
 latency — below ~5 000 genes the two are comparable.
 
-On real data (10x PBMC 3k, pseudobulked by cell type) the pipeline calls 14/14
-canonical marker genes in the correct direction and shares 91 of its top 100
-monocyte genes with scanpy's Wilcoxon ranking.
+On real data (10x PBMC 3k, pseudobulked by cell type) the pipeline is regression
+tested against scanpy across six cell-type pairs: direction never disagrees with
+`scanpy.tl.rank_genes_groups`, gene ranking correlates 0.83-0.96, and 14/14
+canonical markers are called correctly. Run them with `pytest -m realdata`
+(needs the `validate` extra); exclude them with `pytest -m "not realdata"`.
 
 Adjusted p-values are well calibrated at the family level (0-1 discoveries under
 the global null) but slightly optimistic per gene on small designs, because the

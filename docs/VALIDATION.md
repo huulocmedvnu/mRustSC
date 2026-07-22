@@ -60,6 +60,29 @@ the count filter.
 | Top-100 monocyte genes shared with `scanpy.tl.rank_genes_groups` (Wilcoxon on cells) | 91/100 |
 | GPU vs CPU log2 fold changes, genes converged on both | max difference 6.3e-05 |
 
+`tests/test_scanpy_reference.py` turns this into a regression suite: scanpy's
+`rank_genes_groups` (Wilcoxon over cells) is the reference for six cell-type
+pairs. Measured agreement, which is where the thresholds come from:
+
+| pair | genes tested | rank correlation | top-100 shared | direction on scanpy's top 50 |
+| --- | --- | --- | --- | --- |
+| CD14+ Monocytes vs B cells | 2 465 | 0.948 | 91 | 50/50 |
+| CD4 T cells vs B cells | 4 309 | 0.843 | 53 | 50/50 |
+| NK cells vs CD14+ Monocytes | 2 307 | 0.932 | 80 | 50/50 |
+| CD8 T cells vs B cells | 1 895 | 0.867 | 78 | 50/50 |
+| CD4 T cells vs CD14+ Monocytes | 4 528 | 0.961 | 85 | 50/50 |
+| FCGR3A+ Monocytes vs CD4 T cells | 4 365 | 0.833 | 74 | 50/50 |
+
+Direction never disagrees; ranking correlates 0.83-0.96. The suite asserts
+correlation > 0.75, top-100 overlap >= 45, and zero direction disagreements, and
+was mutation-checked: swapping the group labels fails all 19 tests, and demanding
+a 0.999 correlation fails 6.
+
+scanpy is a reference for *ordering*, not for p-values. It ranks cells with a
+rank-sum test; this package fits a negative binomial GLM to pseudobulk
+replicates. Where they disagree on a borderline gene, neither is automatically
+right.
+
 **Pseudo-replicates are not biological replicates.** Splitting one donor's cells
 into pools measures technical variation only, so the p-values here are far
 smaller than a real multi-donor design would give. This check validates the

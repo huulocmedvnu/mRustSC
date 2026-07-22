@@ -9,6 +9,7 @@ renames a symbol here breaks the branches it is merged with.
 | --- | --- | --- |
 | `feat/backend-mlx` | `mlxde/backend/mlx_backend.py` | `MLXBackend()` — `ComputeBackend` on the Apple GPU |
 | `feat/io` | `mlxde/io/readers.py`, `writers.py`, `design.py` | `CsvCountReader()`, `CsvResultWriter()`, `build_design_matrix(...)` |
+| (post-merge) | `mlxde/io/pseudobulk.py` | `build_pseudobulk(...)` |
 | `feat/preprocess` | `mlxde/preprocess/normalization.py`, `filtering.py` | `MedianOfRatiosSizeFactors()`, `TotalCountSizeFactors()`, `MinimumCountFilter(...)` |
 | `feat/dispersion` | `mlxde/stats/dispersion.py` | `MethodOfMomentsDispersion(...)`, `TrendedDispersion(...)` |
 | `feat/glm` | `mlxde/stats/glm.py` | `NegativeBinomialGLM(backend, ...)` |
@@ -35,6 +36,15 @@ def build_design_matrix(
 # Column 0 is the intercept, named "intercept"; treatment columns are named
 # f"{condition_column}[{level}]" so callers can request them via
 # DesignMatrix.contrast(name).
+
+# mlxde/io/pseudobulk.py
+def build_pseudobulk(
+    counts: pd.DataFrame,             # cells x genes
+    cell_labels: pd.Series,           # cell id -> population label
+    conditions: Mapping[str, str],    # population label -> condition
+    n_replicates: int = 5,
+    seed: int = 0,
+) -> CountMatrix: ...
 
 # mlxde/io/readers.py
 class CsvCountReader:                   # CountReader

@@ -13,45 +13,14 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
-from mlxde.contracts import CountMatrix
 from mlxde.factory import build_default_pipeline
 from mlxde.io.design import build_design_matrix
+from mlxde.io.pseudobulk import build_pseudobulk
 
 CELL_TYPES = {"CD14+ Monocytes": "monocyte", "B cells": "bcell"}
 MONOCYTE_MARKERS = ("LYZ", "S100A8", "S100A9", "CD14", "FCN1", "VCAN", "CST3", "FTL")
 BCELL_MARKERS = ("MS4A1", "CD79A", "CD79B", "TCL1A", "BANK1", "CD19")
 N_REPLICATES = 5
-
-
-def build_pseudobulk(seed: int = 0) -> CountMatrix:
-    """Sum each cell type's counts into replicate pools of cells."""
-    raw = sc.datasets.pbmc3k()
-    labelled = sc.datasets.pbmc3k_processed()
-    raw.var_names_make_unique()
-
-    shared_cells = raw.obs_names.intersection(labelled.obs_names)
-    counts = raw[shared_cells].to_df()
-    cell_types = labelled.obs.loc[shared_cells, "louvain"].astype(str)
-
-    rng = np.random.default_rng(seed)
-    pools: dict[str, np.ndarray] = {}
-    conditions: dict[str, str] = {}
-    for cell_type, condition in CELL_TYPES.items():
-        cells = np.array(cell_types.index[cell_types == cell_type])
-        for replicate, pool in enumerate(np.array_split(rng.permutation(cells), N_REPLICATES)):
-            sample_id = f"{condition}_{replicate}"
-            pools[sample_id] = counts.loc[pool].to_numpy().sum(axis=0)
-            conditions[sample_id] = condition
-
-    sample_ids = np.array(list(pools))
-    return CountMatrix(
-        counts=np.column_stack([pools[sample_id] for sample_id in sample_ids]),
-        gene_ids=np.array(counts.columns),
-        sample_ids=sample_ids,
-        sample_metadata=pd.DataFrame(
-            {"condition": [conditions[sample_id] for sample_id in sample_ids]}, index=sample_ids
-        ),
-    )
 
 
 def report_markers(table: pd.DataFrame) -> int:
@@ -74,8 +43,21 @@ def report_markers(table: pd.DataFrame) -> int:
     return correct
 
 
+def load_pbmc_pseudobulk():
+    raw = sc.datasets.pbmc3k()
+    labelled = sc.datasets.pbmc3k_processed()
+    raw.var_names_make_unique()
+    shared_cells = raw.obs_names.intersection(labelled.obs_names)
+    return build_pseudobulk(
+        raw[shared_cells].to_df(),
+        labelled.obs.loc[shared_cells, "louvain"].astype(str),
+        CELL_TYPES,
+        N_REPLICATES,
+    )
+
+
 def main() -> None:
-    count_matrix = build_pseudobulk()
+    count_matrix = load_pbmc_pseudobulk()
     design = build_design_matrix(count_matrix.sample_metadata, "condition", "bcell")
     contrast = design.contrast("condition[monocyte]")
     print(f"pseudobulk: {count_matrix.n_genes} genes x {count_matrix.n_samples} samples")
