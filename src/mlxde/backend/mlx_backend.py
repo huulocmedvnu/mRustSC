@@ -75,11 +75,15 @@ class MLXBackend:
         return mx.transpose(values, axes)
 
     def solve(self, matrices: Array, vectors: Array) -> Array:
-        """Solve ``matrices @ x == vectors`` for a batch of small systems.
+        """Solve ``matrices @ x == vectors`` for one or a batch of small systems.
 
-        ``matrices`` is (batch, p, p) and ``vectors`` is (batch, p).
+        Follows the NumPy convention: a right-hand side with one axis fewer than
+        ``matrices`` is a (stack of) vector(s), otherwise it is a matrix.
         """
-        return self._gauss_jordan(matrices, vectors[..., None])[..., 0]
+        right_hand_side_is_vector = vectors.ndim == matrices.ndim - 1
+        right_hand_sides = vectors[..., None] if right_hand_side_is_vector else vectors
+        solutions = self._gauss_jordan(matrices, right_hand_sides)
+        return solutions[..., 0] if right_hand_side_is_vector else solutions
 
     def inverse(self, matrices: Array) -> Array:
         """Invert a batch of (batch, p, p) matrices."""
@@ -99,6 +103,10 @@ class MLXBackend:
         definite Fisher information matrices, whose leading minors are positive.
         """
         size = matrices.shape[-1]
+        is_batched = matrices.ndim == 3
+        if not is_batched:
+            matrices = matrices[None]
+            right_hand_sides = right_hand_sides[None]
         augmented = mx.concatenate([matrices, right_hand_sides], axis=-1)
         row_indices = mx.arange(size).reshape(1, size, 1)
 
@@ -111,4 +119,5 @@ class MLXBackend:
                 mx.broadcast_to(pivot_row[:, None, :], eliminated.shape),
                 eliminated,
             )
-        return augmented[:, :, size:]
+        solutions = augmented[:, :, size:]
+        return solutions if is_batched else solutions[0]

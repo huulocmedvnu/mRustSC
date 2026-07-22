@@ -77,3 +77,16 @@ def test_backend_solves_a_batch_of_vector_systems(numpy_backend):
 
     assert solutions.shape == (2, 2)
     np.testing.assert_allclose(solutions, [[1.0, 2.0], [3.0, 5.0]])
+
+
+@pytest.mark.parametrize("backend_name", available_backends())
+def test_backends_solve_both_right_hand_side_shapes(backend_name):
+    backend = get_backend(backend_name)
+    system = backend.asarray(np.array([[2.0, 0.0], [0.0, 4.0]]))
+    vector = backend.asarray(np.array([2.0, 8.0]))
+    matrix = backend.asarray(np.array([[2.0, 4.0], [8.0, 16.0]]))
+
+    np.testing.assert_allclose(backend.asnumpy(backend.solve(system, vector)), [1.0, 2.0])
+    np.testing.assert_allclose(
+        backend.asnumpy(backend.solve(system, matrix)), [[1.0, 2.0], [2.0, 4.0]], rtol=1e-5
+    )
