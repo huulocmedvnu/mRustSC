@@ -83,7 +83,7 @@ class FakeCore:
         return {
             "highly_variable": np.arange(n_cols) < 2,
             "means": np.arange(n_cols, dtype=np.float64),
-            "dispersions_norm": np.arange(n_cols, dtype=np.float64),
+            "normalised_dispersions": np.arange(n_cols, dtype=np.float64),
         }
 
     def pca(self, indptr, indices, values, n_cols, n_components, zero_center, seed, device):
@@ -92,22 +92,23 @@ class FakeCore:
         )
         n_rows = self._n_rows(indptr)
         return {
-            "X_pca": np.zeros((n_rows, n_components), dtype=np.float64),
-            "PCs": np.zeros((n_cols, n_components), dtype=np.float64),
-            "variance_ratio": np.zeros(n_components, dtype=np.float64),
+            "embedding": np.zeros((n_rows, n_components), dtype=np.float64),
+            "components": np.zeros((n_components, n_cols), dtype=np.float64),
+            "explained_variance": np.zeros(n_components, dtype=np.float64),
+            "explained_variance_ratio": np.zeros(n_components, dtype=np.float64),
         }
 
     def knn(self, embedding, k, device):
         self._record("knn", (embedding, k, device))
         n_rows = embedding.shape[0]
-        indices = np.tile(np.arange(k, dtype=np.int32), (n_rows, 1))
+        indices = np.tile(np.arange(k, dtype=np.uint32), (n_rows, 1))
         return indices, np.ones((n_rows, k), dtype=np.float64)
 
     def connectivities(self, indices, distances):
         self._record("connectivities", (indices, distances))
         n_rows, k = indices.shape
         return (
-            np.arange(0, n_rows * k + 1, k, dtype=np.int32),
+            np.arange(0, n_rows * k + 1, k, dtype=np.uint32),
             indices.ravel(),
             distances.ravel(),
         )
@@ -119,9 +120,11 @@ class FakeCore:
         values,
         n_cols,
         n_components,
+        n_epochs,
         min_dist,
         spread,
-        n_epochs,
+        learning_rate,
+        negative_sample_rate,
         seed,
         device,
     ):
@@ -133,20 +136,42 @@ class FakeCore:
                 values,
                 n_cols,
                 n_components,
+                n_epochs,
                 min_dist,
                 spread,
-                n_epochs,
+                learning_rate,
+                negative_sample_rate,
                 seed,
                 device,
             ),
         )
         return np.zeros((self._n_rows(indptr), n_components), dtype=np.float64)
 
-    def tsne(self, embedding, perplexity, early_exaggeration, learning_rate, seed, device):
+    def tsne(
+        self,
+        embedding,
+        n_components,
+        perplexity,
+        early_exaggeration,
+        learning_rate,
+        n_iterations,
+        seed,
+        device,
+    ):
         self._record(
-            "tsne", (embedding, perplexity, early_exaggeration, learning_rate, seed, device)
+            "tsne",
+            (
+                embedding,
+                n_components,
+                perplexity,
+                early_exaggeration,
+                learning_rate,
+                n_iterations,
+                seed,
+                device,
+            ),
         )
-        return np.zeros((embedding.shape[0], 2), dtype=np.float64)
+        return np.zeros((embedding.shape[0], n_components), dtype=np.float64)
 
     def rank_genes_groups_wilcoxon(
         self, indptr, indices, values, n_cols, labels, n_groups, reference, tie_correct, device
@@ -155,14 +180,12 @@ class FakeCore:
             "rank_genes_groups_wilcoxon",
             (indptr, indices, values, n_cols, labels, n_groups, reference, tie_correct, device),
         )
-        ranked = np.tile(np.arange(n_cols)[::-1], (n_groups, 1))
         stats = np.zeros((n_groups, n_cols), dtype=np.float64)
         return {
-            "names": ranked,
             "scores": stats,
-            "pvals": stats,
-            "pvals_adj": stats,
-            "logfoldchanges": stats,
+            "p_values": stats,
+            "adjusted_p_values": stats,
+            "log2_fold_changes": stats,
         }
 
 
@@ -206,8 +229,8 @@ def test_any_supported_x_reaches_the_core_as_csr(core: FakeCore, matrix) -> None
     indptr, indices, values, n_cols = core.args_of("log1p")
     assert n_cols == N_VARS
     assert len(indptr) == N_OBS + 1
-    assert indptr.dtype == np.int32
-    assert indices.dtype == np.int32
+    assert indptr.dtype == np.uint32
+    assert indices.dtype == np.uint32
     assert values.dtype == np.float32
 
 
@@ -384,9 +407,10 @@ def test_neighbors_uses_the_pca_representation_and_forwards_k(core: FakeCore) ->
     embedding, k, device = core.args_of("knn")
     assert embedding.shape == (N_OBS, 3)
     assert embedding.dtype == np.float32
-    assert (k, device) == (4, "cpu")
+    # scanpy counts the cell itself among n_neighbors; the core does not.
+    assert (k, device) == (3, "cpu")
     # connectivities is fed the knn result, not the matrix.
-    assert core.args_of("connectivities")[0].shape == (N_OBS, 4)
+    assert core.args_of("connectivities")[0].shape == (N_OBS, 3)
 
 
 def test_neighbors_honours_use_rep_x(core: FakeCore) -> None:
@@ -415,13 +439,13 @@ def test_umap_lays_out_the_connectivities_graph(core: FakeCore) -> None:
     assert adata.obsm["X_umap"].dtype == np.float32
     indptr, _, _, n_cols, *params = core.args_of("umap")
     assert (len(indptr) - 1, n_cols) == (N_OBS, N_OBS)
-    assert params == [2, 0.5, 1.0, None, 0, "auto"]
+    assert params == [2, 200, 0.5, 1.0, 1.0, 5, 0, "auto"]
 
 
 def test_umap_forwards_overrides(core: FakeCore) -> None:
     adata = _with_neighbors(core)
     tl.umap(adata, n_components=3, min_dist=0.1, spread=2.0, n_epochs=100, random_state=5)
-    assert list(core.args_of("umap")[4:]) == [3, 0.1, 2.0, 100, 5, "auto"]
+    assert list(core.args_of("umap")[4:]) == [3, 100, 0.1, 2.0, 1.0, 5, 5, "auto"]
     assert adata.obsm["X_umap"].shape == (N_OBS, 3)
 
 
@@ -435,7 +459,7 @@ def test_tsne_slices_the_pca_to_n_pcs(core: FakeCore) -> None:
     assert tl.tsne(adata, n_pcs=4) is None
     embedding, *params = core.args_of("tsne")
     assert embedding.shape == (N_OBS, 4)
-    assert params == [30.0, 12.0, 200.0, 0, "auto"]
+    assert params == [2, 30.0, 12.0, 200.0, 1000, 0, "auto"]
     assert adata.obsm["X_tsne"].shape == (N_OBS, 2)
     assert adata.obsm["X_tsne"].dtype == np.float32
 
@@ -491,9 +515,10 @@ def test_rank_genes_groups_encodes_labels_and_rest_reference(core: FakeCore) -> 
     _, _, _, _, labels, n_groups, reference, tie_correct, device = core.args_of(
         "rank_genes_groups_wilcoxon"
     )
-    assert labels.dtype == np.int32
+    assert labels.dtype == np.uint32
     assert list(labels) == [0, 1, 0, 2, 1, 0]
-    assert (n_groups, reference, tie_correct, device) == (3, -1, False, "auto")
+    # "rest" is the core's None; the unsigned boundary has no room for a sentinel.
+    assert (n_groups, reference, tie_correct, device) == (3, None, False, "auto")
 
 
 def test_rank_genes_groups_named_reference_is_labelled_but_not_reported(core: FakeCore) -> None:
@@ -508,7 +533,9 @@ def test_rank_genes_groups_named_reference_is_labelled_but_not_reported(core: Fa
 def test_rank_genes_groups_excludes_cells_outside_the_selected_groups(core: FakeCore) -> None:
     tl.rank_genes_groups(_adata(), "group", groups=["a", "c"])
     labels, n_groups = core.args_of("rank_genes_groups_wilcoxon")[4:6]
-    assert list(labels) == [0, -1, 0, 1, -1, 0]
+    # Cells outside the selected groups are dropped before the call rather
+    # than labelled negatively, which the unsigned boundary cannot carry.
+    assert list(labels) == [0, 0, 1, 0]
     assert n_groups == 2
 
 
