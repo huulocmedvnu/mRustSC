@@ -46,6 +46,35 @@ well-calibrated at the family level and slightly optimistic per gene. For
 publication-grade FDR control on small designs, confirm hits with a permutation
 null or a Cox-Reid-adjusted tool.
 
+## Real data: 10x PBMC 3k
+
+`scripts/validate_pbmc.py` runs the default pipeline on the 10x Genomics PBMC 3k
+dataset shipped with scanpy (2 700 cells, 32 738 genes, raw UMI counts), with the
+published `louvain` cell-type labels. CD14+ monocytes (480 cells) and B cells
+(342 cells) are pooled into five pseudobulk replicates each; 2 465 genes survive
+the count filter.
+
+| Check | Result |
+| --- | --- |
+| Canonical markers called in the expected direction at FDR 5% | 14/14 (LYZ, S100A8/9, CD14, FCN1, VCAN, CST3, FTL up in monocytes; MS4A1, CD79A/B, TCL1A, BANK1, CD19 up in B cells) |
+| Top-100 monocyte genes shared with `scanpy.tl.rank_genes_groups` (Wilcoxon on cells) | 91/100 |
+| GPU vs CPU log2 fold changes, genes converged on both | max difference 6.3e-05 |
+
+**Pseudo-replicates are not biological replicates.** Splitting one donor's cells
+into pools measures technical variation only, so the p-values here are far
+smaller than a real multi-donor design would give. This check validates the
+implementation and the direction of the biology, not the effect sizes'
+significance.
+
+**Complete separation.** Six genes are expressed in one cell type and completely
+absent in the other, so their maximum-likelihood fold change is infinite. IRLS
+stops wherever its clamps bite: +26.2 on the float64 CPU backend and +18.5 on the
+float32 GPU backend for `IL1RN`. Those two numbers are both "infinity", but they
+are the one place where the backends visibly disagree — 1 gene out of 2 465. The
+validation script lists such genes; treat `|log2FC| > 15` as "detected in one
+group only", not as a magnitude. Shrinking these towards a prior, as DESeq2's
+`lfcShrink` does, is not implemented.
+
 ## Speed
 
 GLM fit only (the dominant cost), 12 samples, 2 coefficients, warm kernels:
