@@ -1,0 +1,86 @@
+name: release
+
+# Builds the wheels and publishes them to PyPI when a `v*` tag is pushed.
+# Nothing here publishes on a branch push: `build` runs on demand so a release
+# can be rehearsed, `publish` only ever runs for a tag.
+#
+# Maintainer setup, one time, before the first tag:
+#   1. On PyPI, under the `scrust` project (or as a pending publisher if the name
+#      is not registered yet), add a trusted publisher:
+#        owner        huulocmedvnu
+#        repository   mRustSC
+#        workflow     release.yml
+#        environment  pypi
+#   2. In this repository's settings, create an environment named `pypi`.
+#      Restrict it to tag `v*` and add reviewers if a release should be gated.
+# No API token is stored anywhere; the publish step exchanges the job's OIDC
+# identity for a short-lived upload token, which is why `id-token: write` is set.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # macos-14 is Apple silicon. The extension links Metal, and pyo3 here is not
+  # abi3, so there is one wheel per interpreter version.
+  wheels:
+    runs-on: macos-14
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin
+          maturin build --release --out dist --interpreter python
+
+      - name: Check that the wheel imports
+        run: |
+          pip install --find-links dist scrust
+          python -c "import scrust; print(scrust.__version__, scrust.gpu_available())"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.python-version }}
+          path: dist/*.whl
+
+  # An sdist is what a non-macOS user gets from `pip install scrust`; building it
+  # needs a Rust toolchain, and the result is CPU-only. See docs/INSTALL.md.
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install maturin && maturin sdist --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

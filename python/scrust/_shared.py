@@ -22,7 +22,17 @@ if TYPE_CHECKING:
 _INDEX_DTYPE = np.uint32
 _VALUE_DTYPE = np.float32
 _LABEL_DTYPE = np.uint32
-_DEFAULT_DEVICE = "auto"
+
+
+def _default_device() -> str:
+    """The device a function uses when its caller did not name one.
+
+    Read through `settings` rather than frozen at import, so setting
+    `scrust.settings.device` takes effect on the next call.
+    """
+    from scrust.settings import settings
+
+    return settings.resolve_device()
 
 
 def _extension() -> ModuleType:
