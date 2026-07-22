@@ -7,6 +7,7 @@
 use pyo3::prelude::*;
 
 mod cluster;
+mod batch;
 mod convert;
 mod de;
 mod diffusion;
@@ -45,5 +46,6 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     paga::register(module)?;
     qc::register(module)?;
     sampling::register(module)?;
+    batch::register(module)?;
     Ok(())
 }
