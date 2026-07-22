@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 mod convert;
 mod de;
 mod embedding;
+mod metrics;
 mod paga;
 mod preprocess;
 
@@ -36,6 +37,7 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     preprocess::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
+    metrics::register(module)?;
     paga::register(module)?;
     Ok(())
 }

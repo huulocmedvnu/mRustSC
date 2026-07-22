@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import scipy.sparse as sp
 
-from scrust._shared import _csr_args, _extension
+from scrust._shared import _csr_args, _dense, _extension
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -64,22 +65,33 @@ def _features(adata: AnnData, vals: Any) -> tuple[Any, bool]:
     if vals is None:
         return adata.X, False
     if isinstance(vals, str):
-        return np.asarray(adata.obs_vector(vals)).reshape(-1, 1), True
+        return _vector(adata, vals).reshape(-1, 1), True
     if _is_name_sequence(vals):
-        return np.column_stack([np.asarray(adata.obs_vector(name)) for name in vals]), False
+        return np.column_stack([_vector(adata, name) for name in vals]), False
 
-    array = vals if hasattr(vals, "ndim") else np.asarray(vals)
+    # A sparse operand stays sparse: densifying it here is exactly the
+    # `(n_cells, n_genes)` intermediate the core goes to lengths to avoid.
+    array = vals if sp.issparse(vals) else np.asarray(vals)
     if array.ndim == 1:
-        return np.asarray(array).reshape(-1, 1), True
+        return array.reshape(-1, 1), True
     if array.ndim == 2:
         return array.T, False
     raise ValueError(f"vals must be 1- or 2-dimensional, got {array.ndim} dimensions")
 
 
+def _vector(adata: AnnData, name: str) -> np.ndarray:
+    """One `obs` column or one gene, resolved the way `adata.obs_vector` resolves it."""
+    if name in adata.obs:
+        return np.asarray(adata.obs[name])
+    if name in adata.var_names:
+        return _dense(adata[:, name].X).ravel()
+    raise KeyError(f"{name!r} is neither a column of adata.obs nor a gene in adata.var_names")
+
+
 def _is_name_sequence(vals: Any) -> bool:
     """A list of gene or `obs` names, as opposed to a numeric array."""
     return (
-        not hasattr(vals, "ndim")
+        not hasattr(vals, "ndim")  # excludes numpy and scipy.sparse alike
         and hasattr(vals, "__iter__")
         and all(isinstance(name, str) for name in vals)
     )

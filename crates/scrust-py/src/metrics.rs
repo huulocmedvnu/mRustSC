@@ -1,6 +1,7 @@
 //! Bindings: metrics. Owned by feat/metrics.
 //!
-//! Not registered in `lib.rs`, which `main` owns — see the branch report.
+//! Registered from `lib.rs`, which `main` owns: two lines there, `mod metrics`
+//! and `metrics::register` — see the branch report, it is a known conflict point.
 
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
@@ -19,7 +20,7 @@ macro_rules! autocorrelation_binding {
     ($name:ident, $core:path) => {
         #[pyfunction]
         #[pyo3(signature = (graph_indptr, graph_indices, graph_values, n_cells,
-                            indptr, indices, values, n_cols, device))]
+                                                    indptr, indices, values, n_cols, device))]
         #[allow(clippy::too_many_arguments)]
         fn $name<'py>(
             py: Python<'py>,
