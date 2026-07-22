@@ -94,7 +94,7 @@ fn normal_survival(z: f32) -> f32 {
 /// Three fits — a polynomial ratio near zero, and two `exp(-x^2)`-scaled ratios
 /// beyond it — reproduce `erfc` to near double precision without a series, which
 /// is why this is preferred to the shorter textbook Chebyshev form.
-fn erfc(x: f64) -> f64 {
+pub(crate) fn erfc(x: f64) -> f64 {
     const A: [f64; 5] = [
         3.161_123_743_870_565_6e0,
         1.138_641_541_510_501_6e2,

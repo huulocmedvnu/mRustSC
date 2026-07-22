@@ -454,7 +454,8 @@ fn assemble(
                 }
             })
             .collect();
-        let adjusted = benjamini_hochberg(&p_values);
+        let as_f32: Vec<f32> = p_values.iter().map(|&p| p as f32).collect();
+        let adjusted = crate::de::multiple_testing::benjamini_hochberg(&as_f32);
         let reference_means = match reference {
             Some(reference) => &means.group[reference as usize],
             None => &means.rest[group],
@@ -482,119 +483,7 @@ fn assemble(
 
 /// Two-sided normal tail, `2 * norm.sf(|z|)`.
 fn two_sided_p(score: f64) -> f64 {
-    erfc(score.abs() / std::f64::consts::SQRT_2)
-}
-
-/// Benjamini-Hochberg step-up adjustment over all genes of one group.
-///
-/// This repeats `de::multiple_testing::benjamini_hochberg`, which belongs to
-/// another branch and is still a stub; the duplication is meant to collapse
-/// once both are merged.
-fn benjamini_hochberg(p_values: &[f64]) -> Vec<f64> {
-    let count = p_values.len();
-    let mut order: Vec<usize> = (0..count).collect();
-    order.sort_unstable_by(|&left, &right| p_values[left].total_cmp(&p_values[right]));
-
-    let mut adjusted = vec![0f64; count];
-    let mut running = f64::INFINITY;
-    for (rank, &gene) in order.iter().enumerate().rev() {
-        running = running.min(p_values[gene] * count as f64 / (rank + 1) as f64);
-        adjusted[gene] = running.min(1.0);
-    }
-    adjusted
-}
-
-/// Complementary error function, Cody's rational Chebyshev approximation.
-///
-/// Tail probabilities reach far below 1e-30 on real data, where the naive
-/// `1 - erf(x)` has no significant digits left; Cody's form keeps full double
-/// precision over the whole range, so the p-values match scipy's.
-fn erfc(x: f64) -> f64 {
-    /// Numerator of erf on |x| <= 0.46875, highest power last but for the lead.
-    const A: [f64; 5] = [
-        3.161_123_743_870_565_6e0,
-        1.138_641_541_510_501_6e2,
-        3.774_852_376_853_02e2,
-        3.209_377_589_138_469_5e3,
-        1.857_777_061_846_031_5e-1,
-    ];
-    const B: [f64; 4] = [
-        2.360_129_095_234_412_1e1,
-        2.440_246_379_344_441_7e2,
-        1.282_616_526_077_372_3e3,
-        2.844_236_833_439_171e3,
-    ];
-    const C: [f64; 9] = [
-        5.641_884_969_886_701e-1,
-        8.883_149_794_388_376e0,
-        6.611_919_063_714_163e1,
-        2.986_351_381_974_001e2,
-        8.819_522_212_417_69e2,
-        1.712_047_612_634_070_6e3,
-        2.051_078_377_826_071_5e3,
-        1.230_339_354_797_997_3e3,
-        2.153_115_354_744_038_5e-8,
-    ];
-    const D: [f64; 8] = [
-        1.574_492_611_070_983_5e1,
-        1.176_939_508_913_125e2,
-        5.371_811_018_620_099e2,
-        1.621_389_574_566_690_2e3,
-        3.290_799_235_733_46e3,
-        4.362_619_090_143_247e3,
-        3.439_367_674_143_721_6e3,
-        1.230_339_354_803_749_4e3,
-    ];
-    const P: [f64; 6] = [
-        3.053_266_349_612_323_4e-1,
-        3.603_448_999_498_044_4e-1,
-        1.257_817_261_112_292_5e-1,
-        1.608_378_514_874_228e-2,
-        6.587_491_615_298_378e-4,
-        1.631_538_713_730_209_8e-2,
-    ];
-    const Q: [f64; 5] = [
-        2.568_520_192_289_822,
-        1.872_952_849_923_460_5e0,
-        5.279_051_029_514_284e-1,
-        6.051_834_131_244_132e-2,
-        2.335_204_976_268_691_8e-3,
-    ];
-    const INV_SQRT_PI: f64 = 5.641_895_835_477_563e-1;
-
-    let magnitude = x.abs();
-    if magnitude <= 0.46875 {
-        let square = magnitude * magnitude;
-        let numerator = (((A[4] * square + A[0]) * square + A[1]) * square + A[2]) * square + A[3];
-        let denominator = (((square + B[0]) * square + B[1]) * square + B[2]) * square + B[3];
-        return 1.0 - x * numerator / denominator;
-    }
-
-    let value = if magnitude <= 4.0 {
-        let mut numerator = C[8] * magnitude;
-        let mut denominator = magnitude;
-        for (&c, &d) in C[..7].iter().zip(&D[..7]) {
-            numerator = (numerator + c) * magnitude;
-            denominator = (denominator + d) * magnitude;
-        }
-        (numerator + C[7]) / (denominator + D[7]) * (-magnitude * magnitude).exp()
-    } else {
-        let square = 1.0 / (magnitude * magnitude);
-        let mut numerator = P[5] * square;
-        let mut denominator = square;
-        for (&p, &q) in P[..4].iter().zip(&Q[..4]) {
-            numerator = (numerator + p) * square;
-            denominator = (denominator + q) * square;
-        }
-        let tail = square * (numerator + P[4]) / (denominator + Q[4]);
-        (INV_SQRT_PI - tail) / magnitude * (-magnitude * magnitude).exp()
-    };
-
-    if x < 0.0 {
-        2.0 - value
-    } else {
-        value
-    }
+    crate::de::hypothesis::erfc(score.abs() / std::f64::consts::SQRT_2)
 }
 
 #[cfg(test)]
@@ -762,57 +651,6 @@ mod tests {
     }
 
     // ----------------------------------------------------------------- erfc
-
-    #[test]
-    fn erfc_matches_scipy() {
-        let cases: [(f64, f64); 14] = [
-            (0.0, 1.0),
-            (0.1, 0.8875370839817152),
-            (0.3, 0.6713732405408726),
-            (0.46875, 0.507386526782062),
-            (0.5, 0.4795001221869535),
-            (1.0, 0.15729920705028516),
-            (2.0, 0.004677734981047266),
-            (3.9, 3.4792248597231765e-8),
-            (4.0, 1.541725790028002e-8),
-            (6.0, 2.151973671249891e-17),
-            (10.0, 2.0884875837625446e-45),
-            (20.0, 5.395865611607902e-176),
-            (-1.0, 1.8427007929497148),
-            (-0.2, 1.2227025892104784),
-        ];
-        for (x, expected) in cases {
-            let actual = erfc(x);
-            assert!(
-                (actual - expected).abs() <= 1e-14 * expected.abs(),
-                "erfc({x}): got {actual}, expected {expected}"
-            );
-        }
-    }
-
-    #[test]
-    fn benjamini_hochberg_is_monotone_and_bounded() {
-        let p_values = [0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, 0.6];
-        let adjusted = benjamini_hochberg(&p_values);
-        // statsmodels multipletests(..., method="fdr_bh") on the same input.
-        let expected = [
-            0.009000000000000001,
-            0.036000000000000004,
-            0.0756,
-            0.0756,
-            0.0756,
-            0.09,
-            0.09514285714285714,
-            0.230625,
-            0.6,
-        ];
-        for (actual, expected) in adjusted.iter().zip(expected) {
-            assert!(
-                (actual - expected).abs() <= 1e-12,
-                "got {actual}, expected {expected}"
-            );
-        }
-    }
 
     // ----------------------------------------------------------------- scipy
 
