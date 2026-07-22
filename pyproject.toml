@@ -4,20 +4,49 @@ build-backend = "maturin"
 
 [project]
 name = "scrust"
-version = "0.1.0"
+version = "0.2.0"
 description = "Single-cell analysis with a Rust core on the Apple GPU"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["numpy>=2.0", "anndata>=0.10", "scipy>=1.13"]
+authors = [{ name = "huulocmedvnu" }]
+keywords = ["single-cell", "scanpy", "anndata", "rust", "metal", "gpu"]
+# No licence is declared: the repository has no LICENSE file yet. Add one, then
+# set `license = "..."` and `license-files` here — do not guess it.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
+# Imported at run time by the Python layer: numpy and scipy.sparse at module
+# level, pandas inside the functions that return frames. anndata is a
+# TYPE_CHECKING import only, but every public function takes an AnnData, so the
+# package is unusable without it.
+dependencies = ["numpy>=2.0", "anndata>=0.10", "scipy>=1.13", "pandas>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+# The scanpy cross-checks; scanpy pulls in leidenalg's reference implementation.
 reference = ["scanpy>=1.10", "leidenalg>=0.10"]
+
+[project.urls]
+Homepage = "https://github.com/huulocmedvnu/mRustSC"
+Repository = "https://github.com/huulocmedvnu/mRustSC"
+Issues = "https://github.com/huulocmedvnu/mRustSC/issues"
 
 [tool.maturin]
 module-name = "scrust._scrust"
 python-source = "python"
 manifest-path = "crates/scrust-py/Cargo.toml"
 features = ["pyo3/extension-module"]
+# The typing marker is data, not a module, so it needs naming explicitly.
+include = [{ path = "python/scrust/py.typed", format = "wheel" }]
 
 [tool.ruff]
 line-length = 100
