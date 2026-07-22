@@ -6,6 +6,7 @@
 
 use pyo3::prelude::*;
 
+mod cluster;
 mod convert;
 mod de;
 mod embedding;
@@ -32,6 +33,7 @@ fn gpu_available() -> bool {
 #[pymodule]
 fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(gpu_available, module)?)?;
+    cluster::register(module)?;
     preprocess::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
