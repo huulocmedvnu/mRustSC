@@ -6,8 +6,8 @@
 
 use pyo3::prelude::*;
 
-mod cluster;
 mod batch;
+mod cluster;
 mod convert;
 mod de;
 mod diffusion;
