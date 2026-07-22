@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pandas as pd
+    import scipy.sparse as sp
     from anndata import AnnData
 
 __all__ = ["calculate_qc_metrics", "filter_genes_dispersion", "normalize_per_cell", "sqrt"]
@@ -107,7 +108,7 @@ def _insert_log1p_columns(metrics: pd.DataFrame, columns: Sequence[str]) -> None
 
 def normalize_per_cell(
     adata: AnnData, *, counts_per_cell_after: float | None = None, inplace: bool = True
-) -> None:
+) -> sp.csr_matrix | None:
     """scanpy's legacy per-cell normalisation, kept because pipelines still call it.
 
     It is `normalize_total` with two habits of its own, both preserved here: the
@@ -126,7 +127,7 @@ def normalize_per_cell(
     return normalize_total(adata, target_sum=counts_per_cell_after, inplace=inplace)
 
 
-def sqrt(adata: AnnData, *, inplace: bool = True) -> None:
+def sqrt(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
     """Square-root transform, as `scanpy.pp.sqrt`."""
     rooted = _csr_from_parts(_extension().sqrt(*_csr_args(adata.X)), adata.shape)
     if not inplace:
@@ -141,7 +142,7 @@ def filter_genes_dispersion(
     flavor: str = "seurat",
     n_top_genes: int | None = None,
     inplace: bool = True,
-) -> None:
+) -> pd.DataFrame | None:
     """The pre-`highly_variable_genes` dispersion filter scanpy still ships.
 
     The dispersions are `highly_variable_genes`' own, so the two agree by
