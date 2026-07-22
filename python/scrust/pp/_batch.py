@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scrust._shared import _LABEL_DTYPE, _VALUE_DTYPE, _csr_args, _extension
+from scrust._shared import (
+    _LABEL_DTYPE,
+    _VALUE_DTYPE,
+    _csr_args,
+    _default_device,
+    _extension,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -24,14 +30,16 @@ __all__ = ["combat", "regress_out"]
 
 
 def regress_out(
-    adata: AnnData, keys: str | Sequence[str], *, device: str = "auto", inplace: bool = True
+    adata: AnnData, keys: str | Sequence[str], *, device: str | None = None, inplace: bool = True
 ) -> np.ndarray | None:
     """Regress each gene on `keys` and keep the residuals, as `scanpy.pp.regress_out`."""
     keys = [keys] if isinstance(keys, str) else list(keys)
     if not keys:
         raise ValueError("regress_out needs at least one obs column to regress on")
     residuals = np.asarray(
-        _extension().regress_out(*_csr_args(adata.X), _design(adata, keys), device),
+        _extension().regress_out(
+            *_csr_args(adata.X), _design(adata, keys), _resolve_device(device)
+        ),
         dtype=_VALUE_DTYPE,
     )
     if not inplace:
@@ -45,7 +53,7 @@ def combat(
     key: str = "batch",
     *,
     covariates: Sequence[str] | None = None,
-    device: str = "auto",
+    device: str | None = None,
     inplace: bool = True,
 ) -> np.ndarray | None:
     """Empirical Bayes batch correction, as `scanpy.pp.combat`."""
@@ -62,7 +70,7 @@ def combat(
             labels.codes.astype(_LABEL_DTYPE, copy=False),
             len(labels.categories),
             _design(adata, covariates) if covariates else None,
-            device,
+            _resolve_device(device),
         ),
         dtype=_VALUE_DTYPE,
     )
@@ -70,6 +78,11 @@ def combat(
         return corrected
     adata.X = corrected
     return None
+
+
+def _resolve_device(device: str | None) -> str:
+    """The caller's device, or `settings.device` when they named none."""
+    return _default_device() if device is None else device
 
 
 def _design(adata: AnnData, keys: Sequence[str]) -> np.ndarray:

@@ -6,6 +6,7 @@
 
 use pyo3::prelude::*;
 
+mod batch;
 mod convert;
 mod de;
 mod embedding;
@@ -37,5 +38,6 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     embedding::register(module)?;
     de::register(module)?;
     paga::register(module)?;
+    batch::register(module)?;
     Ok(())
 }

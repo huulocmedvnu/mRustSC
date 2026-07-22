@@ -14,6 +14,11 @@
 //! dense working set would exceed [`MAX_DENSE_ELEMENTS`] instead of exhausting
 //! memory.
 //!
+//! At 50 000 cells by 20 000 genes — 1e9 elements, 4 GiB dense — `regress_out`
+//! peaks at 8 GiB (the input and the result) plus a 32 MiB block on the device,
+//! and is accepted. `combat` would need about 20 GiB there and is refused; its
+//! ceiling is 2.1e8 elements, roughly 50 000 cells by 4 000 genes.
+//!
 //! Matrices are cells by genes throughout, as everywhere else in the workspace.
 
 use candle_core::{DType, Device, Tensor};
@@ -245,7 +250,9 @@ fn inverse_normal_equations(gram: &[f64], p: usize) -> Result<Vec<f64>> {
         for k in 0..j {
             pivot -= factor[j * p + k].powi(2);
         }
-        if !(pivot > RANK_TOLERANCE * gram[j * p + j]) {
+        // A non-finite pivot means a non-finite covariate, which is as unusable
+        // as a dependent column and is refused by the same test.
+        if !pivot.is_finite() || pivot <= RANK_TOLERANCE * gram[j * p + j] {
             return Err(Error::parameter(
                 "covariates",
                 "a design of full column rank",
@@ -372,7 +379,11 @@ fn standardisation_mean(
         .matrix
         .narrow(1, n_batches, n_covariates)?
         .contiguous()?
-        .matmul(&coefficients.narrow(0, n_batches, n_covariates)?.contiguous()?)?;
+        .matmul(
+            &coefficients
+                .narrow(0, n_batches, n_covariates)?
+                .contiguous()?,
+        )?;
     Ok(explained.broadcast_add(&grand_mean)?)
 }
 
@@ -386,12 +397,8 @@ fn standardise(
     let deviation = pooled_variance.sqrt()?;
     let usable = deviation.gt(0.0)?;
     let safe = usable.where_cond(&deviation, &deviation.ones_like()?)?;
-    let standardised = expression
-        .sub(standardisation_mean)?
-        .broadcast_div(&safe)?;
-    let keep = usable
-        .broadcast_as(standardised.shape())?
-        .contiguous()?;
+    let standardised = expression.sub(standardisation_mean)?.broadcast_div(&safe)?;
+    let keep = usable.broadcast_as(standardised.shape())?.contiguous()?;
     Ok(keep.where_cond(&standardised, &standardised.zeros_like()?)?)
 }
 
@@ -421,8 +428,8 @@ fn fit_batch_effects(
         let location = block.mean_keepdim(0)?;
         // Bessel's correction: scanpy takes the within-batch variance with
         // pandas' default ddof of 1.
-        let scale = (block.broadcast_sub(&location)?.sqr()?.sum_keepdim(0)?
-            / (cells.len() as f64 - 1.0))?;
+        let scale =
+            (block.broadcast_sub(&location)?.sqr()?.sum_keepdim(0)? / (cells.len() as f64 - 1.0))?;
 
         let location_prior = mean_and_variance(&to_vec(&location)?, 0);
         let scale_values = to_vec(&scale)?;
@@ -480,11 +487,12 @@ fn shrink_towards_prior(
         let mut scale = effect.scale.clone();
         let mut converged = false;
         for _ in 0..COMBAT_MAX_ITERATIONS {
-            let numerator = ((&effect.location * (location_variance * n))?
-                + (&scale * location_mean)?)?;
+            let numerator =
+                ((&effect.location * (location_variance * n))? + (&scale * location_mean)?)?;
             let next_location = numerator.div(&(&scale + location_variance * n)?)?;
             let deviation = block.broadcast_sub(&next_location)?.sqr()?.sum_keepdim(0)?;
-            let next_scale = ((deviation * 0.5)? + rate)?.affine(1.0 / (n / 2.0 + shape - 1.0), 0.0)?;
+            let next_scale =
+                ((deviation * 0.5)? + rate)?.affine(1.0 / (n / 2.0 + shape - 1.0), 0.0)?;
 
             let change = relative_change(&next_location, &location)?
                 .max(relative_change(&next_scale, &scale)?);
@@ -628,7 +636,10 @@ mod tests {
                     .zip(covariates.column(column))
                     .map(|(r, c)| r * c)
                     .sum();
-                assert!(product.abs() < 1e-2, "gene {gene} column {column}: {product}");
+                assert!(
+                    product.abs() < 1e-2,
+                    "gene {gene} column {column}: {product}"
+                );
             }
         }
     }
@@ -707,7 +718,9 @@ mod tests {
     fn planted_batch_effect(n_per_batch: usize, n_genes: usize) -> (Array2<f32>, Vec<u32>) {
         let mut rng = StdRng::seed_from_u64(11);
         let n_cells = 2 * n_per_batch;
-        let batch: Vec<u32> = (0..n_cells).map(|cell| u32::from(cell >= n_per_batch)).collect();
+        let batch: Vec<u32> = (0..n_cells)
+            .map(|cell| u32::from(cell >= n_per_batch))
+            .collect();
         let expression = Array2::from_shape_fn((n_cells, n_genes), |(cell, gene)| {
             let signal = 5.0 + gene as f32 * 0.1 + standard_normal(&mut rng);
             if batch[cell] == 1 {

@@ -1,7 +1,8 @@
 //! Bindings: removing unwanted variation. Owned by feat/regress-combat.
 //!
-//! `lib.rs` belongs to `main`, so this module is not registered yet; the
-//! `register` call to add is noted in the branch report.
+//! The contract fixes a flat, typed function per algorithm, so the argument
+//! lists are long by design.
+#![allow(clippy::too_many_arguments)]
 
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
