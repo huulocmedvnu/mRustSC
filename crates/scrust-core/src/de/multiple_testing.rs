@@ -1,17 +1,41 @@
+//! Multiple-testing corrections.
+//!
+//! The algorithms work in `f64` even though the rest of the crate is `f32`:
+//! a differential expression p-value routinely falls below `f32`'s smallest
+//! normal value (~1.2e-38) and would underflow to exactly zero, which destroys
+//! the ordering the correction depends on. The `f32` entry points convert.
+
 /// Benjamini-Hochberg adjusted p-values.
 ///
 /// Non-finite entries are passed through untouched and excluded from the
 /// effective number of tests, so unfitted genes do not dilute the correction.
 pub fn benjamini_hochberg(p_values: &[f32]) -> Vec<f32> {
+    widen_and_narrow(p_values, benjamini_hochberg_f64)
+}
+
+/// Benjamini-Hochberg on p-values that are already `f64`.
+pub fn benjamini_hochberg_f64(p_values: &[f64]) -> Vec<f64> {
     adjust_tested_only(p_values, step_up)
 }
 
 /// Bonferroni adjusted p-values, with the same treatment of non-finite entries.
 pub fn bonferroni(p_values: &[f32]) -> Vec<f32> {
+    widen_and_narrow(p_values, bonferroni_f64)
+}
+
+/// Bonferroni on p-values that are already `f64`.
+pub fn bonferroni_f64(p_values: &[f64]) -> Vec<f64> {
     adjust_tested_only(p_values, |tested| {
-        let n_tests = tested.len() as f32;
+        let n_tests = tested.len() as f64;
         tested.iter().map(|p| p * n_tests).collect()
     })
+}
+
+/// Run an `f64` correction over `f32` inputs. Widening is exact; the result is
+/// narrowed back, which is all the caller can hold anyway.
+fn widen_and_narrow(p_values: &[f32], correction: impl Fn(&[f64]) -> Vec<f64>) -> Vec<f32> {
+    let widened: Vec<f64> = p_values.iter().map(|&p| p as f64).collect();
+    correction(&widened).into_iter().map(|p| p as f32).collect()
 }
 
 /// Apply `correction` to the finite p-values only, leaving the rest as they are.
@@ -20,7 +44,7 @@ pub fn bonferroni(p_values: &[f32]) -> Vec<f32> {
 /// tested, so counting it would drag every other gene's adjusted value towards
 /// significance: the effective number of tests is the number of finite entries.
 /// Clipping to `[0, 1]` lives here too, because it holds for every correction.
-fn adjust_tested_only(p_values: &[f32], correction: impl Fn(&[f32]) -> Vec<f32>) -> Vec<f32> {
+fn adjust_tested_only(p_values: &[f64], correction: impl Fn(&[f64]) -> Vec<f64>) -> Vec<f64> {
     let tested: Vec<usize> = (0..p_values.len())
         .filter(|&index| p_values[index].is_finite())
         .collect();
@@ -30,7 +54,7 @@ fn adjust_tested_only(p_values: &[f32], correction: impl Fn(&[f32]) -> Vec<f32>)
         return adjusted;
     }
 
-    let values: Vec<f32> = tested.iter().map(|&index| p_values[index]).collect();
+    let values: Vec<f64> = tested.iter().map(|&index| p_values[index]).collect();
     for (&index, value) in tested.iter().zip(correction(&values)) {
         adjusted[index] = value.clamp(0.0, 1.0);
     }
@@ -41,16 +65,16 @@ fn adjust_tested_only(p_values: &[f32], correction: impl Fn(&[f32]) -> Vec<f32>)
 ///
 /// The running minimum enforces monotonicity: a gene is never reported as more
 /// significant than one ranked above it, so tied p-values share an adjusted value.
-fn step_up(tested: &[f32]) -> Vec<f32> {
+fn step_up(tested: &[f64]) -> Vec<f64> {
     let n_tests = tested.len();
     let mut descending: Vec<usize> = (0..n_tests).collect();
     descending.sort_unstable_by(|&a, &b| tested[b].total_cmp(&tested[a]));
 
     let mut adjusted = vec![0.0; n_tests];
-    let mut running_minimum = f32::INFINITY;
+    let mut running_minimum = f64::INFINITY;
     for (position, &index) in descending.iter().enumerate() {
-        let rank = (n_tests - position) as f32;
-        running_minimum = running_minimum.min(n_tests as f32 / rank * tested[index]);
+        let rank = (n_tests - position) as f64;
+        running_minimum = running_minimum.min(n_tests as f64 / rank * tested[index]);
         adjusted[index] = running_minimum;
     }
     adjusted

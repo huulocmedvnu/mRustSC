@@ -39,6 +39,9 @@ _UMAP_NEGATIVE_SAMPLE_RATE = 5
 _TSNE_COMPONENTS = 2
 _TSNE_ITERATIONS = 1000
 
+# The core labels cells with unsigned indices; exclusion is expressed by omission.
+_LABEL_DTYPE = np.uint32
+
 
 def umap(
     adata: AnnData,
@@ -105,29 +108,41 @@ def rank_genes_groups(
         raise ValueError(f"method must be one of {_SUPPORTED_METHODS}, got {method!r}")
 
     group_names, label_names = _group_order(adata, groupby, groups, reference)
-    labels = _labels(adata, groupby, label_names)
-    reference_index = -1 if reference == "rest" else label_names.index(reference)
+    codes = _labels(adata, groupby, label_names)
+    # "rest" is the core's None, not a sentinel index.
+    reference_index = None if reference == "rest" else label_names.index(reference)
+
+    # The core labels every cell it is given, so cells outside the selected
+    # groups are dropped here rather than encoded as an out-of-range label.
+    compared = codes >= 0
+    matrix = adata.X[compared] if not compared.all() else adata.X
 
     result = _extension().rank_genes_groups_wilcoxon(
-        *_csr_args(adata.X),
-        labels,
+        *_csr_args(matrix),
+        codes[compared].astype(_LABEL_DTYPE),
         len(label_names),
         reference_index,
         _TIE_CORRECT,
         device,
     )
 
+    # The core returns statistics in gene order; scanpy's slot is ranked by score.
     rows = [label_names.index(name) for name in group_names]
     gene_names = adata.var_names.to_numpy()
-    ranked = np.asarray(result["names"])
-    fields = {"names": [gene_names[ranked[row]] for row in rows]}
-    fields.update(
-        {
-            key: [np.asarray(result[key])[row] for row in rows]
-            for key in _DE_FIELD_DTYPES
-            if key != "names"
-        }
-    )
+    scores = np.asarray(result["scores"])
+    # scanpy reverses an ascending argsort, which flips the order of tied
+    # scores; sorting the negated array instead would not match it.
+    order = {row: np.argsort(scores[row])[::-1] for row in rows}
+    columns = {
+        "names": [gene_names[order[row]] for row in rows],
+        "scores": [scores[row][order[row]] for row in rows],
+        "logfoldchanges": [
+            np.asarray(result["log2_fold_changes"])[row][order[row]] for row in rows
+        ],
+        "pvals": [np.asarray(result["p_values"])[row][order[row]] for row in rows],
+        "pvals_adj": [np.asarray(result["adjusted_p_values"])[row][order[row]] for row in rows],
+    }
+    fields = columns
     adata.uns["rank_genes_groups"] = {
         "params": {
             "groupby": groupby,
@@ -181,7 +196,7 @@ def _group_order(
 
 
 def _labels(adata: AnnData, groupby: str, label_names: Sequence[str]) -> np.ndarray:
-    """Encode the grouping as `int32` codes into `label_names`, `-1` for excluded cells."""
+    """Encode the grouping as codes into `label_names`, `-1` for excluded cells."""
     positions = {name: index for index, name in enumerate(label_names)}
     observed = adata.obs[groupby].astype(str)
     return observed.map(lambda name: positions.get(name, -1)).to_numpy(dtype=np.int32)

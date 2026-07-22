@@ -17,8 +17,9 @@ use crate::sparse::CsrMatrix;
 #[derive(Debug, Clone)]
 pub struct GroupComparison {
     pub scores: Array2<f32>,
-    pub p_values: Array2<f32>,
-    pub adjusted_p_values: Array2<f32>,
+    /// `f64`: a rank-sum p-value routinely underflows `f32` to exactly zero.
+    pub p_values: Array2<f64>,
+    pub adjusted_p_values: Array2<f64>,
     pub log2_fold_changes: Array2<f32>,
 }
 
@@ -454,8 +455,7 @@ fn assemble(
                 }
             })
             .collect();
-        let as_f32: Vec<f32> = p_values.iter().map(|&p| p as f32).collect();
-        let adjusted = crate::de::multiple_testing::benjamini_hochberg(&as_f32);
+        let adjusted = crate::de::multiple_testing::benjamini_hochberg_f64(&p_values);
         let reference_means = match reference {
             Some(reference) => &means.group[reference as usize],
             None => &means.rest[group],
@@ -463,8 +463,8 @@ fn assemble(
 
         for (gene, &score) in group_scores.iter().enumerate() {
             score_matrix[[group, gene]] = score as f32;
-            p_matrix[[group, gene]] = p_values[gene] as f32;
-            adjusted_matrix[[group, gene]] = adjusted[gene] as f32;
+            p_matrix[[group, gene]] = p_values[gene];
+            adjusted_matrix[[group, gene]] = adjusted[gene];
             fold_matrix[[group, gene]] = if is_reference {
                 0.0
             } else {
@@ -581,7 +581,13 @@ mod tests {
         // Gene 1 is zero everywhere: every rank is 3.5 and the sum is exactly
         // the expectation.
         assert_eq!(plain.scores[[0, 1]], 0.0);
-        assert_close(plain.p_values[[0, 1]], 1.0, 1e-6, ATOL, "gene 1 p-value");
+        assert_close(
+            plain.p_values[[0, 1]] as f32,
+            1.0,
+            1e-6,
+            ATOL,
+            "gene 1 p-value",
+        );
 
         // Tie correction on gene 0: blocks of 3 zeros and 2 ones give
         // 1 - (24 + 6) / (216 - 6) = 6/7.
@@ -686,7 +692,7 @@ mod tests {
             let p = corrected.p_values[[0, gene]] as f64;
             worst_p = worst_p.max((p - SCIPY_P_TIE[gene]).abs() / SCIPY_P_TIE[gene]);
             assert_close(
-                corrected.p_values[[0, gene]],
+                corrected.p_values[[0, gene]] as f32,
                 SCIPY_P_TIE[gene] as f32,
                 1e-5,
                 ATOL,
@@ -956,7 +962,13 @@ mod tests {
             let result = run(&dense, 4, 2, &labels, 2, None, tie_correct);
             for group in 0..2 {
                 assert_eq!(result.scores[[group, 1]], 0.0);
-                assert_close(result.p_values[[group, 1]], 1.0, 1e-6, ATOL, "zero gene p");
+                assert_close(
+                    result.p_values[[group, 1]] as f32,
+                    1.0,
+                    1e-6,
+                    ATOL,
+                    "zero gene p",
+                );
                 assert_close(
                     result.log2_fold_changes[[group, 1]],
                     0.0,
@@ -976,7 +988,13 @@ mod tests {
             let result = run(&dense, 3, 2, &labels, 1, None, tie_correct);
             for gene in 0..2 {
                 assert_eq!(result.scores[[0, gene]], 0.0);
-                assert_close(result.p_values[[0, gene]], 1.0, 1e-6, ATOL, "degenerate p");
+                assert_close(
+                    result.p_values[[0, gene]] as f32,
+                    1.0,
+                    1e-6,
+                    ATOL,
+                    "degenerate p",
+                );
             }
         }
     }

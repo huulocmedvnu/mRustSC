@@ -32,8 +32,11 @@ crates), `.cargo/config.toml`, `pyproject.toml`, `scrust-core/src/{lib,error,dev
 
 - Matrices are **cells by genes**, matching AnnData. `CsrMatrix` crosses the
   Python boundary; algorithms densify row blocks when they need a tensor.
-- `f32` throughout. The Apple GPU has no `f64`, and scanpy's own results are
-  `f32` after normalisation.
+- `f32` throughout, with one exception: **p-values are `f64`**. A rank-sum
+  p-value routinely falls below `f32`'s smallest normal value (~1.2e-38) and
+  would underflow to exactly zero — scanpy reports 4.7e-59 where `f32` reports
+  0.0, which also destroys the ordering a correction depends on. Multiple-testing
+  corrections work in `f64` for the same reason.
 - Every algorithm takes `&candle_core::Device` and is written once against
   candle tensors, so the CPU path is the same code and acts as the oracle.
 - Metal kernels in `scrust-gpu` are **optimisations, not separate algorithms**:
@@ -116,7 +119,23 @@ branch must state what it measured. What agreement means differs per algorithm:
 | `pca` | `abs(corr)` per component >= 0.99 (sign is arbitrary), variance ratios to `rtol=1e-3` |
 | `neighbors` | >= 90% of each cell's neighbour set shared |
 | `umap`, `tsne` | neighbourhood preservation **relative to the reference implementation's agreement with itself** — see below. Coordinates are **not** comparable |
-| `rank_genes_groups` | identical gene ranking for the top 100 per group, scores to `rtol=1e-3` |
+| `rank_genes_groups` | identical top-100 gene **set** per group; scores, p-values and fold changes compared **per gene**, not per rank — see below |
+
+### The ranking criterion, corrected
+
+The contract asked for an identical top-100 *ordering*. Measured on identical
+input, the Rust implementation reproduces scanpy's `scores` and
+`logfoldchanges` bit for bit and its p-values to 5e-14, and the top-100 gene set
+matches exactly — but 6 to 13 positions out of 100 sit in a different order, and
+every one of them carries an identical score.
+
+There is no defined tie order to match: scanpy's `_select_top_n` arranges with
+`np.argpartition`, which does not specify the order of equal values. So the
+assertion is on the set and on per-gene values.
+
+Comparing **per rank rather than per gene** is the trap here. With a different
+tie order, position *i* holds a different gene in the two results, which made
+`logfoldchanges` look 0.5 apart when the per-gene difference was exactly zero.
 
 ### The stochastic-embedding criterion, corrected
 
