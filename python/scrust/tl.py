@@ -38,6 +38,15 @@ _UMAP_LEARNING_RATE = 1.0
 _UMAP_NEGATIVE_SAMPLE_RATE = 5
 _TSNE_COMPONENTS = 2
 _TSNE_ITERATIONS = 1000
+# scikit-learn's `learning_rate="auto"`. scanpy still passes its legacy 1000,
+# which is far too large for small datasets: at 108 cells it costs scanpy an
+# order of magnitude in KL divergence, and costs us more than that.
+_MINIMUM_LEARNING_RATE = 50.0
+
+
+def _automatic_learning_rate(n_obs: int, early_exaggeration: float) -> float:
+    return max(n_obs / early_exaggeration / 4.0, _MINIMUM_LEARNING_RATE)
+
 
 # The core labels cells with unsigned indices; exclusion is expressed by omission.
 _LABEL_DTYPE = np.uint32
@@ -75,12 +84,14 @@ def tsne(
     n_pcs: int = 50,
     perplexity: float = 30.0,
     early_exaggeration: float = 12.0,
-    learning_rate: float = 200.0,
+    learning_rate: float | None = None,
     random_state: int = 0,
     device: str = "auto",
 ) -> None:
     """Lay the principal components out with t-SNE, writing `obsm["X_tsne"]`."""
     embedding = _representation(adata, "X_pca")[:, :n_pcs]
+    if learning_rate is None:
+        learning_rate = _automatic_learning_rate(embedding.shape[0], early_exaggeration)
     result = _extension().tsne(
         np.ascontiguousarray(embedding),
         _TSNE_COMPONENTS,

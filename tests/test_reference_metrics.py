@@ -20,6 +20,7 @@ from reference_metrics import (
     per_row_overlap,
     preservation_band,
     set_overlap,
+    tsne_kl_divergence,
 )
 
 # Four points on a line at 0, 1, 2, 3.
@@ -127,3 +128,13 @@ def test_preservation_band_reports_ours_and_the_ceiling() -> None:
     candidate = np.array([[0.0], [10.0], [1.0], [11.0]])
     ours, ceiling = preservation_band(LINE, LINE, candidate, k_ref=1, k_cand=2)
     assert (ours, ceiling) == (pytest.approx(0.75), 1.0)
+
+
+def test_kl_divergence_is_lower_for_the_better_layout() -> None:
+    """A layout that keeps the two clusters apart must score below one that mixes them."""
+    rng = np.random.default_rng(0)
+    source = np.vstack([rng.normal(shift, 0.3, (30, 5)) for shift in (0.0, 8.0)])
+    faithful = np.vstack([rng.normal(shift, 0.3, (30, 2)) for shift in (0.0, 8.0)])
+    scrambled = rng.permutation(faithful)
+
+    assert tsne_kl_divergence(source, faithful) < tsne_kl_divergence(source, scrambled)

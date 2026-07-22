@@ -191,3 +191,27 @@ def preservation_band(
     ours = neighborhood_preservation(reference, candidate, k_ref=k_ref, k_cand=k_cand)
     ceiling = neighborhood_preservation(reference, reseeded, k_ref=k_ref, k_cand=k_cand)
     return ours, ceiling
+
+
+def tsne_kl_divergence(source: np.ndarray, layout: np.ndarray, perplexity: float = 30.0) -> float:
+    """The objective t-SNE minimises, for `layout` as an embedding of `source`.
+
+    Two independent t-SNE runs settle in different local optima, so comparing
+    their coordinates — or the neighbourhoods those coordinates induce — measures
+    which optimum was found, not whether the implementation is right. The
+    divergence measures the thing the algorithm is actually trying to make small,
+    so a worse implementation cannot hide behind "a different but equally valid
+    layout".
+    """
+    from scipy.spatial.distance import pdist, squareform
+    from sklearn.manifold._t_sne import _joint_probabilities
+
+    distances = squareform(pdist(np.asarray(source, dtype=np.float64), "sqeuclidean"))
+    joint = squareform(_joint_probabilities(distances, perplexity, 0))
+
+    weights = 1.0 / (1.0 + squareform(pdist(np.asarray(layout, dtype=np.float64), "sqeuclidean")))
+    np.fill_diagonal(weights, 0.0)
+    low_dimensional = np.maximum(weights / weights.sum(), 1e-12)
+
+    observed = joint > 0
+    return float((joint[observed] * np.log(joint[observed] / low_dimensional[observed])).sum())

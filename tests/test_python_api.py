@@ -473,7 +473,8 @@ def test_tsne_slices_the_pca_to_n_pcs(core: FakeCore) -> None:
     assert tl.tsne(adata, n_pcs=4) is None
     embedding, *params = core.args_of("tsne")
     assert embedding.shape == (N_OBS, 4)
-    assert params == [2, 30.0, 12.0, 200.0, 1000, 0, "auto"]
+    # learning_rate defaults to scikit-learn's "auto" rule, which floors at 50.
+    assert params == [2, 30.0, 12.0, 50.0, 1000, 0, "auto"]
     assert adata.obsm["X_tsne"].shape == (N_OBS, 2)
     assert adata.obsm["X_tsne"].dtype == np.float32
 

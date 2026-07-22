@@ -10,15 +10,15 @@ use crate::sparse::CsrMatrix;
 /// Halko et al. show the error of the randomised range finder drops sharply with
 /// the first few extra columns and then flattens; 10 is the usual choice and
 /// costs only a few more columns in matrices that are thousands wide.
-const OVERSAMPLING: usize = 10;
+const OVERSAMPLING: usize = 24;
 
 /// Power iterations applied to the sketch.
 ///
 /// Single-cell spectra decay slowly, so the plain sketch mixes neighbouring
-/// components. Each power iteration raises the spectral gap to the power three,
-/// and two of them are enough to separate the leading components while keeping
-/// the number of passes over the matrix small.
-const POWER_ITERATIONS: usize = 2;
+/// components. Each power iteration raises the spectral gap to the power three;
+/// the count follows scikit-learn's rule, chosen at the call site.
+const POWER_ITERATIONS_WELL_SEPARATED: usize = 7;
+const POWER_ITERATIONS_DENSE_SPECTRUM: usize = 4;
 
 /// Rows densified at a time. The dense block is the only large temporary, and at
 /// this size it stays a few tens of megabytes for realistic gene counts.
@@ -76,7 +76,17 @@ pub fn pca(
     let sketch_width = (n_components + OVERSAMPLING).min(max_components);
     let omega = gaussian_matrix(n_genes, sketch_width, seed, device)?;
     let mut range = orthonormalize(&centred.times(&omega)?)?;
-    for _ in 0..POWER_ITERATIONS {
+    // scikit-learn's rule: asking for a small share of the spectrum leaves a
+    // wide gap at the truncation point and converges quickly, while asking for
+    // a large share lands among near-degenerate singular values where extra
+    // iterations buy little. Two iterations, the textbook figure, leaves the
+    // trailing components visibly noisier than the reference.
+    let power_iterations = if (n_components as f64) < 0.1 * max_components as f64 {
+        POWER_ITERATIONS_WELL_SEPARATED
+    } else {
+        POWER_ITERATIONS_DENSE_SPECTRUM
+    };
+    for _ in 0..power_iterations {
         let genewise = orthonormalize(&centred.transpose_times(&range)?)?;
         range = orthonormalize(&centred.times(&genewise)?)?;
     }

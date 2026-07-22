@@ -41,7 +41,14 @@ K_CAND = 30
 # docs/API_CONTRACT.md; a flat 0.80 would be unreachable and would invite silent
 # loosening. The strict 0.80 is kept where it is genuinely achievable: the `blobs`
 # fixture, whose clusters are smaller than K_REF, so neighbour sets are seed independent.
+# How close a stochastic embedding must come to the band the reference reaches
+# against itself across seeds.
 CEILING_FRACTION = 0.85
+
+# The spectrum is well defined even where the eigenvectors are not, so the
+# variance ratios are held to the contract's tolerance, or to whatever a
+# randomised SVD itself drifts on that component, whichever is looser.
+VARIANCE_RATIO_TOLERANCE = 1e-3
 STRICT_PRESERVATION = 0.80
 
 DATASETS = {"synthetic": "_synthetic", "pbmc3k": "_pbmc3k_labelled"}
@@ -273,11 +280,32 @@ def check_pca_agreement(
         f"components {bad.tolist()} correlate {ours_corr[bad].round(4).tolist()} < 0.99 "
         f"although a randomised SVD reaches {ceiling_corr[bad].round(4).tolist()} there"
     )
-    weak = np.flatnonzero(~determined & (ours_corr < CEILING_FRACTION * ceiling_corr))
-    assert weak.size == 0, (
-        f"undetermined components {weak.tolist()} correlate {ours_corr[weak].round(4).tolist()}, "
-        f"below {CEILING_FRACTION:.0%} of the {ceiling_corr[weak].round(4).tolist()} a randomised "
-        f"SVD reaches"
+    # Beyond the determined components, per-component correlation measures nothing:
+    # a randomised SVD disagrees with arpack there by as little as 0.02, so two runs
+    # of the same algorithm disagree too. What is still well defined in a degenerate
+    # tail is the spectrum, so that is what is asserted — eigenvalues stay put even
+    # while the eigenvectors they belong to rotate freely.
+    undetermined = np.flatnonzero(~determined)
+    record(f"{label}.undetermined_components", undetermined.size)
+    ours_ratio = np.asarray(ours.uns["pca"]["variance_ratio"], dtype=np.float64)
+    reference_ratio = np.asarray(reference.uns["pca"]["variance_ratio"], dtype=np.float64)
+    ceiling_gap = (
+        np.abs(
+            np.asarray(ceiling_run.uns["pca"]["variance_ratio"], dtype=np.float64) - reference_ratio
+        )
+        / reference_ratio
+    )
+    ours_gap = np.abs(ours_ratio - reference_ratio) / reference_ratio
+    record(f"{label}.variance_ratio_gap", round(float(ours_gap.max()), 5))
+    # A tenth of margin on the ceiling: both are stochastic estimators, so
+    # demanding we never sit a digit above one particular run is not a
+    # statement about correctness.
+    tolerable = np.maximum(ceiling_gap * 1.1, VARIANCE_RATIO_TOLERANCE)
+    drifted = np.flatnonzero(ours_gap > tolerable)
+    assert drifted.size == 0, (
+        f"variance ratios drift on components {drifted.tolist()} by "
+        f"{ours_gap[drifted].round(4).tolist()}, beyond the "
+        f"{tolerable[drifted].round(4).tolist()} a randomised SVD drifts"
     )
     assert_allclose(
         np.asarray(ours.uns["pca"]["variance_ratio"], dtype=np.float64)[determined],

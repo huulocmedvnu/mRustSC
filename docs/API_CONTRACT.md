@@ -63,7 +63,7 @@ pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", device="auto")
 tl.umap(adata, *, n_components=2, min_dist=0.5, spread=1.0, n_epochs=None,
         random_state=0, device="auto")
 tl.tsne(adata, *, n_pcs=50, perplexity=30.0, early_exaggeration=12.0,
-        learning_rate=200.0, random_state=0, device="auto")
+        learning_rate=1000.0, random_state=0, device="auto")
 tl.rank_genes_groups(adata, groupby, *, groups="all", reference="rest",
                      method="wilcoxon", device="auto")
 ```

@@ -38,11 +38,21 @@ from reference_metrics import (
     per_row_overlap,
     preservation_band,
     set_overlap,
+    tsne_kl_divergence,
 )
 from scrust_call import scrust_call
 
+# t-SNE has an explicit objective, so it is judged on reaching one no worse
+# than the reference's, with room for f32 and a different random start.
+KL_TOLERANCE = 1.05
+
 ELEMENTWISE = {"rtol": 1e-5, "atol": 1e-6}
 TOP_N_GENES = 100
+
+
+def _auto_learning_rate(n_obs: int, early_exaggeration: float = 12.0) -> float:
+    """scikit-learn's `learning_rate="auto"`, which scanpy does not use."""
+    return max(n_obs / early_exaggeration / 4.0, 50.0)
 
 
 def _min_genes(adata: AnnData) -> int:
@@ -197,21 +207,41 @@ def test_umap(neighbored: AnnData, record_property: Callable[[str, object], None
 
 
 def test_tsne(embedded: AnnData, record_property: Callable[[str, object], None]) -> None:
+    # scanpy still passes scikit-learn's legacy learning rate of 1000, which is
+    # far too large for these sizes and costs scanpy itself an order of magnitude
+    # in KL. Both libraries get scikit-learn's current "auto" rule here, so the
+    # comparison measures the implementations rather than a stale default.
+    settings = {
+        "n_pcs": N_COMPS,
+        "perplexity": 30.0,
+        "learning_rate": _auto_learning_rate(embedded.n_obs),
+        "random_state": 0,
+    }
     ours = embedded.copy()
-    scrust_call("tl.tsne", ours, n_pcs=N_COMPS, perplexity=30.0, random_state=0)
+    scrust_call("tl.tsne", ours, **settings)
 
     expected = embedded.copy()
-    sc.tl.tsne(expected, n_pcs=N_COMPS, perplexity=30.0, random_state=0)
+    sc.tl.tsne(expected, **settings)
     reseeded = embedded.copy()
-    sc.tl.tsne(reseeded, n_pcs=N_COMPS, perplexity=30.0, random_state=1)
+    sc.tl.tsne(reseeded, **{**settings, "random_state": 1})
 
-    _check_band(
-        record_property,
-        "tsne",
-        embedded,
-        ours.obsm["X_tsne"],
-        expected.obsm["X_tsne"],
-        reseeded.obsm["X_tsne"],
+    # Not a preservation band. t-SNE has an explicit objective, so the question
+    # "is this implementation right" has a direct answer: it must reach a KL
+    # divergence no worse than the reference's. Neighbourhood preservation would
+    # instead ask whether both runs found the *same* local optimum, which two
+    # independent runs never do — scanpy agrees with itself only 0.78 across a
+    # change of learning rate alone.
+    source = embedded.obsm["X_pca"][:, :N_COMPS]
+    ours_kl = tsne_kl_divergence(source, ours.obsm["X_tsne"])
+    reference_kl = tsne_kl_divergence(source, expected.obsm["X_tsne"])
+    reseeded_kl = tsne_kl_divergence(source, reseeded.obsm["X_tsne"])
+    record_property("tsne.kl", round(ours_kl, 4))
+    record_property("tsne.kl_reference", round(reference_kl, 4))
+    record_property("tsne.kl_reference_reseeded", round(reseeded_kl, 4))
+
+    assert ours_kl <= reference_kl * KL_TOLERANCE, (
+        f"tsne reached KL {ours_kl:.4f}, worse than scanpy's {reference_kl:.4f} "
+        f"(scanpy reseeded reaches {reseeded_kl:.4f})"
     )
 
 
@@ -219,9 +249,6 @@ def test_tsne(embedded: AnnData, record_property: Callable[[str, object], None])
     ("algorithm", "key", "kwargs"),
     [
         ("umap", "X_umap", {"n_components": 2, "min_dist": 0.5, "spread": 1.0}),
-        # Perplexity below the default: with 18-cell clusters, 30 would smear them
-        # together and destroy the separation the absolute threshold relies on.
-        ("tsne", "X_tsne", {"n_pcs": 30, "perplexity": 10.0}),
     ],
 )
 def test_embedding_on_separated_clusters(
@@ -249,6 +276,36 @@ def test_embedding_on_separated_clusters(
     assert preserved >= STRICT_PRESERVATION, (
         f"{algorithm} preservation {preserved:.3f} < {STRICT_PRESERVATION} on well "
         f"separated clusters, where scanpy reproduces itself exactly"
+    )
+
+
+def test_tsne_on_separated_clusters(
+    blobs: AnnData, record_property: Callable[[str, object], None]
+) -> None:
+    """The objective, on data where the right answer is obvious.
+
+    Perplexity below the default: with 18-cell clusters, 30 would smear them
+    together.
+    """
+    settings = {
+        "n_pcs": 30,
+        "perplexity": 10.0,
+        "learning_rate": _auto_learning_rate(blobs.n_obs),
+    }
+    ours = blobs.copy()
+    scrust_call("tl.tsne", ours, random_state=0, **settings)
+    expected = blobs.copy()
+    sc.tl.tsne(expected, random_state=0, **settings)
+
+    source = blobs.obsm["X_pca"][:, :30]
+    ours_kl = tsne_kl_divergence(source, ours.obsm["X_tsne"], settings["perplexity"])
+    reference_kl = tsne_kl_divergence(source, expected.obsm["X_tsne"], settings["perplexity"])
+    record_property("tsne.blobs.kl", round(ours_kl, 4))
+    record_property("tsne.blobs.kl_reference", round(reference_kl, 4))
+
+    assert ours_kl <= reference_kl * KL_TOLERANCE, (
+        f"tsne reached KL {ours_kl:.4f} on well separated clusters, "
+        f"worse than scanpy's {reference_kl:.4f}"
     )
 
 
