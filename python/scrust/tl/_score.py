@@ -23,8 +23,9 @@ _DEFAULT_TOP_MARKERS = 100
 # The three overlap measures scanpy offers, each over two sets of gene names.
 _OVERLAP_METHODS = {
     "overlap_count": lambda reference, called: float(len(reference & called)),
-    "overlap_coef": lambda reference, called: len(reference & called)
-    / max(min(len(reference), len(called)), 1),
+    "overlap_coef": lambda reference, called: (
+        len(reference & called) / max(min(len(reference), len(called)), 1)
+    ),
     "jaccard": lambda reference, called: len(reference & called) / len(reference | called),
 }
 

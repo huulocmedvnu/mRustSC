@@ -1,6 +1,4 @@
 //! Bindings: scoring. Owned by feat/scoring.
-//!
-//! Not yet registered in `lib.rs`, which `main` owns; see the branch report.
 
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;

@@ -26,8 +26,20 @@ ELEMENTWISE = {"rtol": 1e-5, "atol": 1e-6}
 # Real markers for PBMC 3k, and the planted markers of the synthetic fixture.
 GENE_SETS = {
     "pbmc3k": [
-        "IL7R", "CD14", "LYZ", "MS4A1", "CD8A", "GNLY", "NKG7",
-        "FCGR3A", "MS4A7", "FCER1A", "CST3", "PPBP", "CD3D", "CD3E",
+        "IL7R",
+        "CD14",
+        "LYZ",
+        "MS4A1",
+        "CD8A",
+        "GNLY",
+        "NKG7",
+        "FCGR3A",
+        "MS4A7",
+        "FCER1A",
+        "CST3",
+        "PPBP",
+        "CD3D",
+        "CD3E",
     ],
     "synthetic": [f"gene{index}" for index in range(0, 12)],
 }
@@ -61,9 +73,7 @@ def test_score_genes_matches_scanpy(
     theirs = expected.obs["theirs"].to_numpy()
     dataset = lognorm.uns["dataset_id"]
     correlation = float(np.corrcoef(ours, theirs)[0, 1])
-    rank_correlation = float(
-        np.corrcoef(pd.Series(ours).rank(), pd.Series(theirs).rank())[0, 1]
-    )
+    rank_correlation = float(np.corrcoef(pd.Series(ours).rank(), pd.Series(theirs).rank())[0, 1])
     record_property(f"score_genes.{dataset}.pearson", round(correlation, 6))
     record_property(f"score_genes.{dataset}.spearman", round(rank_correlation, 6))
     print(
@@ -119,9 +129,7 @@ def called_markers() -> AnnData:
     }
     adata.uns["rank_genes_groups"] = {
         "params": {"groupby": "group", "reference": "rest", "use_raw": False},
-        "names": np.rec.fromarrays(
-            list(groups.values()), dtype=[(name, "O") for name in groups]
-        ),
+        "names": np.rec.fromarrays(list(groups.values()), dtype=[(name, "O") for name in groups]),
     }
     return adata
 
@@ -199,7 +207,7 @@ def test_genes_missing_from_the_matrix_are_dropped_with_a_warning(lognorm: AnnDa
 
 def test_a_gene_set_covering_the_matrix_leaves_no_control(lognorm: AnnData) -> None:
     """scanpy raises too: every gene is scored, so every bin empties out."""
-    everything = list(lognorm.var_names) + ["not-a-gene"]
+    everything = [*lognorm.var_names, "not-a-gene"]
     with pytest.raises((ValueError, RuntimeError)):
         scrust_call("tl.score_genes", lognorm, everything)
 

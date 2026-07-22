@@ -218,4 +218,3 @@ def filter_rank_genes_groups(
         & (fold_change > min_fold_change)
     )
     adata.uns[key_added] = {**result, "names": gene_names[kept].to_records(index=False)}
-
