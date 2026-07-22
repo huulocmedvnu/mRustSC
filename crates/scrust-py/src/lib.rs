@@ -12,6 +12,7 @@ mod embedding;
 mod paga;
 mod preprocess;
 mod qc;
+mod sampling;
 
 /// Map a core error onto the closest Python exception.
 #[allow(dead_code)]
@@ -39,5 +40,6 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     de::register(module)?;
     paga::register(module)?;
     qc::register(module)?;
+    sampling::register(module)?;
     Ok(())
 }
