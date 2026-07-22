@@ -35,3 +35,6 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# Tests are plain functions; this stops pytest collecting domain types such as
+# TestStatistics purely because of their name.
+python_classes = []
