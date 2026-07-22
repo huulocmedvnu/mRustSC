@@ -1,0 +1,16 @@
+[package]
+name = "scrust-py"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "_scrust"
+crate-type = ["cdylib"]
+
+[dependencies]
+scrust-core.workspace = true
+scrust-gpu.workspace = true
+candle-core.workspace = true
+ndarray.workspace = true
+numpy = "0.23"
+pyo3 = { version = "0.23", features = ["extension-module"] }

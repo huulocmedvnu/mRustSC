@@ -1,0 +1,11 @@
+[package]
+name = "scrust-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+candle-core.workspace = true
+ndarray.workspace = true
+rand.workspace = true
+rayon.workspace = true
+thiserror.workspace = true

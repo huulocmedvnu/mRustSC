@@ -1,84 +1,76 @@
-# mlxde
+# scrust
 
-Differential expression analysis for RNA-seq count data, running the numerical
-work on the GPU of Apple M-series chips through [MLX](https://github.com/ml-explore/mlx).
+Single-cell analysis with a Rust core that runs the heavy numerics on the GPU of
+Apple M-series chips. Python is the interface only: it holds the AnnData
+plumbing and the defaults, and every matrix operation happens in Rust.
 
-The model is the one used by DESeq2: median-of-ratios normalisation, a per-gene
-negative binomial GLM fitted by iteratively reweighted least squares, a Wald test
-on the contrast of interest, and Benjamini-Hochberg correction. Every gene is
-fitted in the same batched kernel, which is what makes the GPU worth using.
+The API mirrors scanpy, so an existing script changes its import and keeps its
+plotting:
+
+```python
+import scanpy as sc
+import scrust as sr
+
+adata = sc.read_10x_mtx("filtered_gene_bc_matrices/hg19/")
+sr.pp.filter_cells(adata, min_genes=200)
+sr.pp.normalize_total(adata)
+sr.pp.log1p(adata)
+sr.pp.highly_variable_genes(adata, n_top_genes=2000)
+sr.pp.pca(adata, n_comps=50)
+sr.pp.neighbors(adata, n_neighbors=15)
+sr.tl.umap(adata)
+sr.tl.rank_genes_groups(adata, "louvain")
+sc.pl.umap(adata, color="louvain")     # scanpy plotting still works
+```
+
+## Why Rust and Metal
+
+The expensive steps of a single-cell pipeline — PCA, the neighbour graph, UMAP
+and t-SNE layouts, differential expression — are large batched matrix
+operations. Apple silicon's unified memory means the count matrix is not copied
+across a bus to reach the GPU, which is what usually makes GPU acceleration
+uneconomic at single-cell matrix sizes.
+
+Everything expressible as tensor algebra is written once against
+[candle](https://github.com/huggingface/candle) and runs on either device, so
+the CPU path is the same code and serves as the correctness oracle. Only the
+irregular inner loops — nearest-neighbour selection, UMAP's negative sampling,
+t-SNE's repulsive forces — have hand written Metal kernels.
+
+## Correctness
+
+scanpy is the reference. Every algorithm is cross-checked against it on real
+data, with the form of agreement chosen per algorithm — element-wise for
+deterministic transforms, neighbourhood preservation for stochastic embeddings.
+`docs/API_CONTRACT.md` lists what is asserted, `docs/VALIDATION.md` what was
+measured.
 
 ## Install
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev,gpu,plots]"
+.venv/bin/pip install maturin
+VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
-`mlx` only installs on Apple silicon; without it the package falls back to the
-NumPy backend automatically.
-
-## Use
-
-```bash
-mlxde run --counts counts.csv --metadata samples.csv \
-          --condition condition --reference control --output results.csv
-```
-
-```python
-from mlxde.factory import build_default_pipeline
-from mlxde.io.readers import CsvCountReader
-from mlxde.io.design import build_design_matrix
-
-counts = CsvCountReader().read("counts.csv", "samples.csv")
-design = build_design_matrix(counts.sample_metadata, "condition", reference_level="control")
-result = build_default_pipeline().run(counts, design, design.contrast("condition[treated]"))
-print(result.significant(alpha=0.05, min_abs_log2_fold_change=1.0))
-```
+Requires a Rust toolchain and, for the GPU path, Apple silicon with Xcode's
+Metal compiler. Without a GPU everything still runs on the CPU.
 
 ## Layout
 
 ```
-src/mlxde/
-  contracts.py    protocols and data types shared by every layer
-  backend/        compute devices (MLX GPU, NumPy CPU) behind one interface
-  io/             reading counts, building design matrices, writing results
-  preprocess/     size factors and gene filtering
-  stats/          dispersion, GLM, hypothesis tests, multiple testing
-  pipeline/       orchestration, depends only on protocols
-  report/         plots and text summaries
-  cli/            command line entry point
-  factory.py      composition root wiring concrete classes together
+crates/
+  scrust-core/    data types and every algorithm, written against candle
+  scrust-gpu/     Metal context and hand written kernels
+  scrust-py/      PyO3 bindings, conversion only
+python/scrust/    the scanpy-shaped API and AnnData plumbing
+tests/            cross-checks against scanpy
 ```
-
-See `docs/ARCHITECTURE.md` for the layering rules and `docs/API_CONTRACT.md` for
-the frozen public API.
-
-## Performance and limits
-
-GLM fit over 60 000 genes: 0.043 s on the GPU vs 0.291 s on the CPU (6.8x, M3 Pro).
-The GPU only wins once the gene batch is large enough to hide kernel launch
-latency — below ~5 000 genes the two are comparable.
-
-On real data (10x PBMC 3k, pseudobulked by cell type) the pipeline is regression
-tested against scanpy across six cell-type pairs: direction never disagrees with
-`scanpy.tl.rank_genes_groups`, gene ranking correlates 0.83-0.96, and 14/14
-canonical markers are called correctly. Run them with `pytest -m realdata`
-(needs the `validate` extra); exclude them with `pytest -m "not realdata"`.
-
-Adjusted p-values are well calibrated at the family level (0-1 discoveries under
-the global null) but slightly optimistic per gene on small designs, because the
-Wald test and method-of-moments dispersion are used without Cox-Reid adjustment.
-Measured numbers and their consequences are in `docs/VALIDATION.md`.
 
 ## Develop
 
 ```bash
-.venv/bin/ruff check . && .venv/bin/ruff format --check .
+cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
+VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 .venv/bin/pytest
-PYTHONPATH=src .venv/bin/python scripts/benchmark.py
 ```
-
-The ten feature branches (`feat/*`) were developed in parallel against the frozen
-interfaces in `docs/API_CONTRACT.md` and merged into `main`; the history keeps
-them separate.

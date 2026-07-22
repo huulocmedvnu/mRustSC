@@ -1,113 +1,117 @@
 # API contract
 
-Every module below implements protocols from `mlxde.contracts`. The contract is
-frozen: implementations may change freely, these names and signatures may not.
-Ten branches are developed in parallel against this document, so a branch that
-renames a symbol here breaks the branches it is merged with.
+Fifteen branches are developed in parallel against this document. The signatures
+below already exist as stubs on `main`, so the workspace always compiles; a
+branch fills in bodies and adds tests, and never renames anything here.
 
-| Branch | Module | Public API |
+## Ownership
+
+| Branch | Files | Delivers |
 | --- | --- | --- |
-| `feat/backend-mlx` | `mlxde/backend/mlx_backend.py` | `MLXBackend()` — `ComputeBackend` on the Apple GPU |
-| `feat/io` | `mlxde/io/readers.py`, `writers.py`, `design.py` | `CsvCountReader()`, `CsvResultWriter()`, `build_design_matrix(...)` |
-| (post-merge) | `mlxde/io/pseudobulk.py` | `build_pseudobulk(...)` |
-| `feat/preprocess` | `mlxde/preprocess/normalization.py`, `filtering.py` | `MedianOfRatiosSizeFactors()`, `TotalCountSizeFactors()`, `MinimumCountFilter(...)` |
-| `feat/dispersion` | `mlxde/stats/dispersion.py` | `MethodOfMomentsDispersion(...)`, `TrendedDispersion(...)` |
-| `feat/glm` | `mlxde/stats/glm.py` | `NegativeBinomialGLM(backend, ...)` |
-| `feat/hypothesis` | `mlxde/stats/hypothesis.py` | `WaldTest()`, `LikelihoodRatioTest(fitter)` |
-| `feat/multiple-testing` | `mlxde/stats/multiple_testing.py` | `BenjaminiHochberg()`, `Bonferroni()` |
-| `feat/pipeline` | `mlxde/pipeline/differential_expression.py` | `DifferentialExpressionPipeline(...)` |
-| `feat/cli` | `mlxde/cli/main.py` | `app` (Typer) with the `run` command |
-| `feat/report` | `mlxde/report/plots.py`, `summary.py` | `volcano_plot(...)`, `ma_plot(...)`, `summarize(...)` |
+| `feat/preprocess-basics` | `scrust-core/src/preprocess/{normalize,filter,scale}.rs` | `normalize_total`, `log1p`, `filter_cells`, `filter_genes`, `subset`, `scale` |
+| `feat/hvg` | `scrust-core/src/preprocess/hvg.rs` | `highly_variable_genes` |
+| `feat/pca` | `scrust-core/src/pca.rs` | `pca` by randomised SVD |
+| `feat/neighbors` | `scrust-core/src/neighbors.rs` | `knn`, `connectivities` |
+| `feat/knn-kernel` | `scrust-gpu/src/kernels/knn.rs` | `knn_metal`, fused distance + selection |
+| `feat/umap` | `scrust-core/src/umap.rs` | `umap` |
+| `feat/umap-kernel` | `scrust-gpu/src/kernels/umap_sgd.rs` | `umap_epoch` |
+| `feat/tsne` | `scrust-core/src/tsne.rs` | `tsne` |
+| `feat/tsne-kernel` | `scrust-gpu/src/kernels/tsne_gradient.rs` | `tsne_gradient` |
+| `feat/wilcoxon` | `scrust-core/src/de/wilcoxon.rs` | `rank_genes_groups_wilcoxon` |
+| `feat/glm` | `scrust-core/src/de/glm.rs` | `fit_negative_binomial` |
+| `feat/dea-stats` | `scrust-core/src/de/{dispersion,hypothesis,multiple_testing}.rs` | size factors, dispersions, Wald test, BH |
+| `feat/bindings` | `scrust-py/src/{convert,preprocess,embedding,de}.rs` | the `scrust._scrust` extension module |
+| `feat/python-api` | `python/scrust/{pp,tl}.py` | the scanpy-shaped Python API |
+| `feat/reference-tests` | `tests/`, `benches/`, `.github/workflows/` | scanpy cross-checks, benchmarks, CI |
 
-## Signatures
+Files owned by `main` and never edited on a branch: `Cargo.toml` (workspace and
+crates), `.cargo/config.toml`, `pyproject.toml`, `scrust-core/src/{lib,error,device,sparse}.rs`,
+`scrust-gpu/src/{lib,context}.rs`, every `mod.rs`, `python/scrust/__init__.py`.
+
+## Core conventions
+
+- Matrices are **cells by genes**, matching AnnData. `CsrMatrix` crosses the
+  Python boundary; algorithms densify row blocks when they need a tensor.
+- `f32` throughout. The Apple GPU has no `f64`, and scanpy's own results are
+  `f32` after normalisation.
+- Every algorithm takes `&candle_core::Device` and is written once against
+  candle tensors, so the CPU path is the same code and acts as the oracle.
+- Metal kernels in `scrust-gpu` are **optimisations, not separate algorithms**:
+  each must return what its `scrust-core` counterpart returns, and its tests
+  must assert that.
+- Randomness takes an explicit seed. Two runs with the same seed are identical.
+- Errors are `scrust_core::Error`; never `panic!` or `unwrap` on user input.
+
+## Python API
+
+Signatures mirror scanpy so that existing scripts change only their import.
+Results go into the slots scanpy uses:
 
 ```python
-# mlxde/backend/mlx_backend.py
-class MLXBackend:                       # ComputeBackend, runs on the Apple GPU
-    def __init__(self, dtype: str = "float32") -> None: ...
+pp.filter_cells(adata, *, min_genes=None, min_counts=None, inplace=True)
+pp.filter_genes(adata, *, min_cells=None, min_counts=None, inplace=True)
+pp.normalize_total(adata, *, target_sum=None, inplace=True)
+pp.log1p(adata, *, inplace=True)
+pp.highly_variable_genes(adata, *, n_top_genes=2000, flavor="seurat", inplace=True)
+pp.scale(adata, *, zero_center=True, max_value=None, inplace=True)
+pp.pca(adata, *, n_comps=50, zero_center=True, random_state=0, device="auto")
+pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", device="auto")
 
-# mlxde/io/design.py
-def build_design_matrix(
-    sample_metadata: pd.DataFrame,
-    condition_column: str,
-    reference_level: str | None = None,
-    covariate_columns: Sequence[str] = (),
-) -> DesignMatrix: ...
-# Column 0 is the intercept, named "intercept"; treatment columns are named
-# f"{condition_column}[{level}]" so callers can request them via
-# DesignMatrix.contrast(name).
-
-# mlxde/io/pseudobulk.py
-def build_pseudobulk(
-    counts: pd.DataFrame,             # cells x genes
-    cell_labels: pd.Series,           # cell id -> population label
-    conditions: Mapping[str, str],    # population label -> condition
-    n_replicates: int = 5,
-    seed: int = 0,
-) -> CountMatrix: ...
-
-# mlxde/io/readers.py
-class CsvCountReader:                   # CountReader
-    def __init__(self, gene_id_column: str = "gene_id",
-                 sample_id_column: str = "sample_id") -> None: ...
-    def read(self, counts_path: Path, metadata_path: Path) -> CountMatrix: ...
-
-# mlxde/io/writers.py
-class CsvResultWriter:                  # ResultWriter
-    def write(self, result: DifferentialExpressionResult, path: Path) -> None: ...
-
-# mlxde/preprocess/normalization.py
-class MedianOfRatiosSizeFactors: ...    # SizeFactorEstimator (DESeq2-style)
-class TotalCountSizeFactors: ...        # SizeFactorEstimator (library size / mean)
-
-# mlxde/preprocess/filtering.py
-class MinimumCountFilter:               # GeneFilter
-    def __init__(self, min_count: int = 10, min_samples: int = 3) -> None: ...
-
-# mlxde/stats/dispersion.py
-class MethodOfMomentsDispersion:        # DispersionEstimator
-    def __init__(self, backend: ComputeBackend, minimum: float = 1e-8) -> None: ...
-class TrendedDispersion:                # DispersionEstimator, shrinks towards a mean-trend
-    def __init__(self, base: DispersionEstimator, shrinkage_weight: float = 0.5) -> None: ...
-
-# mlxde/stats/glm.py
-class NegativeBinomialGLM:              # GLMFitter, batched IRLS on the backend
-    def __init__(self, backend: ComputeBackend, max_iterations: int = 100,
-                 tolerance: float = 1e-6) -> None: ...
-
-# mlxde/stats/hypothesis.py
-class WaldTest: ...                     # HypothesisTest, normal approximation
-class LikelihoodRatioTest:              # HypothesisTest, chi-squared
-    def __init__(self, fitter: GLMFitter, design: DesignMatrix,
-                 counts: np.ndarray, size_factors: np.ndarray) -> None: ...
-
-# mlxde/stats/multiple_testing.py
-class BenjaminiHochberg: ...            # MultipleTestingCorrection
-class Bonferroni: ...                   # MultipleTestingCorrection
-
-# mlxde/pipeline/differential_expression.py
-class DifferentialExpressionPipeline:
-    def __init__(self, size_factors: SizeFactorEstimator, gene_filter: GeneFilter,
-                 dispersions: DispersionEstimator, fitter: GLMFitter,
-                 hypothesis_test: HypothesisTest,
-                 correction: MultipleTestingCorrection) -> None: ...
-    def run(self, count_matrix: CountMatrix, design: DesignMatrix,
-            contrast: np.ndarray) -> DifferentialExpressionResult: ...
-
-# mlxde/report/plots.py
-def volcano_plot(result: DifferentialExpressionResult, alpha: float = 0.05,
-                 min_abs_log2_fold_change: float = 1.0) -> Figure: ...
-def ma_plot(result: DifferentialExpressionResult, alpha: float = 0.05) -> Figure: ...
-
-# mlxde/report/summary.py
-def summarize(result: DifferentialExpressionResult, alpha: float = 0.05) -> str: ...
+tl.umap(adata, *, n_components=2, min_dist=0.5, spread=1.0, n_epochs=None,
+        random_state=0, device="auto")
+tl.tsne(adata, *, n_pcs=50, perplexity=30.0, early_exaggeration=12.0,
+        learning_rate=200.0, random_state=0, device="auto")
+tl.rank_genes_groups(adata, groupby, *, groups="all", reference="rest",
+                     method="wilcoxon", device="auto")
 ```
 
-## Numerical conventions
+| Function | Writes |
+| --- | --- |
+| `pp.pca` | `obsm["X_pca"]`, `varm["PCs"]`, `uns["pca"]["variance_ratio"]` |
+| `pp.neighbors` | `obsp["distances"]`, `obsp["connectivities"]`, `uns["neighbors"]` |
+| `pp.highly_variable_genes` | `var["highly_variable"]`, `var["means"]`, `var["dispersions_norm"]` |
+| `tl.umap` | `obsm["X_umap"]` |
+| `tl.tsne` | `obsm["X_tsne"]` |
+| `tl.rank_genes_groups` | `uns["rank_genes_groups"]` with `names`, `scores`, `pvals`, `pvals_adj`, `logfoldchanges` as structured arrays, one field per group |
 
-- Counts are `(n_genes, n_samples)`; design matrices are `(n_samples, n_coefficients)`.
-- Coefficients and contrasts live on the **natural-log** scale; only the final
-  result table is converted to log2.
-- Size factors are strictly positive and normalised to a geometric mean of 1.
-- `base_mean` is the mean of size-factor-normalised counts per gene.
-- Genes removed by the `GeneFilter` are excluded from multiple-testing correction.
+## Extension module
+
+`scrust._scrust` exposes flat, typed functions. The Python layer owns defaults
+and AnnData plumbing; the Rust layer owns none of it.
+
+```python
+_scrust.gpu_available() -> bool
+_scrust.normalize_total(indptr, indices, values, n_cols, target_sum, device) -> tuple
+_scrust.log1p(indptr, indices, values, n_cols) -> tuple
+_scrust.filter_cells(indptr, indices, values, n_cols, min_genes, min_counts) -> np.ndarray[bool]
+_scrust.filter_genes(indptr, indices, values, n_cols, min_cells, min_counts) -> np.ndarray[bool]
+_scrust.scale(indptr, indices, values, n_cols, zero_center, max_value, device) -> np.ndarray
+_scrust.highly_variable_genes(indptr, indices, values, n_cols, n_top_genes, flavor, device) -> dict
+_scrust.pca(indptr, indices, values, n_cols, n_components, zero_center, seed, device) -> dict
+_scrust.knn(embedding, k, device) -> tuple[np.ndarray, np.ndarray]
+_scrust.connectivities(indices, distances) -> tuple
+_scrust.umap(indptr, indices, values, n_cols, params..., device) -> np.ndarray
+_scrust.tsne(embedding, params..., device) -> np.ndarray
+_scrust.rank_genes_groups_wilcoxon(indptr, indices, values, n_cols, labels,
+                                   n_groups, reference, tie_correct, device) -> dict
+```
+
+Sparse matrices cross as the three CSR arrays plus `n_cols`; a `tuple` return of
+the same shape is a sparse result. Dense results are 2-D `numpy` arrays.
+
+## scanpy is the reference
+
+Correctness is defined by agreement with scanpy on the same input, and every
+branch must state what it measured. What agreement means differs per algorithm:
+
+| Algorithm | Asserted against scanpy |
+| --- | --- |
+| `normalize_total`, `log1p`, `filter_*`, `scale` | element-wise equality, `rtol=1e-5` |
+| `highly_variable_genes` | the selected gene set overlaps by >= 95% |
+| `pca` | `abs(corr)` per component >= 0.99 (sign is arbitrary), variance ratios to `rtol=1e-3` |
+| `neighbors` | >= 90% of each cell's neighbour set shared |
+| `umap`, `tsne` | neighbourhood preservation: >= 80% of a cell's 15 nearest neighbours in the scanpy embedding are within its 30 nearest in ours. Coordinates are **not** comparable |
+| `rank_genes_groups` | identical gene ranking for the top 100 per group, scores to `rtol=1e-3` |
+
+Where a deviation is real and defensible, document it rather than loosening a
+threshold silently.

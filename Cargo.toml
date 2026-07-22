@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/scrust-core", "crates/scrust-gpu", "crates/scrust-py"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+
+[workspace.dependencies]
+scrust-core = { path = "crates/scrust-core" }
+scrust-gpu = { path = "crates/scrust-gpu" }
+candle-core = { version = "0.9", features = ["metal"] }
+metal = "0.29"
+ndarray = "0.16"
+rand = "0.8"
+rayon = "1.10"
+thiserror = "2.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

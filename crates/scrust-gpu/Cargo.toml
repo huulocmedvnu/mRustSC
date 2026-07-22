@@ -1,0 +1,10 @@
+[package]
+name = "scrust-gpu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+scrust-core.workspace = true
+candle-core.workspace = true
+metal.workspace = true
+ndarray.workspace = true

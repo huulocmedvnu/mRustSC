@@ -1,0 +1,4 @@
+# PyO3 extension modules resolve CPython symbols when the interpreter loads them,
+# so a plain `cargo build` must be told not to look for them at link time.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

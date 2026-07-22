@@ -1,34 +1,27 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
 
 [project]
-name = "mlxde"
+name = "scrust"
 version = "0.1.0"
-description = "GPU-accelerated differential expression analysis for Apple silicon"
+description = "Single-cell analysis with a Rust core on the Apple GPU"
 requires-python = ">=3.11"
-dependencies = [
-    "numpy>=2.0",
-    "pandas>=2.2",
-    "scipy>=1.13",
-    "typer>=0.12",
-]
+dependencies = ["numpy>=2.0", "anndata>=0.10", "scipy>=1.13"]
 
 [project.optional-dependencies]
-gpu = ["mlx>=0.20"]
-plots = ["matplotlib>=3.8"]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
-validate = ["scanpy>=1.10"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+reference = ["scanpy>=1.10", "leidenalg>=0.10"]
 
-[project.scripts]
-mlxde = "mlxde.cli.main:app"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.maturin]
+module-name = "scrust._scrust"
+python-source = "python"
+manifest-path = "crates/scrust-py/Cargo.toml"
+features = ["pyo3/extension-module"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["python", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
@@ -36,9 +29,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-# Tests are plain functions; this stops pytest collecting domain types such as
-# TestStatistics purely because of their name.
 python_classes = []
 markers = [
-    "realdata: compares against scanpy on the PBMC 3k dataset; downloads ~29 MB",
+    "reference: cross-checks results against scanpy; downloads datasets",
 ]
