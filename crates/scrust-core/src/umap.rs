@@ -109,7 +109,15 @@ struct EdgeList {
 impl EdgeList {
     /// Drop the edges too weak to fire even once in `n_epochs`, then turn the
     /// surviving weights into firing intervals exactly as umap-learn's
-    /// `make_epochs_per_sample` does.
+    /// `make_epochs_per_sample` (`umap/umap_.py:906`) does: `max / weight`, so
+    /// the interval is always at least 1 and the strongest edge fires every
+    /// epoch.
+    ///
+    /// The cutoff is `umap/umap_.py:1089`. One difference: below eleven epochs
+    /// umap-learn keeps thresholding at `max / default_epochs` (500 or 200)
+    /// rather than at `max / n_epochs`, so a very short run there drops far more
+    /// edges than this does. Short runs are not a supported configuration
+    /// either side.
     fn from_graph(connectivities: &CsrMatrix, n_epochs: usize) -> Self {
         let max_weight = connectivities
             .values()
@@ -141,10 +149,17 @@ impl EdgeList {
     }
 }
 
-/// The three-state Tausworthe generator umap-learn uses (`tau_rand_int`).
+/// The three-state Tausworthe generator umap-learn uses (`tau_rand_int`,
+/// `umap/utils.py:41`).
 ///
-/// Reimplemented rather than taken from `rand` so the negative samples drawn
-/// here follow the same sequence umap-learn would draw from the same state.
+/// Reimplemented rather than taken from `rand` so that, from the same state, it
+/// emits the same words. That equivalence holds for states in `[0, 2^32)`, which
+/// is the range this seeding produces; umap-learn declares its own state `i8[:]`
+/// and seeds it from `rng_state + head_embedding[:, 0].view(np.int64)`
+/// (`umap/layouts.py:367`), so in practice it runs the same recurrence over
+/// 64-bit *signed* words and returns an `i4`. The streams therefore agree in
+/// distribution, not element by element, and no attempt is made to share a state
+/// with umap-learn.
 struct TauRng {
     state: [u32; 3],
 }
@@ -182,9 +197,27 @@ impl TauRng {
 /// Row-major uniform draws in `[-INIT_RANGE, INIT_RANGE]`.
 ///
 /// umap-learn defaults to a spectral initialisation, which needs an eigensolver
-/// this crate does not have. Random initialisation is its documented fallback:
-/// it reaches an equally well separated layout, only in an arbitrary orientation
-/// and with a slightly higher chance of a cluster splitting on hard graphs.
+/// this crate does not have. Random initialisation is its documented fallback,
+/// `init="random"` (`umap/umap_.py:1095`), and this reproduces it including the
+/// rescale that follows at `umap/umap_.py:1188`.
+///
+/// What that costs, measured against umap-learn driven both ways on the same
+/// graph (see `tests/test_umap_audit.py`):
+///
+/// - The objective is unaffected. On PBMC 3k the fuzzy-set cross entropy is
+///   1.5477e6 +- 0.05e6 from spectral and 1.5484e6 +- 0.10e6 from random, and
+///   this implementation lands inside that band.
+/// - Local structure is unaffected: on labelled blobs every neighbourhood keeps
+///   its own label under both.
+/// - **Global arrangement is not.** On clusters strung along a trajectory, the
+///   fraction of consecutive clusters that stay adjacent in the layout is 0.52
+///   from spectral and 0.15 from random; this implementation scores 0.13, i.e.
+///   it behaves like umap-learn with `init="random"`, which is what it is.
+///
+/// So the arrangement of clusters relative to each other must not be read off a
+/// layout from this function. Closing that gap means a spectral initialiser: the
+/// normalised-Laplacian eigenvectors 1..n_components of the connectivity graph,
+/// which is a Lanczos/LOBPCG solve this crate would have to acquire.
 fn random_layout(n_cells: usize, n_components: usize, seed: u64) -> Vec<f32> {
     let mut rng = TauRng::new(seed);
     (0..n_cells * n_components)
@@ -213,9 +246,18 @@ fn rescale_to_init_range(embedding: &mut [f32], n_components: usize) {
 /// Fit `a` and `b` in `1 / (1 + a * x^(2b))` to the offset exponential decay
 /// that `min_dist` and `spread` describe.
 ///
-/// umap-learn calls `scipy.optimize.curve_fit`; this is the same least squares
-/// problem solved by damped Gauss-Newton from the same starting point, and
-/// agrees with it to better than 1e-3.
+/// umap-learn calls `scipy.optimize.curve_fit` (`find_ab_params`,
+/// `umap/umap_.py:1393`) on `np.linspace(0, 3 * spread, 300)`; this is the same
+/// least squares problem on the same 300 points, solved by damped Gauss-Newton
+/// from the same starting point of `(1, 1)`. Over `min_dist` in
+/// `{0, .001, .05, .1, .25, .5, .8, 1, 1.5, 2, 3}` crossed with `spread` in
+/// `{0.3, 0.5, 1, 1.5, 2, 3, 5}` the two agree to 3.7e-5 relative in `a`,
+/// 4.2e-6 relative in `b`, and 3.2e-6 sup-norm on the fitted curve itself.
+///
+/// The exception is `min_dist == 3 * spread`, where the target is identically 1
+/// and the fit is degenerate: `curve_fit` returns `a` of order 1e-10 with either
+/// sign, this returns exactly 0. Above `3 * spread` this errors where umap-learn
+/// would return a meaningless — sometimes negative — `a`.
 pub fn fit_ab_params(min_dist: f32, spread: f32) -> Result<(f32, f32)> {
     if spread <= 0.0 {
         return Err(Error::parameter("spread", "greater than 0", spread));
@@ -328,9 +370,15 @@ fn residual_and_jacobian(x: f64, y: f64, a: f64, b: f64) -> (f64, f64, f64) {
 /// `embedding` buffer plus the [`EdgeList`] arrays and nothing else.
 ///
 /// Every random draw comes from a generator seeded from `params.seed` and the
-/// head vertex id, as umap-learn does. Making the negative samples a function of
-/// the head vertex alone keeps the result identical whether the edges are
-/// visited in order or in parallel.
+/// head vertex id, as umap-learn does (`rng_state_per_sample[j]`,
+/// `umap/layouts.py:161`). Making the negative samples a function of the head
+/// vertex alone keeps the result identical whether the edges are visited in
+/// order or in parallel.
+///
+/// The decay is applied *after* an epoch, not before it, matching
+/// `umap/layouts.py:431`: epochs 0 and 1 both run at `learning_rate`. And the
+/// `+-4` clip lands on the per-dimension gradient before `alpha` scales it
+/// (`umap/layouts.py:143,150`), so `alpha` cannot be clipped away.
 fn optimize_layout(
     embedding: &mut [f32],
     graph: &EdgeList,
@@ -348,10 +396,14 @@ fn optimize_layout(
         })
         .collect();
 
+    // umap-learn divides by `negative_sample_rate` unguarded, so a rate of zero
+    // is not a configuration it has; here it means what it says, no repulsion.
+    // Clamping the divisor to 1 instead would leave the counter drifting behind
+    // the epoch and fire a stray repulsion every `epochs_per_sample` epochs.
     let epochs_per_negative_sample: Vec<f64> = graph
         .epochs_per_sample
         .iter()
-        .map(|&interval| interval / negative_rate.max(1) as f64)
+        .map(|&interval| interval / negative_rate as f64)
         .collect();
     let mut next_negative_sample = epochs_per_negative_sample.clone();
     let mut next_sample = graph.epochs_per_sample.clone();
@@ -369,6 +421,9 @@ fn optimize_layout(
             apply_attraction(embedding, current, other, dim, a, b, alpha);
             next_sample[edge] += graph.epochs_per_sample[edge];
 
+            if negative_rate == 0 {
+                continue;
+            }
             let n_negative =
                 ((now - next_negative_sample[edge]) / epochs_per_negative_sample[edge]) as usize;
             let rng = &mut rngs[graph.head[edge] as usize];
@@ -1025,21 +1080,70 @@ mod tests {
 
     #[test]
     fn fitted_curve_matches_umap_learn() {
-        // Values printed by umap.umap_.find_ab_params, which uses scipy curve_fit.
-        for &(min_dist, spread, expected_a, expected_b) in &[
-            (0.5_f32, 1.0_f32, 0.583_030_f32, 1.334_167_f32),
-            (0.1, 1.0, 1.576_943_5, 0.895_060_9),
-            (0.0, 1.0, 1.932_808_4, 0.790_495),
-            (0.5, 2.0, 0.258_878_7, 1.057_499_6),
-            (0.25, 1.5, 0.621_894_5, 0.966_823_3),
-            (1.0, 1.0, 0.114_975_7, 1.929_237_1),
-        ] {
+        // Printed by umap.umap_.find_ab_params, which uses scipy curve_fit. The
+        // grid is deliberately wider than scanpy's defaults, and includes the
+        // corners where the fit is stiff: min_dist near 3 * spread drives b past
+        // 10, and small spread drives a past 13.
+        #[rustfmt::skip]
+        const EXPECTED: &[(f32, f32, f64, f64)] = &[
+            (0.0,   0.3, 12.967_457_651_095_764, 0.790_494_977_503_261_7),
+            (0.05,  0.3, 13.972_623_215_241_446, 0.966_823_547_967_981_1),
+            (0.25,  0.3, 13.098_268_687_207_58,  1.721_437_138_872_51),
+            (0.5,   0.3,  7.014_077_264_183_128, 2.997_854_849_523_842),
+            (0.8,   0.3,  4.209_116_100_989_761, 10.346_527_894_157_395),
+            (0.05,  0.5,  5.453_765_163_911_532, 0.895_060_799_997_703_4),
+            (0.5,   0.5,  1.667_716_866_662_288_6, 1.929_240_435_347_153),
+            (1.0,   0.5,  0.095_683_520_251_482_1, 3.891_226_528_641_106),
+            (0.0,   1.0,  1.932_808_397_545_408, 0.790_494_973_590_513_9),
+            (0.001, 1.0,  1.929_073_395_323_564_8, 0.791_504_533_140_477_3),
+            (0.1,   1.0,  1.576_943_460_575_499_3, 0.895_060_878_168_034_7),
+            (0.25,  1.0,  1.121_436_342_630_349, 1.057_499_876_751_258_7),
+            (0.5,   1.0,  0.583_030_020_757_172_3, 1.334_166_992_130_317_2),
+            (1.0,   1.0,  0.114_975_682_735_773_67, 1.929_237_147_503_818_6),
+            (2.0,   1.0,  0.000_434_603_788_570_385_84, 3.891_216_958_023_864),
+            (0.25,  1.5,  0.621_894_460_430_009_6, 0.966_823_341_554_800_9),
+            (1.5,   1.5,  0.024_052_795_629_159_844, 1.929_233_955_740_086_4),
+            (3.0,   1.5,  0.000_018_521_313_761_547_716, 3.891_219_549_999_578),
+            (0.5,   2.0,  0.258_878_741_072_124_9, 1.057_499_699_759_442),
+            (2.0,   2.0,  0.007_926_773_267_380_772, 1.929_231_522_961_066_8),
+            (1.0,   3.0,  0.073_078_624_402_803_34, 1.148_889_435_769_294_3),
+            (3.0,   3.0,  0.001_658_266_410_031_984_3, 1.929_231_849_591_078_3),
+            (0.0,   5.0,  0.151_748_584_544_517_8, 0.790_494_774_442_064_2),
+            (3.0,   5.0,  0.004_131_336_598_340_305, 1.447_462_930_438_019_8),
+        ];
+        // Relative, because `a` ranges over five decades across the grid; the
+        // measured worst case is 3.7e-5 in `a` and 4.2e-6 in `b`.
+        const TOLERANCE: f64 = 1e-4;
+        for &(min_dist, spread, expected_a, expected_b) in EXPECTED {
             let (a, b) = fit_ab_params(min_dist, spread).unwrap();
+            let (a, b) = (f64::from(a), f64::from(b));
             assert!(
-                (a - expected_a).abs() < 1e-3 && (b - expected_b).abs() < 1e-3,
+                (a - expected_a).abs() <= TOLERANCE * expected_a.abs()
+                    && (b - expected_b).abs() <= TOLERANCE * expected_b.abs(),
                 "min_dist={min_dist} spread={spread}: got ({a}, {b}), want ({expected_a}, {expected_b})"
             );
         }
+    }
+
+    /// umap-learn divides by `negative_sample_rate` unguarded, so zero is not a
+    /// setting it has; here it must mean no repulsion at all, which is what
+    /// makes a run comparable term by term with a transcribed reference.
+    #[test]
+    fn a_zero_negative_sample_rate_switches_repulsion_off() {
+        let graph = two_clusters(6);
+        let params = UmapParams {
+            n_epochs: 30,
+            negative_sample_rate: 0,
+            ..params(0)
+        };
+        let embedding = umap(&graph, &params, &cpu()).unwrap();
+        // With attraction only and no repulsion every connected vertex collapses
+        // onto its cluster; a stray repulsion would leave them spread out.
+        let (within, _) = separation(&embedding, 6);
+        assert!(
+            within < 1e-2,
+            "within-cluster spread {within} is not a collapse"
+        );
     }
 
     #[test]

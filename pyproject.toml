@@ -61,4 +61,5 @@ addopts = "-q"
 python_classes = []
 markers = [
     "reference: cross-checks results against scanpy; downloads datasets",
+    "slow: drives umap-learn or scikit-learn over a full run; minutes, not seconds",
 ]
