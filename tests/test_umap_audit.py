@@ -475,7 +475,7 @@ def test_matches_a_transcription_of_layouts_py(n_epochs, seed):
     np.testing.assert_allclose(ours, theirs, rtol=RTOL, atol=ATOL)
 
 
-@pytest.mark.parametrize("n_epochs", [3, 25])
+@pytest.mark.parametrize("n_epochs", [2, 3])
 def test_matches_the_transcription_with_negative_sampling(n_epochs):
     """The same comparison with repulsion on.
 
@@ -483,7 +483,15 @@ def test_matches_the_transcription_with_negative_sampling(n_epochs):
     the shape of umap-learn's `rng_state_per_sample[j]`, so the draws are
     reproducible here. This is what pins the number of negative samples, the
     rejection of a self-sample, the acceptance of a true neighbour as a negative
-    sample, and that repulsion never moves the sampled vertex.
+    sample, and that repulsion never moves the sampled vertex. `n_epochs=3` is
+    already 678 repulsive updates, so this is not a token amount of the path.
+
+    THE HORIZON IS THREE EPOCHS, and that is a property of the algorithm rather
+    than a weakness of the core -- see
+    `test_the_negative_sampling_horizon_is_set_by_amplification`, which pins the
+    reason. Comparing the two coordinate by coordinate past three epochs is not a
+    well posed test, so it is not attempted; what a long run must satisfy is
+    checked as an objective in `test_random_init_reaches_the_same_objective`.
     """
     graph = _blob_graph()
     a, b = find_ab_params(SPREAD, MIN_DIST)
@@ -507,40 +515,121 @@ def test_matches_the_transcription_with_negative_sampling(n_epochs):
     np.testing.assert_allclose(ours, theirs, rtol=RTOL, atol=ATOL)
 
 
+def test_the_negative_sampling_horizon_is_set_by_amplification():
+    """Why the test above stops at three epochs, pinned so the claim cannot rot.
+
+    With repulsion on, the layout is violently sensitive to the last bit of a single
+    coordinate: `grad_coeff` carries `1 / (0.001 + d2)`, so two points that nearly
+    coincide produce a huge coefficient whose *direction* is set by the low bits of
+    their separation, and the clip then turns that into a full +-4 step. Perturbing
+    one coordinate of the initial layout by one ulp is enough.
+
+    That is the whole explanation for the divergence between the core and the
+    transcription past three epochs. The two agree on every decision -- the number of
+    negative samples drawn and the vertex drawn each time -- and they agree exactly at
+    the end of the first epoch, so the arithmetic is not in question; they are two
+    reorderings of the same f32 operations, and f32 addition is not associative.
+
+    If a future change damps this out, this test fails and the horizon above should be
+    raised to match.
+    """
+    n_epochs = 5
+    seed = 5
+    graph = _blob_graph()
+    n_vertices = graph.shape[0]
+    a, b = find_ab_params(SPREAD, MIN_DIST)
+    head, tail, eps = scrust_edge_list(graph, n_epochs)
+    start = scrust_initial_layout(n_vertices, 2, seed)
+
+    def run(layout):
+        return _reference_layout(
+            layout,
+            head,
+            tail,
+            eps,
+            n_epochs,
+            a,
+            b,
+            n_vertices=n_vertices,
+            negative_sample_rate=NEGATIVE_SAMPLE_RATE,
+            initial_alpha=LEARNING_RATE,
+            rng_factory=lambda v: TauRng(seed ^ ((v * _GOLDEN) & _U64)),
+        )
+
+    reference = run(start)
+    growth = []
+    for index in range(start.size):
+        nudged = np.array(start, dtype=np.float32, copy=True)
+        flat = nudged.ravel()
+        flat[index] = np.nextafter(flat[index], np.float32(np.inf), dtype=np.float32)
+        growth.append(np.abs(run(nudged) - reference).max())
+    growth = np.array(growth)
+
+    # Measured: 38 of 48 coordinates exceed 1.0, median 3.09, over five epochs.
+    assert np.median(growth) > 1.0, (
+        "a one-ulp nudge no longer grows to the size of the layout, so the horizon "
+        f"in the test above can be raised (median growth {np.median(growth):.3g})"
+    )
+
+
 def test_the_clip_is_applied_before_the_learning_rate():
     """`layouts.py:143,150` clips `grad_coeff * (current[d] - other[d])` and only then
     multiplies by `alpha`, so a large learning rate scales an already-clipped move.
     Clipping the finished move instead would cap it at 4 regardless of `alpha`.
 
-    Two vertices, one edge, one firing epoch: the coefficient is far past the clip, so
-    the move is exactly `4 * alpha` per endpoint and the two orderings differ by a
-    factor of `alpha`.
+    The configuration has to be chosen, not assumed. At scanpy's defaults the
+    attraction gradient `2 a b s^(2b-1) / (a s^(2b) + 1)` peaks at 1.13 over *every*
+    separation `s`, so the clip can never bite and a test built on the defaults asserts
+    nothing. `min_dist=1.2, spread=0.5` puts `b` at 6.1, where the peak is 6.14 near a
+    separation of 1.8; three vertices in one dimension seeded at 5 rescale to
+    `[1.94, 0, 10]`, which lands the one edge in that window.
     """
-    graph = sparse.csr_matrix(np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.float32))
+    min_dist, spread = 1.2, 0.5
     alpha = 8.0
     n_epochs = 2  # epoch 0 fires nothing, epoch 1 fires once at the initial alpha
+    seed = 5
+    dense = np.zeros((3, 3), dtype=np.float32)
+    dense[0, 1] = dense[1, 0] = 1.0
+    graph = sparse.csr_matrix(dense)
+
+    start = scrust_initial_layout(3, 1, seed)
+    a, b = find_ab_params(spread, min_dist)
+    separation = float(start[0, 0] - start[1, 0])
+    d2 = separation * separation
+    coefficient = -2.0 * a * b * d2 ** (b - 1.0) / (a * d2**b + 1.0)
+
+    # Without this the rest of the test passes for the wrong reason.
+    assert abs(coefficient * separation) > 4.0, "the clip has to bite for this to test it"
+    clipped_then_scaled = np.clip(coefficient * separation, -4.0, 4.0) * alpha
+    scaled_then_clipped = np.clip(coefficient * separation * alpha, -4.0, 4.0)
+    assert abs(clipped_then_scaled - scaled_then_clipped) > 1.0, (
+        "the two orderings have to be distinguishable here"
+    )
+
     ours = scrust_umap(
         graph,
         n_epochs=n_epochs,
         negative_sample_rate=0,
         learning_rate=alpha,
         n_components=1,
-        seed=4,
+        min_dist=min_dist,
+        spread=spread,
+        seed=seed,
     )
-    start = scrust_initial_layout(2, 1, 4)
-    a, b = find_ab_params(SPREAD, MIN_DIST)
-
-    separation = float(start[0, 0] - start[1, 0])
-    d2 = separation * separation
-    coefficient = -2.0 * a * b * d2 ** (b - 1.0) / (a * d2**b + 1.0)
-    assert abs(coefficient * separation) > 4.0, "the clip has to bite for this to test it"
-
-    clipped_then_scaled = np.clip(coefficient * separation, -4.0, 4.0) * alpha
-    scaled_then_clipped = np.clip(coefficient * separation * alpha, -4.0, 4.0)
-    assert abs(clipped_then_scaled - scaled_then_clipped) > 1.0
-
-    np.testing.assert_allclose(ours[0, 0], start[0, 0] + clipped_then_scaled, rtol=1e-4, atol=1e-4)
-    np.testing.assert_allclose(ours[1, 0], start[1, 0] - clipped_then_scaled, rtol=1e-4, atol=1e-4)
+    head, tail, eps = scrust_edge_list(graph, n_epochs)
+    theirs = _reference_layout(
+        start,
+        head,
+        tail,
+        eps,
+        n_epochs,
+        a,
+        b,
+        n_vertices=3,
+        negative_sample_rate=0,
+        initial_alpha=alpha,
+    )
+    np.testing.assert_allclose(ours, theirs, rtol=RTOL, atol=ATOL)
 
 
 def test_the_learning_rate_decays_after_an_epoch_not_before():
