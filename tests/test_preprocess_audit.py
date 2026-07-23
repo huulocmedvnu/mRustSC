@@ -21,7 +21,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
 
-from scrust_call import scrust_call
+from scrust_call import DEVICE, scrust_call
 
 FLAVORS = ("seurat", "cell_ranger")
 
@@ -37,7 +37,7 @@ def csr_args(matrix: sparse.csr_matrix):
 
 
 def scrust_normalize(matrix, target_sum=None):
-    result = scrust_call("_scrust.normalize_total", *csr_args(matrix), target_sum, "cpu")
+    result = scrust_call("_scrust.normalize_total", *csr_args(matrix), target_sum, DEVICE)
     return _to_csr(result, matrix.shape)
 
 
@@ -54,7 +54,7 @@ def _to_csr(result, shape):
 
 def scrust_hvg(matrix, n_top_genes, flavor):
     return scrust_call(
-        "_scrust.highly_variable_genes", *csr_args(matrix), n_top_genes, flavor, "cpu"
+        "_scrust.highly_variable_genes", *csr_args(matrix), n_top_genes, flavor, DEVICE
     )
 
 

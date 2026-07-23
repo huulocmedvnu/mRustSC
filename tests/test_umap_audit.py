@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from scrust_call import scrust_call
+from scrust_call import DEVICE, scrust_call
 
 umap_learn = pytest.importorskip("umap", reason="the audit is against umap-learn")
 from umap.layouts import clip as umap_clip  # noqa: E402
@@ -144,7 +144,7 @@ def scrust_umap(graph: sparse.csr_matrix, **kwargs):
         learning_rate=LEARNING_RATE,
         negative_sample_rate=NEGATIVE_SAMPLE_RATE,
         seed=0,
-        device="cpu",
+        device=DEVICE,
     )
     params.update(kwargs)
     return np.asarray(

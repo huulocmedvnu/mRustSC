@@ -27,7 +27,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse, stats
 
-from scrust_call import scrust_call
+from scrust_call import DEVICE, scrust_call
 
 TIE_CORRECT = (False, True)
 
@@ -51,7 +51,7 @@ def scrust_wilcoxon(matrix, labels, n_groups, *, reference=None, tie_correct=Fal
         n_groups,
         reference,
         tie_correct,
-        "cpu",
+        DEVICE,
     )
 
 

@@ -14,6 +14,14 @@ jobs:
   # runners have no usable GPU, so `gpu_available()` is false there and the GPU
   # kernels are exercised on the CPU path only. Running the Metal kernels for real
   # needs a self-hosted runner on physical Apple silicon.
+  #
+  # KNOWN GAP, stated so a green tick is not mistaken for coverage: `settings.device`
+  # defaults to `auto`, which resolves to Metal on any machine that has one, so the
+  # device most callers get is the one CI cannot test. `tests/test_device_parity.py`
+  # compares the two devices and skips in its entirety here. The audits themselves run
+  # against `SCRUST_TEST_DEVICE`, which defaults to `cpu`; set it to `auto` to run the
+  # same suite the other way on hardware that has a GPU. Adding an `auto` leg to this
+  # job would only run the CPU path twice.
   quality:
     runs-on: macos-14
     steps:

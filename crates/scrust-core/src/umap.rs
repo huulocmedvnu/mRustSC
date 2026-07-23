@@ -46,10 +46,15 @@ const INIT_RANGE: f32 = 10.0;
 
 /// Optimise the UMAP layout of a connectivity graph.
 ///
-/// `device` is unused. The layout is an irregular scatter-update loop that
-/// candle cannot express, so the portable path is scalar CPU code; the fused
-/// Metal kernel in `scrust-gpu` replaces [`optimize_layout`] and is the only
-/// place the device becomes relevant.
+/// `device` is unused, and this runs on the CPU whatever the caller asks for. The
+/// layout is an irregular scatter-update loop that candle cannot express, so the
+/// portable path is scalar CPU code.
+///
+/// `scrust-gpu` holds a fused Metal kernel written to replace [`optimize_layout`],
+/// but nothing calls it: it is not wired into this function or into the bindings, so
+/// a caller on Metal still gets the loop below. Wiring it in is a behavioural change
+/// rather than an optimisation -- the kernel updates simultaneously where this sweeps
+/// sequentially -- and its own documentation measures what that costs.
 pub fn umap(
     connectivities: &CsrMatrix,
     params: &UmapParams,

@@ -70,11 +70,15 @@ fn knn_tiled(
         let height = tile_rows.min(n_cells - start);
         let tile = points.narrow(0, start, height)?;
         let tile_norms = square_norms.narrow(0, start, height)?;
-        let square_distances = tile
-            .matmul(&points_t)?
-            .affine(-2.0, 0.0)?
-            .broadcast_add(&tile_norms)?
-            .broadcast_add(&square_norms_row)?
+        let norm_sums = tile_norms.broadcast_add(&square_norms_row)?;
+        let raw = tile.matmul(&points_t)?.affine(-2.0, 0.0)?.add(&norm_sums)?;
+        // Below the expansion's own resolution the result is rounding noise, not a
+        // distance, so it is snapped to zero rather than square-rooted. See
+        // [`expansion_resolution`].
+        let floor = norm_sums.affine(f64::from(expansion_resolution(n_dims)), 0.0)?;
+        let square_distances = raw
+            .lt(&floor)?
+            .where_cond(&raw.zeros_like()?, &raw)?
             .to_vec2::<f32>()?;
 
         let selected: Vec<(Vec<u32>, Vec<f32>)> = square_distances
@@ -94,6 +98,34 @@ fn knn_tiled(
     }
 
     Ok(KnnGraph { indices, distances })
+}
+
+/// How many `f32` ulps of `|a|^2 + |b|^2` the expansion can be wrong by.
+///
+/// `|a - b|^2 = |a|^2 + |b|^2 - 2 a.b` accumulates one rounding per term of the dot
+/// product and one for each of the two additions, so the error is bounded by about
+/// `(n_dims + 2) * EPSILON * (|a|^2 + |b|^2)`. Anything smaller than that is noise the
+/// expansion cannot distinguish from zero.
+///
+/// This matters because the noise is not the same on every device. Two identical cells
+/// cancel to exactly zero on the CPU but leave a sub-ulp positive on Metal -- 9.5e-7
+/// against a norm scale of 12 in the case that found this -- and the square root then
+/// amplifies it a thousandfold, to 9.8e-4. That is enough to give a duplicated cell a
+/// non-zero `rho`, and `rho` is subtracted when the fuzzy simplicial set is built, so
+/// its weights stop being 1. Snapping the squared distance first makes duplicate cells
+/// behave identically whichever device the caller happens to be on, which is the point:
+/// `settings.device` defaults to `auto`, so most callers are on Metal without choosing
+/// to be.
+///
+/// The bound scales with the norms, so it is worth knowing it cannot swallow a real
+/// neighbour. Measured on PBMC 3k's first 50 principal components, which is the shape
+/// this is used at: the floor comes out at `0.049` as a distance, against a *smallest*
+/// nearest-neighbour distance of `6.40` and a first percentile of `7.21`. Nothing is
+/// snapped -- 0 of 39570 neighbours -- and the margin is a factor of 130. Real cells
+/// are far apart relative to the norm scale of the cloud they sit in; the only things
+/// this reaches are cells that are identical, or closer together than `f32` can say.
+fn expansion_resolution(n_dims: usize) -> f32 {
+    (n_dims as f32 + 2.0) * f32::EPSILON
 }
 
 /// The embedding with each column's mean removed, flattened row-major.

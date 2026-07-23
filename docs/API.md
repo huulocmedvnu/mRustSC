@@ -266,8 +266,23 @@ To pin a device today, pass it per call.
 `"gpu"`/`"metal"` (an error if no Metal device is found). `scrust.gpu_available()`
 reports whether Metal came up.
 
-The CPU and GPU paths are the same candle source, so results agree; only the speed
-differs. What the GPU actually buys you per operation is measured in
+The CPU and GPU paths are the same candle source. That makes them the same algorithm;
+it does not make them bit-identical, and the difference is worth knowing about because
+`"auto"` means most callers are on the GPU without having chosen it.
+
+Floating-point addition is not associative, so a reduction that a GPU splits across
+threads lands a few ulps away from the sequential one. Usually that is invisible. It
+was not in `pp.neighbors`: `|a - b|^2` is computed as `|a|^2 + |b|^2 - 2 a.b`, which
+cancels to exactly zero for two identical cells on the CPU but left a sub-ulp positive
+on Metal, and the square root amplified that to `1e-3`. Identical cells then had a
+non-zero `rho`, which is subtracted when the fuzzy simplicial set is built, so their
+connectivities stopped being 1. Squared distances below the expansion's own resolution
+are now snapped to zero, so the two devices agree; `tests/test_device_parity.py` holds
+them to it.
+
+The general rule to work from: expect agreement to `f32` precision, not equality, and
+treat any quantity that is *defined* by an exact cancellation as a place where the two
+can part company. What the GPU actually buys you per operation is measured in
 [BENCHMARKS.md](BENCHMARKS.md), and it is not uniformly positive.
 
 ## Out-of-core reading

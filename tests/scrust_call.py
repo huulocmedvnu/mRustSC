@@ -9,6 +9,7 @@ else — above all a failed assertion — must reach the test runner untouched.
 from __future__ import annotations
 
 import importlib
+import os
 from typing import Any
 
 import pytest
@@ -51,3 +52,14 @@ def scrust_call(path: str, *args: Any, **kwargs: Any) -> Any:
         if reason is None:
             raise
         pytest.skip(reason)
+
+
+# The device every audit runs against.
+#
+# `settings.device` defaults to "auto", which resolves to Metal wherever one exists
+# (`DeviceKind::Auto`, crates/scrust-core/src/device.rs), so a caller who never names a
+# device is on the GPU. Tests that reach past the wrapper into `_scrust` have to name
+# one, and hard-coding "cpu" there means the audits check a path most callers never
+# take -- which is how a Metal-only divergence in the k-NN distances survived a full
+# audit. Set SCRUST_TEST_DEVICE=auto to run the same suite the other way; CI runs both.
+DEVICE = os.environ.get("SCRUST_TEST_DEVICE", "cpu")

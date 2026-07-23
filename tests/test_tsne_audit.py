@@ -30,6 +30,8 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist, squareform
 
+from scrust_call import DEVICE
+
 sklearn_tsne = pytest.importorskip("sklearn.manifold._t_sne")
 sklearn_utils = pytest.importorskip("sklearn.manifold._utils")
 from sklearn.metrics.pairwise import pairwise_distances  # noqa: E402
@@ -214,8 +216,8 @@ def one_gradient_step(extension, x, n_components=2):
     two runs that differ by a single iteration."""
     n_samples = x.shape[0]
     args = (n_components, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE)
-    start = extension.tsne(x, *args, 0, 0, "cpu").astype(np.float64)
-    stepped = extension.tsne(x, *args, 1, 0, "cpu").astype(np.float64)
+    start = extension.tsne(x, *args, 0, 0, DEVICE).astype(np.float64)
+    stepped = extension.tsne(x, *args, 1, 0, DEVICE).astype(np.float64)
     gradient = (start - stepped).ravel() / (LEARNING_RATE * FIRST_STEP_GAIN)
     assert start.shape == (n_samples, n_components)
     return start, gradient
@@ -300,8 +302,8 @@ def test_the_phase_switch_restarts_momentum_and_gains(extension):
     n_samples = 200
     x = gaussian(n_samples, 10, seed=5)
     args = (2, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE)
-    before = extension.tsne(x, *args, EXPLORATION_ITERATIONS, 0, "cpu").astype(np.float64)
-    after = extension.tsne(x, *args, EXPLORATION_ITERATIONS + 1, 0, "cpu").astype(np.float64)
+    before = extension.tsne(x, *args, EXPLORATION_ITERATIONS, 0, DEVICE).astype(np.float64)
+    after = extension.tsne(x, *args, EXPLORATION_ITERATIONS + 1, 0, DEVICE).astype(np.float64)
     step = (before - after).ravel()
 
     joint = sklearn_joint_probabilities(x, PERPLEXITY)
@@ -318,8 +320,8 @@ def test_the_phase_switch_restarts_momentum_and_gains(extension):
 
     # The same identity must fail in the middle of the second phase, or the test
     # above would pass on an optimiser that had no momentum at all.
-    mid = extension.tsne(x, *args, 300, 0, "cpu").astype(np.float64)
-    mid_next = extension.tsne(x, *args, 301, 0, "cpu").astype(np.float64)
+    mid = extension.tsne(x, *args, 300, 0, DEVICE).astype(np.float64)
+    mid_next = extension.tsne(x, *args, 301, 0, DEVICE).astype(np.float64)
     mid_step = (mid - mid_next).ravel()
     naive = (
         LEARNING_RATE * FIRST_STEP_GAIN * sklearn_kl_gradient(mid.ravel(), joint, 1, n_samples, 2)
@@ -334,10 +336,10 @@ def test_early_exaggeration_covers_exactly_the_first_250_iterations(extension):
     args = (2, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE)
     joint = sklearn_joint_probabilities(x, PERPLEXITY)
 
-    before = extension.tsne(x, *args, EXPLORATION_ITERATIONS, 0, "cpu").astype(np.float64)
+    before = extension.tsne(x, *args, EXPLORATION_ITERATIONS, 0, DEVICE).astype(np.float64)
     plain = sklearn_kl_gradient(before.ravel(), joint, 1, n_samples, 2)
     exaggerated = sklearn_kl_gradient(before.ravel(), joint * EARLY_EXAGGERATION, 1, n_samples, 2)
-    after = extension.tsne(x, *args, EXPLORATION_ITERATIONS + 1, 0, "cpu").astype(np.float64)
+    after = extension.tsne(x, *args, EXPLORATION_ITERATIONS + 1, 0, DEVICE).astype(np.float64)
     step = (before - after).ravel()
 
     plain_deviation = worst_relative(step, LEARNING_RATE * FIRST_STEP_GAIN * plain)
@@ -363,7 +365,7 @@ def test_pca_initialisation_matches_sklearn(extension, n_components):
 
     x = gaussian(200, 10, seed=13)
     args = (n_components, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE)
-    ours = extension.tsne(x, *args, 0, 0, "cpu").astype(np.float64)
+    ours = extension.tsne(x, *args, 0, 0, DEVICE).astype(np.float64)
 
     reference = PCA(n_components=n_components, random_state=0).fit_transform(x)
     reference = reference / np.std(reference[:, 0]) * 1e-4
@@ -393,7 +395,7 @@ def test_accepts_every_input_scikit_learn_accepts(extension):
     such rule. The guard is now scikit-learn's.
     """
     x = gaussian(60, 10, seed=17)
-    layout = extension.tsne(x, 2, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
+    layout = extension.tsne(x, 2, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, DEVICE)
     assert layout.shape == (60, 2)
     assert np.isfinite(layout).all()
 
@@ -407,8 +409,8 @@ def test_rejects_perplexity_at_or_above_the_cell_count(extension):
     x = gaussian(20, 5, seed=3)
     for perplexity in (20.0, 25.0):
         with pytest.raises(ValueError, match="perplexity"):
-            extension.tsne(x, 2, perplexity, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
+            extension.tsne(x, 2, perplexity, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, DEVICE)
 
-    layout = extension.tsne(x, 2, 19.0, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
+    layout = extension.tsne(x, 2, 19.0, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, DEVICE)
     assert layout.shape == (20, 2)
     assert np.isfinite(layout).all()

@@ -27,6 +27,8 @@ import numpy as np
 import pytest
 from scipy import sparse
 
+from scrust_call import DEVICE
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -195,7 +197,7 @@ def test_every_leiden_community_is_internally_connected_on_the_hinge():
     for seed in range(12):
         for resolution in (0.5, 1.0, 2.0):
             labels, _, n_communities = extension.leiden(
-                *csr_args(graph), resolution, 3, seed, "cpu"
+                *csr_args(graph), resolution, 3, seed, DEVICE
             )
             for community, nodes in communities(labels, n_communities):
                 assert is_connected(graph, nodes), (
@@ -220,6 +222,7 @@ def test_every_leiden_community_is_internally_connected_under_fuzzing():
         from scrust import _scrust
         sys.path.insert(0, %r)
         from test_cluster_audit import csr_args, random_graph, is_connected, communities
+        from scrust_call import DEVICE  # this runs in a fresh interpreter, so it needs its own
 
         rng = np.random.default_rng(12345)
         bad = []
@@ -228,7 +231,7 @@ def test_every_leiden_community_is_internally_connected_under_fuzzing():
             graph = random_graph(rng, n, float(rng.uniform(0.08, 0.4)))
             for resolution in (1.0, 2.0, 4.0):
                 for seed in range(6):
-                    labels, _, k = _scrust.leiden(*csr_args(graph), resolution, 3, seed, "cpu")
+                    labels, _, k = _scrust.leiden(*csr_args(graph), resolution, 3, seed, DEVICE)
                     for community, nodes in communities(labels, k):
                         if not is_connected(graph, nodes):
                             bad.append((trial, resolution, seed, nodes.tolist()))
@@ -272,7 +275,7 @@ def test_a_zero_degree_node_is_never_merged_into_a_community():
     graph = sparse.csr_matrix(padded)
     for seed in range(16):
         for resolution in (1.0, 2.0, 4.0):
-            labels, _, _ = extension.leiden(*csr_args(graph), resolution, 3, seed, "cpu")
+            labels, _, _ = extension.leiden(*csr_args(graph), resolution, 3, seed, DEVICE)
             alone = labels[n]
             assert (labels == alone).sum() == 1, (
                 f"seed {seed}, resolution {resolution}: the isolated node {n} was "
@@ -305,7 +308,7 @@ def test_more_iterations_never_lower_the_objective():
                 previous = None
                 for n_iterations in (1, 2, 3, 5):
                     _, quality, _ = extension.leiden(
-                        *csr_args(graph), resolution, n_iterations, seed, "cpu"
+                        *csr_args(graph), resolution, n_iterations, seed, DEVICE
                     )
                     if previous is not None:
                         assert quality >= previous - 1e-9, (
@@ -334,7 +337,7 @@ def test_the_refinement_is_randomised():
     rng = np.random.default_rng(11)
     graph = random_graph(rng, 60, 0.12)
     seen = {
-        tuple(extension.leiden(*csr_args(graph), 2.0, 2, seed, "cpu")[0].tolist())
+        tuple(extension.leiden(*csr_args(graph), 2.0, 2, seed, DEVICE)[0].tolist())
         for seed in range(16)
     }
     assert len(seen) > 1, "every seed gave the same partition; nothing is randomised"
@@ -345,8 +348,8 @@ def test_leiden_never_scores_below_louvain_on_the_hinge():
     extension = core()
     graph = two_cliques_on_a_hinge()
     for seed in range(12):
-        leiden = extension.leiden(*csr_args(graph), 1.0, 3, seed, "cpu")[1]
-        louvain = extension.louvain(*csr_args(graph), 1.0, seed, "cpu")[1]
+        leiden = extension.leiden(*csr_args(graph), 1.0, 3, seed, DEVICE)[1]
+        louvain = extension.louvain(*csr_args(graph), 1.0, seed, DEVICE)[1]
         assert leiden >= louvain - 1e-9, f"seed {seed}: leiden {leiden} < louvain {louvain}"
 
 

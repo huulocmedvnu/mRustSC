@@ -23,6 +23,8 @@ import pytest
 import scipy.sparse as sp
 from scipy import stats
 
+from scrust_call import DEVICE
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # `cargo build -p scrust-py --release` puts a fresh cdylib in the work tree; prefer it
@@ -87,7 +89,7 @@ def wilcoxon(args: tuple, labels, n_groups, reference=None, tie_correct=False):
         n_groups,
         reference,
         tie_correct,
-        "cpu",
+        DEVICE,
     )
 
 
@@ -422,7 +424,7 @@ def test_normalize_total_uses_the_csr_median_including_empty_cells():
     dense_reference = AnnData(dense.copy())
     sc.pp.normalize_total(dense_reference)
 
-    indptr, indices, values, _n_cols = ext.normalize_total(*csr_args(dense), None, "cpu")
+    indptr, indices, values, _n_cols = ext.normalize_total(*csr_args(dense), None, DEVICE)
     got = sp.csr_matrix((values, indices, indptr), shape=dense.shape).toarray()
 
     np.testing.assert_allclose(got, sparse_reference.X.toarray(), rtol=1e-6, atol=1e-6)
@@ -452,7 +454,7 @@ def test_normalize_total_refuses_a_zero_median_instead_of_erasing_the_matrix():
     assert np.all(reference.X.toarray() == 0.0)  # scanpy's behaviour, for the record
 
     with pytest.raises(ValueError, match="target_sum"):
-        ext.normalize_total(*csr_args(dense), None, "cpu")
+        ext.normalize_total(*csr_args(dense), None, DEVICE)
 
 
 # -------------------------------------------------------------------------- 6. scale
@@ -461,7 +463,7 @@ def test_normalize_total_refuses_a_zero_median_instead_of_erasing_the_matrix():
 def test_scale_uses_the_corrected_variance():
     """ddof = 1, as scanpy's `mean_var(..., correction=1)`. ddof = 0 is visibly off."""
     dense = np.arange(1, 6, dtype=np.float32).reshape(5, 1)
-    got = np.asarray(ext.scale(*csr_args(dense), True, None, "cpu")).ravel()
+    got = np.asarray(ext.scale(*csr_args(dense), True, None, DEVICE)).ravel()
 
     column = dense.ravel().astype(np.float64)
     corrected = (column - column.mean()) / column.std(ddof=1)
@@ -488,8 +490,8 @@ def test_scale_leaves_a_constant_gene_at_exactly_zero(n_cells, value):
     dense[:, 0] = np.float32(value)
     dense[:, 1] = np.linspace(1.0, 2.0, n_cells)  # a gene that does vary
 
-    centred = np.asarray(ext.scale(*csr_args(dense), True, None, "cpu"))
-    plain = np.asarray(ext.scale(*csr_args(dense), False, None, "cpu"))
+    centred = np.asarray(ext.scale(*csr_args(dense), True, None, DEVICE))
+    plain = np.asarray(ext.scale(*csr_args(dense), False, None, DEVICE))
 
     assert np.all(centred[:, 0] == 0.0)
     assert np.all(plain[:, 0] == np.float32(value))
@@ -522,7 +524,7 @@ def test_scale_all_zero_gene_and_clip_order():
             sc.pp.scale(reference, zero_center=zero_center, max_value=max_value)
             expected = reference.X
             expected = expected.toarray() if sp.issparse(expected) else np.asarray(expected)
-            got = np.asarray(ext.scale(*csr_args(dense), zero_center, max_value, "cpu"))
+            got = np.asarray(ext.scale(*csr_args(dense), zero_center, max_value, DEVICE))
             np.testing.assert_allclose(
                 got,
                 expected,
@@ -534,14 +536,14 @@ def test_scale_all_zero_gene_and_clip_order():
 
     # Clipping after the division, not before: a value under the limit before
     # scaling can exceed it after, and must come back at the limit.
-    unclipped = np.asarray(ext.scale(*csr_args(dense), True, None, "cpu"))
-    clipped = np.asarray(ext.scale(*csr_args(dense), True, 0.5, "cpu"))
+    unclipped = np.asarray(ext.scale(*csr_args(dense), True, None, DEVICE))
+    clipped = np.asarray(ext.scale(*csr_args(dense), True, 0.5, DEVICE))
     assert unclipped.max() > 0.5
     assert clipped.max() == pytest.approx(0.5)
     assert clipped.min() == pytest.approx(-0.5)
 
     # Without centering the values stay non-negative and only the top is bound.
-    plain = np.asarray(ext.scale(*csr_args(dense), False, 0.5, "cpu"))
+    plain = np.asarray(ext.scale(*csr_args(dense), False, 0.5, DEVICE))
     assert plain.min() == 0.0 and plain.max() == pytest.approx(0.5)
 
 
@@ -572,7 +574,7 @@ def test_hvg_matches_scanpy_end_to_end(flavor):
     dense = logged(counts) if flavor == "seurat" else counts
 
     reference = hvg_reference(dense, 15, flavor)
-    got = ext.highly_variable_genes(*csr_args(dense), 15, flavor, "cpu")
+    got = ext.highly_variable_genes(*csr_args(dense), 15, flavor, DEVICE)
 
     np.testing.assert_allclose(np.asarray(got["means"]), reference["means"].to_numpy(), rtol=1e-5)
     np.testing.assert_allclose(
@@ -598,7 +600,7 @@ def test_hvg_seurat_undoes_the_log_before_taking_the_dispersion():
     """
     rng = np.random.default_rng(13)
     dense = logged(rng.poisson(1.5, (200, 30)).astype(np.float32))
-    got = ext.highly_variable_genes(*csr_args(dense), 8, "seurat", "cpu")
+    got = ext.highly_variable_genes(*csr_args(dense), 8, "seurat", DEVICE)
 
     unlogged = np.expm1(dense.astype(np.float32)).astype(np.float64)
     mean = unlogged.mean(axis=0)
@@ -665,7 +667,7 @@ def test_hvg_a_bin_holding_one_gene_normalises_to_exactly_one():
     dense[:5, 0] = 8.0  # a mean far above everything else: its own top bin
 
     reference = hvg_reference(dense, 10, "seurat")
-    got = ext.highly_variable_genes(*csr_args(dense), 10, "seurat", "cpu")
+    got = ext.highly_variable_genes(*csr_args(dense), 10, "seurat", DEVICE)
 
     normalised = np.asarray(got["normalised_dispersions"])
     reference_norm = reference["dispersions_norm"].to_numpy()
@@ -680,7 +682,7 @@ def test_hvg_a_bin_holding_one_gene_normalises_to_exactly_one():
     # counts through it and the core must still follow scanpy, without borrowing
     # the seurat fix-up.
     counts = np.expm1(dense).astype(np.float32)
-    cell_ranger = ext.highly_variable_genes(*csr_args(counts), 10, "cell_ranger", "cpu")
+    cell_ranger = ext.highly_variable_genes(*csr_args(counts), 10, "cell_ranger", DEVICE)
     cell_ranger_reference = hvg_reference(counts, 10, "cell_ranger")
     np.testing.assert_allclose(
         np.asarray(cell_ranger["normalised_dispersions"]),
@@ -704,7 +706,7 @@ def test_hvg_returns_more_than_n_top_genes_when_the_cutoff_is_tied():
     over_requested = []
     for n_top_genes in range(1, 12):
         reference = hvg_reference(duplicated, n_top_genes, "seurat")
-        got = ext.highly_variable_genes(*csr_args(duplicated), n_top_genes, "seurat", "cpu")
+        got = ext.highly_variable_genes(*csr_args(duplicated), n_top_genes, "seurat", DEVICE)
         reference_flag = reference["highly_variable"].to_numpy()
         got_flag = np.asarray(got["highly_variable"])
         np.testing.assert_array_equal(got_flag, reference_flag)
@@ -714,7 +716,7 @@ def test_hvg_returns_more_than_n_top_genes_when_the_cutoff_is_tied():
     assert over_requested, "the fixture no longer straddles the cut-off"
 
     # `n_top_genes` above the gene count returns everything with a dispersion.
-    got = ext.highly_variable_genes(*csr_args(dense), 10_000, "seurat", "cpu")
+    got = ext.highly_variable_genes(*csr_args(dense), 10_000, "seurat", DEVICE)
     reference = hvg_reference(dense, 10_000, "seurat")
     np.testing.assert_array_equal(
         np.asarray(got["highly_variable"]), reference["highly_variable"].to_numpy()
@@ -740,7 +742,7 @@ def test_hvg_cutoff_rule_holds_even_where_ulps_move_the_selected_set():
     duplicated = np.hstack([dense, dense[:, [0]], dense[:, [0]], dense[:, [0]]])
 
     for n_top_genes in range(12, 25):
-        got = ext.highly_variable_genes(*csr_args(duplicated), n_top_genes, "seurat", "cpu")
+        got = ext.highly_variable_genes(*csr_args(duplicated), n_top_genes, "seurat", DEVICE)
         flag = np.asarray(got["highly_variable"])
         normalised = np.asarray(got["normalised_dispersions"], np.float64)
 
@@ -763,7 +765,7 @@ def test_hvg_selection_agrees_with_scanpy_at_a_realistic_scale():
 
     for n_top_genes in (200, 500, 1000):
         reference = hvg_reference(dense, n_top_genes, "seurat")
-        got = ext.highly_variable_genes(*csr_args(dense), n_top_genes, "seurat", "cpu")
+        got = ext.highly_variable_genes(*csr_args(dense), n_top_genes, "seurat", DEVICE)
         np.testing.assert_array_equal(
             np.asarray(got["highly_variable"]),
             reference["highly_variable"].to_numpy(),
@@ -790,7 +792,7 @@ def test_hvg_a_constant_gene_gives_a_nan_dispersion():
     dense = logged(rng.poisson(1.5, (300, 40)).astype(np.float32))
     dense[:, 5] = np.float32(1.0)  # exactly constant
 
-    got = ext.highly_variable_genes(*csr_args(dense), 8, "seurat", "cpu")
+    got = ext.highly_variable_genes(*csr_args(dense), 8, "seurat", DEVICE)
     dispersions = np.asarray(got["dispersions"])
     assert np.isnan(dispersions[5])
     assert not np.isnan(np.delete(dispersions, 5)).all()

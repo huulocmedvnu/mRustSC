@@ -9,7 +9,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 scrust-core.workspace = true
-scrust-gpu.workspace = true
+# No scrust-gpu: nothing here calls it. The hand-written Metal kernels are not on any
+# path reachable from Python, so depending on the crate only lengthened the build and
+# suggested otherwise. GPU work that does reach Python goes through candle, which
+# `scrust-core` drives from the `Device` each binding resolves.
 candle-core.workspace = true
 ndarray.workspace = true
 numpy = "0.23"
