@@ -1,5 +1,7 @@
 //! Dendrograms, force-directed layouts and densities. Owned by feat/layout.
 
+use std::collections::HashSet;
+
 use candle_core::{DType, Device, Tensor};
 use ndarray::Array2;
 
@@ -48,12 +50,17 @@ pub struct Dendrogram {
 /// passed here by mistake into an error instead of a cubic-time hang.
 const MAX_GROUPS: usize = 1024;
 
-/// Average-linkage clustering of group centroids, as `scanpy.tl.dendrogram`.
+/// Complete-linkage clustering of group centroids, as `scanpy.tl.dendrogram`.
 ///
 /// The distance is `1 - pearson correlation` between two centroids, which is
-/// what scanpy feeds `scipy.cluster.hierarchy.linkage`. scanpy's default
-/// *linkage* is `complete`; this is `average`, and the two agree on the leaf
-/// order of PBMC 3k (asserted in `tests/test_layout.py`).
+/// what scanpy feeds `scipy.cluster.hierarchy.linkage`, and the linkage is
+/// `complete`, which is what `sc.tl.dendrogram` passes by default.
+///
+/// This used to be `average`, justified by the two agreeing on the leaf order of
+/// PBMC 3k. They do agree there, and that is exactly how far the justification
+/// went: on centroids where they part company the leaf order differs outright
+/// (`[4, 1, 3, 2, 0, 5]` against `[4, 0, 5, 2, 1, 3]`) and merge heights differ
+/// by up to 0.52. Agreement on one dataset is not agreement.
 ///
 /// No `device`: the input is a handful of group centroids, so every tensor
 /// involved is smaller than the dispatch that would launch it.
@@ -156,16 +163,15 @@ fn agglomerate(mut distances: Vec<f64>, n_groups: usize) -> Vec<[f64; 4]> {
             merged as f64,
         ]);
 
-        // Average linkage is the mean over all cross pairs, so the merged
-        // distance is the two old ones weighted by the cluster sizes behind
-        // them — the Lance-Williams update scipy applies.
+        // Complete linkage takes the *furthest* cross pair, so the merged distance is
+        // the larger of the two old ones — the Lance-Williams update scipy applies for
+        // `method="complete"`, which is what `sc.tl.dendrogram` passes by default.
         for other in 0..n_groups {
             if !live[other] || other == left || other == right {
                 continue;
             }
-            let updated = (size[left] as f64 * distances[other * n_groups + left]
-                + size[right] as f64 * distances[other * n_groups + right])
-                / merged as f64;
+            let updated =
+                distances[other * n_groups + left].max(distances[other * n_groups + right]);
             distances[other * n_groups + left] = updated;
             distances[left * n_groups + other] = updated;
         }
@@ -244,8 +250,8 @@ pub fn force_directed_layout(
     let n_cells = graph.n_rows();
     validate_graph(graph, n_iterations)?;
 
-    let masses = masses(graph);
     let edges = undirected_edges(graph);
+    let masses = masses(&edges, n_cells);
     let mut positions = random_positions(n_cells, seed);
     let mut forces = vec![0.0f32; n_cells * LAYOUT_DIMS];
     let mut previous_forces = vec![0.0f32; n_cells * LAYOUT_DIMS];
@@ -295,18 +301,18 @@ fn validate_graph(graph: &CsrMatrix, n_iterations: usize) -> Result<()> {
 }
 
 /// ForceAtlas2's mass: one plus the degree, so hubs repel harder than leaves.
-fn masses(graph: &CsrMatrix) -> Vec<f32> {
-    (0..graph.n_rows())
-        .map(|row| {
-            let from = graph.indptr()[row] as usize;
-            let to = graph.indptr()[row + 1] as usize;
-            let degree = graph.values()[from..to]
-                .iter()
-                .filter(|&&weight| weight != 0.0)
-                .count();
-            1.0 + degree as f32
-        })
-        .collect()
+///
+/// Counted from the deduplicated edge list rather than from each row's stored entries,
+/// so a node's degree is a property of the graph and not of which triangle the caller
+/// stored it in. Reading row counts gave a lower-triangular graph node 0 a degree of
+/// zero and the last node a degree of n-1, on a graph where every node is equivalent.
+fn masses(edges: &[(u32, u32, f32)], n_cells: usize) -> Vec<f32> {
+    let mut masses = vec![1.0f32; n_cells];
+    for &(left, right, _) in edges {
+        masses[left as usize] += 1.0;
+        masses[right as usize] += 1.0;
+    }
+    masses
 }
 
 /// Each undirected edge once, as the upper triangle of a symmetric graph.
@@ -314,16 +320,41 @@ fn masses(graph: &CsrMatrix) -> Vec<f32> {
 /// Taking both stored directions would double every attraction, which is not the
 /// same layout at a different scale: the repulsion it balances is unchanged.
 fn undirected_edges(graph: &CsrMatrix) -> Vec<(u32, u32, f32)> {
+    // Deduplicate by unordered pair rather than by keeping the upper triangle. Both
+    // reject the second copy of a symmetric edge, which is the point -- taking both
+    // stored directions would double every attraction -- but only this one survives a
+    // graph that is stored the other way up.
+    //
+    // Keeping `column > row` silently produced a layout with *no attraction at all* from
+    // a lower-triangular graph: the call succeeded, because degrees come from row counts
+    // and the only structural check is `nnz != 0`, and returned a plausible-looking pure
+    // repulsion cloud. Measured on two 8-node cliques, within/between separation went
+    // from 10.7/118.7 when stored symmetrically to 82.9/95.6 stored as `np.tril` -- the
+    // cliques simply do not form. No scanpy-shaped caller hits it, since `connectivities`
+    // is always symmetric, but nothing in the signature says so.
     let mut edges = Vec::new();
+    let mut seen = HashSet::new();
     for row in 0..graph.n_rows() {
         for entry in graph.indptr()[row] as usize..graph.indptr()[row + 1] as usize {
             let column = graph.indices()[entry];
             let weight = graph.values()[entry];
-            if weight != 0.0 && column as usize > row {
-                edges.push((row as u32, column, weight));
+            if weight == 0.0 || column as usize == row {
+                continue;
+            }
+            let pair = (
+                row.min(column as usize) as u32,
+                row.max(column as usize) as u32,
+            );
+            if seen.insert(pair) {
+                edges.push((pair.0, pair.1, weight));
             }
         }
     }
+    // Sort so the layout is a function of the graph and not of how it was stored. The
+    // forces are applied in this order and accumulated in f32, and the simulation
+    // amplifies the difference: the same edges read from lower-triangular storage
+    // instead of symmetric storage put nodes tens of units apart.
+    edges.sort_unstable_by_key(|&(left, right, _)| (left, right));
     edges
 }
 

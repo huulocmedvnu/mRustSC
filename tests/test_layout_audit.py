@@ -3,7 +3,7 @@
 This file is a *second opinion* on `tests/test_layout.py`. It deliberately goes at the
 places that file leaves open:
 
-* `dendrogram` — `tests/test_layout.py` compares against `scipy` run with `average`
+* `dendrogram` — `tests/test_layout.py` compares against `scipy` run with `complete`
   linkage, which is what the core implements, and merely *records* whether scanpy's own
   default (`complete`) happens to agree. Here the divergence is pinned instead: an input
   is constructed on which the two methods provably disagree, and the size of the gap is
@@ -101,18 +101,18 @@ def _mean_pairwise(points: np.ndarray) -> float:
 # ---------------------------------------------------------------------------
 
 
-def test_dendrogram_uses_average_linkage_where_scanpy_defaults_to_complete() -> None:
-    """Pins the one real divergence from scanpy in this module, and its size.
+def test_dendrogram_uses_the_complete_linkage_scanpy_defaults_to() -> None:
+    """The linkage method, on centroids chosen to separate the two candidates.
 
-    `sc.tl.dendrogram` defaults to `linkage_method="complete"`; the core hard-codes
-    average linkage (`crates/scrust-core/src/layout.rs`, `agglomerate`, whose
-    Lance-Williams update is the size-weighted average one) and the Python wrapper
-    records `linkage_method="average"` in the `uns` slot. On these centroids the two
-    methods produce different leaf orders *and* different merge heights, so a caller
-    who takes scanpy's default and this function to be interchangeable is wrong.
+    `sc.tl.dendrogram` defaults to `linkage_method="complete"`. The core used to
+    hard-code `average`, justified by the two agreeing on the leaf order of PBMC 3k --
+    which they do, and which is as far as that justification reached. These centroids
+    are built so they do not agree: different leaf orders and merge heights apart by
+    more than 0.5. The core now computes `complete`.
 
-    The test asserts the core reproduces `average` element-wise and that it is *not*
-    `complete`, which is what makes it fail if the core were ever switched.
+    The `!=` assertions are the load-bearing ones. Without them a core that had drifted
+    back to `average` would still pass on any input where the two coincide, which is
+    most of them, and that is precisely how this went unnoticed.
     """
     centroids = _divergent_centroids()
     linkage, leaves = scrust_call("_scrust.dendrogram", centroids)
@@ -121,13 +121,13 @@ def test_dendrogram_uses_average_linkage_where_scanpy_defaults_to_complete() -> 
     average = _correlation_linkage(centroids, "average")
     complete = _correlation_linkage(centroids, "complete")
 
-    assert_allclose(linkage, average, rtol=1e-6, atol=1e-7)
-    assert list(map(int, leaves)) == sch.dendrogram(average, no_plot=True)["leaves"]
+    assert_allclose(linkage, complete, rtol=1e-6, atol=1e-7)
+    assert list(map(int, leaves)) == sch.dendrogram(complete, no_plot=True)["leaves"]
 
-    # The divergence is real on this input, not a tolerance artefact.
-    complete_leaves = sch.dendrogram(complete, no_plot=True)["leaves"]
-    assert list(map(int, leaves)) != complete_leaves
-    height_gap = float(np.max(np.abs(linkage[:, 2] - complete[:, 2])))
+    # This input really does separate the two methods, so the agreement above means
+    # something. Otherwise the test would pass against either.
+    assert list(map(int, leaves)) != sch.dendrogram(average, no_plot=True)["leaves"]
+    height_gap = float(np.max(np.abs(linkage[:, 2] - average[:, 2])))
     assert height_gap > 0.5, height_gap
 
 
@@ -148,7 +148,7 @@ def test_dendrogram_breaks_distance_ties_the_way_scipy_does() -> None:
     )
     linkage, leaves = scrust_call("_scrust.dendrogram", centroids)
     linkage = np.asarray(linkage)
-    reference = _correlation_linkage(centroids, "average")
+    reference = _correlation_linkage(centroids, "complete")
 
     assert_allclose(linkage, reference, rtol=0, atol=1e-12)
     assert list(map(int, leaves)) == sch.dendrogram(reference, no_plot=True)["leaves"]
@@ -170,7 +170,7 @@ def test_dendrogram_leaf_order_is_scipys_traversal_and_not_a_sort() -> None:
     _, leaves = scrust_call("_scrust.dendrogram", centroids)
     order = list(map(int, leaves))
 
-    reference = sch.dendrogram(_correlation_linkage(centroids, "average"), no_plot=True)["leaves"]
+    reference = sch.dendrogram(_correlation_linkage(centroids, "complete"), no_plot=True)["leaves"]
     assert order == reference
     assert sorted(order) == list(range(len(order)))
     assert order != sorted(order)
@@ -201,7 +201,7 @@ def test_dendrogram_handles_a_group_of_a_single_cell() -> None:
 
     The mean of a one-row group is a degenerate case for the pandas `groupby` in
     `scrust.tl.dendrogram`; it is also the case where the correlation distance is at
-    its noisiest. Compared against `sc.tl.dendrogram` run with `average` linkage, so
+    its noisiest. Compared against `sc.tl.dendrogram` run with its default `complete` linkage, so
     the only thing under test is the group-mean and clustering path, not the linkage
     divergence pinned above.
     """
@@ -227,7 +227,7 @@ def test_dendrogram_handles_a_group_of_a_single_cell() -> None:
         "group",
         use_rep="X_pca",
         n_pcs=n_pcs,
-        linkage_method="average",
+        linkage_method="complete",
         inplace=False,
     )
     assert slot["categories_idx_ordered"] == list(reference["categories_idx_ordered"])
@@ -316,19 +316,22 @@ def test_draw_graph_is_reproducible_from_its_seed_and_moves_with_it() -> None:
     assert not np.allclose(first, other, atol=1e-3)
 
 
-def test_draw_graph_ignores_edges_stored_below_the_diagonal() -> None:
-    """Documents a real fragility: attraction reads only the upper triangle.
+def test_draw_graph_reads_edges_whichever_triangle_they_are_stored_in() -> None:
+    """The same graph laid out the same way, however the caller happened to store it.
 
-    `undirected_edges` keeps an entry only when `column > row`, so a graph handed over
-    in lower-triangular storage contributes *no* attraction at all and the result is
-    pure repulsion plus gravity. Degrees, and therefore masses, are still taken from
-    the row counts, so the call succeeds and returns a plausible-looking layout.
+    `undirected_edges` used to keep an entry only when `column > row`. A graph handed
+    over in lower-triangular storage therefore contributed *no* attraction at all: the
+    call still succeeded, because degrees and so masses come from row counts and the
+    only structural check is `nnz != 0`, and it returned a plausible-looking cloud of
+    pure repulsion. Measured on this fixture, within/between went from 10.7/118.7 to
+    82.9/95.6 -- the cliques simply did not form.
 
-    scanpy's `connectivities` are always symmetric, so no scanpy-shaped caller hits
-    this; the core also never validates symmetry, which is why it is worth pinning.
-    This test asserts the *current* behaviour — it is not the desired behaviour, and
-    the fix would be to symmetrise (or to reject an asymmetric graph) in
-    `crates/scrust-core/src/layout.rs`.
+    It now deduplicates by unordered pair, which rejects the second copy of a symmetric
+    edge (taking both would double every attraction) while surviving either storage.
+
+    No scanpy-shaped caller reaches it, since `connectivities` is always symmetric, so
+    this is robustness rather than a fixed user-visible bug -- but nothing in the
+    signature says the input must be upper-triangular, and the failure was silent.
     """
     size = 8
     adjacency = np.zeros((2 * size, 2 * size), dtype=np.float32)
@@ -342,18 +345,24 @@ def test_draw_graph_ignores_edges_stored_below_the_diagonal() -> None:
         np.fill_diagonal(same, False)
         return float(distance[same].mean()), float(distance[~same].mean())
 
-    full = np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 100, 0, DEVICE))
-    lower = np.asarray(
-        scrust_call("_scrust.draw_graph", *_csr_args(np.tril(adjacency)), 100, 0, DEVICE)
-    )
+    layouts = {
+        name: np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(stored), 100, 0, DEVICE))
+        for name, stored in (
+            ("symmetric", adjacency),
+            ("lower", np.tril(adjacency)),
+            ("upper", np.triu(adjacency)),
+        )
+    }
 
-    full_within, full_between = within_between(full)
-    lower_within, lower_between = within_between(lower)
+    for name, positions in layouts.items():
+        within, between = within_between(positions)
+        # The cliques form in every storage: an order of magnitude tighter than apart.
+        assert within < 0.2 * between, (name, within, between)
 
-    # Symmetric storage: the cliques are an order of magnitude tighter than they are apart.
-    assert full_within < 0.2 * full_between, (full_within, full_between)
-    # Lower-triangular storage: no attraction survives, so the cliques do not form.
-    assert lower_within > 0.7 * lower_between, (lower_within, lower_between)
+    # And not merely "some layout formed" -- all three are the same layout, because all
+    # three describe the same undirected graph and the seed is the same.
+    assert_allclose(layouts["lower"], layouts["symmetric"], rtol=1e-5, atol=1e-5)
+    assert_allclose(layouts["upper"], layouts["symmetric"], rtol=1e-5, atol=1e-5)
 
 
 def test_draw_graph_rejects_input_no_layout_exists_for() -> None:
