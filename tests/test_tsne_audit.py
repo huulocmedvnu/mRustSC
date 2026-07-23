@@ -377,26 +377,38 @@ def test_pca_initialisation_matches_sklearn(extension, n_components):
 
 
 # --------------------------------------------------------------------------- #
-# KNOWN FAILURE, LEFT RED ON PURPOSE. See the audit note in this file's header
-# commit message: `scrust` refuses inputs that scanpy and scikit-learn accept.
+# The precondition on perplexity.
 # --------------------------------------------------------------------------- #
 
 
 def test_accepts_every_input_scikit_learn_accepts(extension):
-    """DELIBERATELY FAILING.
+    """scikit-learn's only precondition is `perplexity < n_samples`
+    (`_check_params_vs_input`, sklearn/manifold/_t_sne.py:845-850), and scanpy adds
+    none of its own.
 
-    scikit-learn's only precondition is `perplexity < n_samples`
-    (`_check_params_vs_input`, sklearn/manifold/_t_sne.py:845-850); scanpy adds
-    none of its own. `scrust` additionally refuses `n_cells < 3 * perplexity`
-    (crates/scrust-core/src/tsne.rs:132), so a 60-cell subcluster at the default
-    perplexity of 30 raises where `sc.tl.tsne` returns a layout.
-
-    Left red rather than fixed: relaxing it is a change to a public contract with
-    a deliberate rationale in the source, not a defect in the transcription, and
-    the audit's remit is the latter. Whoever picks this up should either widen
-    the guard to scikit-learn's or correct the comment above it, which credits
-    the rule to scanpy — scanpy has no such rule.
+    `scrust` used to refuse `n_cells < 3 * perplexity` as well, so a 60-cell
+    subcluster at the default perplexity of 30 raised where `sc.tl.tsne` returns a
+    layout. The one-third rule is advice about reading a t-SNE, not a precondition
+    of the algorithm, and the comment carrying it credited scanpy, which has no
+    such rule. The guard is now scikit-learn's.
     """
     x = gaussian(60, 10, seed=17)
     layout = extension.tsne(x, 2, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
     assert layout.shape == (60, 2)
+    assert np.isfinite(layout).all()
+
+
+def test_rejects_perplexity_at_or_above_the_cell_count(extension):
+    """The boundary scikit-learn draws: `perplexity < n_samples`, so equality raises.
+
+    Below it the bandwidth search still has a target it can reach; at or above it
+    the requested neighbourhood is the whole data set and there is none.
+    """
+    x = gaussian(20, 5, seed=3)
+    for perplexity in (20.0, 25.0):
+        with pytest.raises(ValueError, match="perplexity"):
+            extension.tsne(x, 2, perplexity, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
+
+    layout = extension.tsne(x, 2, 19.0, EARLY_EXAGGERATION, LEARNING_RATE, 250, 0, "cpu")
+    assert layout.shape == (20, 2)
+    assert np.isfinite(layout).all()

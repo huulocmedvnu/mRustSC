@@ -127,12 +127,19 @@ fn validate(n_cells: usize, n_features: usize, params: &TsneParams) -> Result<()
             params.perplexity,
         ));
     }
-    // scanpy's own guidance: the bandwidth search is meaningless when the
-    // requested neighbourhood is a sizeable fraction of the data set.
-    if (n_cells as f32) < 3.0 * params.perplexity {
+    // scikit-learn's only precondition on perplexity (`_check_params_vs_input`,
+    // `sklearn/manifold/_t_sne.py:845-850`), and scanpy adds none of its own.
+    //
+    // This used to refuse `n_cells < 3 * perplexity`, crediting the rule to
+    // scanpy, which has no such rule: a 60-cell subcluster at the default
+    // perplexity of 30 raised here where `sc.tl.tsne` returns a layout. The
+    // one-third heuristic is sound advice about *interpreting* a t-SNE, not a
+    // precondition of the algorithm -- the bandwidth search still converges,
+    // and refusing to run is a compatibility break, not a safeguard.
+    if params.perplexity >= n_cells as f32 {
         return Err(Error::parameter(
             "perplexity",
-            "at most a third of the cell count",
+            "less than the cell count",
             params.perplexity,
         ));
     }
