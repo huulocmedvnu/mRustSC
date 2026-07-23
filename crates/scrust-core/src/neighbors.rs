@@ -56,7 +56,7 @@ fn knn_tiled(
         ));
     }
 
-    let flat: Vec<f32> = embedding.iter().copied().collect();
+    let flat = centred(embedding);
     let points = Tensor::from_vec(flat, (n_cells, n_dims), device)?;
     // |a - b|^2 = |a|^2 + |b|^2 - 2 a.b keeps the whole thing in one matmul.
     let square_norms = points.sqr()?.sum_keepdim(1)?;
@@ -96,6 +96,39 @@ fn knn_tiled(
     Ok(KnnGraph { indices, distances })
 }
 
+/// The embedding with each column's mean removed, flattened row-major.
+///
+/// Pairwise distances are invariant under a translation, but the expansion
+/// `|a|^2 + |b|^2 - 2 a.b` is not: it resolves a squared distance only to about
+/// `f32::EPSILON * R^2`, where `R` is the largest point norm, so two neighbours
+/// closer together than `R * sqrt(f32::EPSILON)` -- about `R / 4000` -- cannot
+/// be told apart. Un-centred coordinates make `R` the distance to the origin
+/// rather than the radius of the cloud, and the failure is silent: at an offset
+/// of `1e4` with unit spread every squared distance cancels to a negative, is
+/// clamped to zero, and the graph degenerates to all-ones connectivities.
+/// Centring costs one pass and makes `R` the radius of the cloud, which is the
+/// best any f32 input allows. The means are accumulated in f64 so that the
+/// centred coordinates are correct to one f32 rounding.
+fn centred(embedding: &Array2<f32>) -> Vec<f32> {
+    let (n_cells, n_dims) = embedding.dim();
+    let mut means = vec![0.0f64; n_dims];
+    for row in embedding.rows() {
+        for (mean, &value) in means.iter_mut().zip(row) {
+            *mean += value as f64;
+        }
+    }
+    for mean in means.iter_mut() {
+        *mean /= n_cells as f64;
+    }
+    let mut flat = Vec::with_capacity(n_cells * n_dims);
+    for row in embedding.rows() {
+        for (&value, &mean) in row.iter().zip(means.iter()) {
+            flat.push((value as f64 - mean) as f32);
+        }
+    }
+    flat
+}
+
 /// The `k` smallest entries of one row of squared distances, nearest first,
 /// excluding the cell itself.
 ///
@@ -127,7 +160,11 @@ fn select_nearest(square_distances: &[f32], cell: usize, k: usize) -> (Vec<u32>,
 
 /// umap-learn's `SMOOTH_K_TOLERANCE`: the binary search stops once the fuzzy set
 /// cardinality is this close to `log2(k)`.
-const SMOOTH_K_TOLERANCE: f32 = 1e-5;
+///
+/// f64 to match umap-learn, where the tolerance and the target are Python floats
+/// even though the running sum is a `numba.types.float32`, so both comparisons
+/// against the target happen in double precision.
+const SMOOTH_K_TOLERANCE: f64 = 1e-5;
 /// umap-learn's `MIN_K_DIST_SCALE`: `sigma` is floored at this fraction of a
 /// mean distance so that a tight cluster cannot produce a degenerate kernel.
 const MIN_K_DIST_SCALE: f32 = 1e-3;
@@ -167,11 +204,16 @@ pub fn connectivities(graph: &KnnGraph) -> Result<CsrMatrix> {
 /// umap-learn passes rows that start with the cell itself at distance zero; a
 /// `KnnGraph` excludes that entry, so the implied row width is `k + 1` and the
 /// self entry contributes only to the means and to the target cardinality.
-fn smooth_knn_distances(distances: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
+pub fn smooth_knn_distances(distances: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
     let (n_cells, k) = distances.dim();
     let width = k + 1;
-    let target = (width as f32).log2();
-    let mean_distance = distances.sum() / (n_cells * width) as f32;
+    // umap-learn computes `target = np.log2(k)` in double precision and compares
+    // the float32 running sum against it, so the target must not be rounded to
+    // f32 first: log2(15) is 3.9068906 as an f32 and 3.9068905956085187 as an
+    // f64, and the 4e-8 gap is enough to move the SMOOTH_K_TOLERANCE break by an
+    // iteration on a few rows in every dataset.
+    let target = (width as f64).log2();
+    let mean_distance = distances.sum() / (n_cells * k) as f32;
 
     let mut sigmas = Vec::with_capacity(n_cells);
     let mut rhos = Vec::with_capacity(n_cells);
@@ -195,6 +237,7 @@ fn smooth_knn_distances(distances: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
                     }
                 })
                 .sum();
+            let cardinality = cardinality as f64;
             if (cardinality - target).abs() < SMOOTH_K_TOLERANCE {
                 break;
             }
