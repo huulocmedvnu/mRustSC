@@ -55,8 +55,19 @@ const AFFINITY_EPSILON: f32 = 1e-8;
 /// both as in scikit-learn's `_gradient_descent`.
 const MIN_GAIN: f32 = 0.01;
 const MIN_GRADIENT_NORM: f32 = 1e-7;
-/// Checking convergence forces a device synchronisation, so do it rarely.
+/// scikit-learn's `TSNE._N_ITER_CHECK`: how often the objective and the gradient
+/// norm are evaluated. Checking also forces a device synchronisation.
 const CONVERGENCE_CHECK_INTERVAL: usize = 50;
+/// scikit-learn's `n_iter_without_progress`, applied to the second phase only.
+/// The exploration phase passes `_EXPLORATION_MAX_ITER` instead, which cannot be
+/// exceeded inside 250 iterations, so it never fires there.
+const ITERATIONS_WITHOUT_PROGRESS: usize = 300;
+
+/// numpy's `finfo(double).eps`, which scikit-learn calls `MACHINE_EPSILON`. It
+/// only ever guards the logarithm in the objective here: as a floor on `P` it is
+/// nine orders of magnitude below what `f32` resolves at the scale `P` lives on,
+/// so applying it to the affinities themselves would be a no-op.
+const MACHINE_EPSILON: f64 = f64::EPSILON;
 
 /// Scale of the initial layout, as scikit-learn applies to both of its
 /// initialisations.
@@ -72,7 +83,7 @@ pub fn tsne(embedding: &Array2<f32>, params: &TsneParams, device: &Device) -> Re
         (n_cells, n_features),
         device,
     )?;
-    let distances = squared_distances(&points)?
+    let distances = squared_distances(&centred(&points)?)?
         .flatten_all()?
         .to_vec1::<f32>()?;
 
@@ -116,12 +127,19 @@ fn validate(n_cells: usize, n_features: usize, params: &TsneParams) -> Result<()
             params.perplexity,
         ));
     }
-    // scanpy's own guidance: the bandwidth search is meaningless when the
-    // requested neighbourhood is a sizeable fraction of the data set.
-    if (n_cells as f32) < 3.0 * params.perplexity {
+    // scikit-learn's only precondition on perplexity (`_check_params_vs_input`,
+    // `sklearn/manifold/_t_sne.py:845-850`), and scanpy adds none of its own.
+    //
+    // This used to refuse `n_cells < 3 * perplexity`, crediting the rule to
+    // scanpy, which has no such rule: a 60-cell subcluster at the default
+    // perplexity of 30 raised here where `sc.tl.tsne` returns a layout. The
+    // one-third heuristic is sound advice about *interpreting* a t-SNE, not a
+    // precondition of the algorithm -- the bandwidth search still converges,
+    // and refusing to run is a compatibility break, not a safeguard.
+    if params.perplexity >= n_cells as f32 {
         return Err(Error::parameter(
             "perplexity",
-            "at most a third of the cell count",
+            "less than the cell count",
             params.perplexity,
         ));
     }
@@ -140,6 +158,22 @@ fn validate(n_cells: usize, n_features: usize, params: &TsneParams) -> Result<()
         ));
     }
     Ok(())
+}
+
+/// Subtract the column means.
+///
+/// Squared distances are translation invariant, but the Gram expansion below is
+/// not: `|x|^2 + |y|^2 - 2 x.y` cancels catastrophically once the common offset
+/// dominates the spread. scikit-learn's countermeasure is to upcast `float32`
+/// input to `float64` for the whole product (`_euclidean_distances_upcast` in
+/// `sklearn/metrics/pairwise.py`); centring achieves the same at no cost, and is
+/// exact for the case that actually breaks `f32`. On a cloud of unit-variance
+/// points offset by 500 the uncentred expansion is wrong by 24 per cent in the
+/// worst pair, against 6e-8 for scikit-learn; centred it is 5e-7.
+fn centred(points: &Tensor) -> Result<Tensor> {
+    let n_rows = points.dim(0)?;
+    let means = points.sum_keepdim(0)?.affine(1.0 / n_rows as f64, 0.0)?;
+    Ok(points.broadcast_sub(&means)?)
 }
 
 /// Pairwise squared Euclidean distances as `|x|^2 + |y|^2 - 2 x.y`, so the whole
@@ -234,38 +268,81 @@ fn joint_probabilities(conditional: &[f32], n_cells: usize) -> Vec<f32> {
     joint
 }
 
-/// Gradient of the Kullback-Leibler objective for the whole embedding.
+/// Degrees of freedom of the Student's t, as scikit-learn's `_fit` derives it:
+/// `max(n_components - 1, 1)`. Two components therefore give one, the classical
+/// t-SNE kernel `1 / (1 + d^2)` with a gradient coefficient of four.
+fn degrees_of_freedom(n_components: usize) -> f64 {
+    n_components.saturating_sub(1).max(1) as f64
+}
+
+/// Gradient of the Kullback-Leibler objective for the whole embedding, and
+/// optionally the objective itself.
 ///
 /// Kept as one private function with a tensor-in, tensor-out shape so the fused
 /// Metal kernel on `feat/tsne-kernel` can replace the body without touching the
-/// optimiser. Everything here is dense `(n, n)` tensor algebra:
+/// optimiser. Everything here is dense `(n, n)` tensor algebra, transcribed from
+/// scikit-learn's `_kl_divergence`:
 ///
-/// `dC/dy_i = 4 sum_j (P_ij - Q_ij) w_ij (y_i - y_j)` with `w_ij = 1 / (1 + |y_i - y_j|^2)`
+/// `dC/dy_i = c sum_j (P_ij - Q_ij) w_ij (y_i - y_j)` with
+/// `w_ij = (1 + |y_i - y_j|^2 / v)^(-(v + 1) / 2)`, `Q_ij = w_ij / Z` and
+/// `c = 2 (v + 1) / v` for `v` degrees of freedom,
 ///
 /// which factors into a row sum and a single matmul. The diagonal needs no mask:
 /// it contributes `w_ii (y_i - y_i) = 0` to both halves.
-fn kl_gradient(layout: &Tensor, joint: &Tensor, exaggeration: f32) -> Result<Tensor> {
+///
+/// `error` is scikit-learn's `2 * dot(P, log(P / Q))` over unordered pairs,
+/// which is the same as summing over the ordered ones as the dense matrices
+/// here do. It is computed only when the optimiser is about to look at it,
+/// mirroring the `compute_error` flag on the objective.
+fn kl_gradient(
+    layout: &Tensor,
+    joint: &Tensor,
+    exaggeration: f32,
+    dof: f64,
+    compute_error: bool,
+) -> Result<(Tensor, Option<f64>)> {
     let n_cells = layout.dim(0)?;
 
-    // Student t with one degree of freedom.
-    let weights = squared_distances(layout)?.affine(1.0, 1.0)?.recip()?;
+    let scaled = squared_distances(layout)?.affine(1.0 / dof, 1.0)?;
+    // `recip` is both faster and more accurate than the general power, and the
+    // two agree exactly at one degree of freedom, which is every 2-D layout.
+    let weights = if dof == 1.0 {
+        scaled.recip()?
+    } else {
+        scaled.powf(-(dof + 1.0) / 2.0)?
+    };
     // Q normalises over ordered pairs i != j; the diagonal contributes exactly n.
     let normaliser = weights
         .sum_all()?
         .affine(1.0, -(n_cells as f64))?
         .reshape((1, 1))?;
-    let low_dimensional = weights.broadcast_div(&normaliser)?;
+    let low_dimensional = weights
+        .broadcast_div(&normaliser)?
+        .maximum(MACHINE_EPSILON as f32)?;
 
-    let forces = joint
-        .affine(exaggeration as f64, 0.0)?
-        .sub(&low_dimensional)?
-        .mul(&weights)?;
+    let exaggerated = joint.affine(exaggeration as f64, 0.0)?;
+    let forces = exaggerated.sub(&low_dimensional)?.mul(&weights)?;
 
-    Ok(forces
+    let error = if compute_error {
+        let ratio = exaggerated
+            .maximum(MACHINE_EPSILON as f32)?
+            .div(&low_dimensional)?;
+        Some(f64::from(
+            exaggerated
+                .mul(&ratio.log()?)?
+                .sum_all()?
+                .to_scalar::<f32>()?,
+        ))
+    } else {
+        None
+    };
+
+    let gradient = forces
         .sum_keepdim(1)?
         .broadcast_mul(layout)?
         .sub(&forces.matmul(layout)?)?
-        .affine(4.0, 0.0)?)
+        .affine(2.0 * (dof + 1.0) / dof, 0.0)?;
+    Ok((gradient, error))
 }
 
 /// Start from the leading principal components of the input, as scikit-learn's
@@ -322,24 +399,35 @@ fn principal_component_initialisation(
 /// Gradient descent with per-coordinate gains and a two-phase momentum and
 /// exaggeration schedule, matching scikit-learn's `_gradient_descent`.
 fn optimise(initial: Tensor, joint: &Tensor, params: &TsneParams) -> Result<Tensor> {
+    let dof = degrees_of_freedom(params.n_components);
     let mut layout = initial;
     let mut update = layout.zeros_like()?;
     let mut gains = layout.ones_like()?;
+    let mut best_error = f64::MAX;
+    let mut best_iteration = 0usize;
+    // Where the exploration phase ends. Normally `EXPLORATION_ITERATIONS`, but
+    // scikit-learn's first `_gradient_descent` call can return early, and the
+    // second one then resumes from wherever it stopped.
+    let mut exploration_end = EXPLORATION_ITERATIONS;
 
-    for iteration in 0..params.n_iterations {
-        let (momentum, exaggeration) = if iteration < EXPLORATION_ITERATIONS {
+    let mut iteration = 0usize;
+    while iteration < params.n_iterations {
+        let (momentum, exaggeration) = if iteration < exploration_end {
             (EXPLORATION_MOMENTUM, params.early_exaggeration)
         } else {
             (FINAL_MOMENTUM, 1.0)
         };
         // scikit-learn restarts the descent for the second phase, which resets
-        // the accumulated momentum and gains.
-        if iteration == EXPLORATION_ITERATIONS {
+        // the accumulated momentum, the gains and the best-error bookkeeping.
+        if iteration == exploration_end {
             update = layout.zeros_like()?;
             gains = layout.ones_like()?;
+            best_error = f64::MAX;
+            best_iteration = iteration;
         }
 
-        let gradient = kl_gradient(&layout, joint, exaggeration)?;
+        let checking = (iteration + 1).is_multiple_of(CONVERGENCE_CHECK_INTERVAL);
+        let (gradient, error) = kl_gradient(&layout, joint, exaggeration, dof, checking)?;
 
         // A coordinate whose step and gradient disagree in sign is overshooting.
         let overshooting = update.mul(&gradient)?.lt(0f32)?.to_dtype(DType::F32)?;
@@ -349,17 +437,50 @@ fn optimise(initial: Tensor, joint: &Tensor, params: &TsneParams) -> Result<Tens
             .add(&steady.mul(&gains.affine(0.8, 0.0)?)?)?
             .maximum(MIN_GAIN)?;
 
-        let step = gradient
-            .mul(&gains)?
-            .affine(params.learning_rate as f64, 0.0)?;
-        update = update.affine(momentum, 0.0)?.sub(&step)?;
+        // scikit-learn scales the gradient by the gains in place, so everything
+        // downstream of this point — the step *and* the convergence test — sees
+        // the scaled one.
+        let scaled = gradient.mul(&gains)?;
+        update = update
+            .affine(momentum, 0.0)?
+            .sub(&scaled.affine(params.learning_rate as f64, 0.0)?)?;
         layout = layout.add(&update)?;
 
-        if (iteration + 1) % CONVERGENCE_CHECK_INTERVAL == 0 {
-            let norm = gradient.sqr()?.sum_all()?.sqrt()?.to_scalar::<f32>()?;
-            if norm <= MIN_GRADIENT_NORM {
+        let exploring = iteration < exploration_end;
+        iteration += 1;
+        if !checking {
+            continue;
+        }
+
+        // The exploration phase is given `_EXPLORATION_MAX_ITER` as its patience,
+        // which it cannot exceed, so only the second phase can stop on this.
+        let patience = if exploring {
+            EXPLORATION_ITERATIONS
+        } else {
+            ITERATIONS_WITHOUT_PROGRESS
+        };
+        let error = error.unwrap_or(f64::MAX);
+        let mut stop = false;
+        if error < best_error {
+            best_error = error;
+            best_iteration = iteration - 1;
+        } else if iteration - 1 - best_iteration > patience {
+            stop = true;
+        }
+        if !stop {
+            let norm = scaled.sqr()?.sum_all()?.sqrt()?.to_scalar::<f32>()?;
+            stop = norm <= MIN_GRADIENT_NORM;
+        }
+
+        if stop {
+            if !exploring {
                 break;
             }
+            // scikit-learn only leaves the *first* `_gradient_descent` call here
+            // and then still runs the second from the next iteration, so a stop
+            // inside the exploration phase must not return a layout that never
+            // had the exaggeration removed.
+            exploration_end = iteration;
         }
     }
 
@@ -556,8 +677,9 @@ mod tests {
         let gradient_on = |device: &Device| {
             let layout = Tensor::from_vec(start.clone(), (n, 2), device).unwrap();
             let affinities = Tensor::from_vec(joint.clone(), (n, n), device).unwrap();
-            kl_gradient(&layout, &affinities, 12.0)
+            kl_gradient(&layout, &affinities, 12.0, 1.0, false)
                 .unwrap()
+                .0
                 .flatten_all()
                 .unwrap()
                 .to_vec1::<f32>()

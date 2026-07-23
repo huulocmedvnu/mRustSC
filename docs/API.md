@@ -135,7 +135,10 @@ an out-of-memory kill:
 - **at most 20 000 cells.** The formulation is exact, not Barnes-Hut, so the
   `(n, n)` affinity matrix is materialised: 1.6 GB at 20 000 cells, and the gradient
   step holds three more buffers of that shape, for a peak near 6.5 GB.
-- **perplexity at most a third of the cell count.**
+- **perplexity below the cell count**, which is scikit-learn's own precondition.
+  A t-SNE is hard to read once the perplexity approaches a third of the cell
+  count, but that is advice about the plot, not a limit of the implementation,
+  and it is not enforced — scanpy does not enforce it either.
 
 `learning_rate=None` uses scikit-learn's current `auto` rule,
 `max(n / early_exaggeration / 4, 50)`. scanpy still passes its legacy 1000, so the
