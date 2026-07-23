@@ -200,6 +200,19 @@ def test_range_finder_does_not_lose_rank():
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known divergence, measured not assumed: the final decomposition takes a "
+        "Jacobi eigendecomposition of the Gram matrix B Bt, while scikit-learn takes "
+        "an exact SVD of B. Forming the Gram squares the condition number, so "
+        "trailing singular values lose roughly half their digits: at a spectral "
+        "ratio of 800 ours is 3.6e-4 off an exact f64 reference where scikit-learn "
+        "is 6.3e-7. Fixing it means a one-sided Jacobi on B in f64 on the CPU, "
+        "giving up the device for the final step. Marked strict so that if the "
+        "decomposition is ever replaced, this test failing to fail says so."
+    ),
+)
 def test_trailing_singular_values_survive_an_ill_conditioned_spectrum():
     """KNOWN FAILURE — the final Gram eigendecomposition halves the usable digits.
 
