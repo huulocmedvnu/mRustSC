@@ -185,6 +185,41 @@ class FakeCore:
             "rank_genes_groups_wilcoxon",
             (indptr, indices, values, n_cols, labels, n_groups, reference, tie_correct, device),
         )
+        return self._de_result(n_groups, n_cols)
+
+    def rank_genes_groups_t_test(
+        self, indptr, indices, values, n_cols, labels, n_groups, reference, device
+    ):
+        self._record(
+            "rank_genes_groups_t_test",
+            (indptr, indices, values, n_cols, labels, n_groups, reference, device),
+        )
+        return self._de_result(n_groups, n_cols)
+
+    def rank_genes_groups_t_test_overestim_var(
+        self, indptr, indices, values, n_cols, labels, n_groups, reference, device
+    ):
+        self._record(
+            "rank_genes_groups_t_test_overestim_var",
+            (indptr, indices, values, n_cols, labels, n_groups, reference, device),
+        )
+        return self._de_result(n_groups, n_cols)
+
+    def rank_genes_groups_logreg(
+        self, indptr, indices, values, n_cols, labels, n_groups, max_iterations, device
+    ):
+        self._record(
+            "rank_genes_groups_logreg",
+            (indptr, indices, values, n_cols, labels, n_groups, max_iterations, device),
+        )
+        # logreg has no p-values or fold changes; the wrapper drops the NaN fields.
+        result = self._de_result(n_groups, n_cols)
+        for key in ("p_values", "adjusted_p_values", "log2_fold_changes"):
+            result[key] = np.full((n_groups, n_cols), np.nan)
+        return result
+
+    @staticmethod
+    def _de_result(n_groups: int, n_cols: int) -> dict:
         stats = np.zeros((n_groups, n_cols), dtype=np.float64)
         return {
             "scores": stats,
@@ -555,8 +590,10 @@ def test_rank_genes_groups_excludes_cells_outside_the_selected_groups(core: Fake
 
 
 def test_rank_genes_groups_rejects_unknown_input(core: FakeCore) -> None:
-    with pytest.raises(ValueError, match="wilcoxon"):
-        tl.rank_genes_groups(_adata(), "group", method="t-test")
+    # `t-test` used to belong here; `feat/de-methods` implemented it, so the method that
+    # has to be refused is now one scanpy does not have either.
+    with pytest.raises(ValueError, match="method must be one of"):
+        tl.rank_genes_groups(_adata(), "group", method="mann-whitney")
     with pytest.raises(ValueError, match="unknown groups"):
         tl.rank_genes_groups(_adata(), "group", groups=["z"])
     with pytest.raises(KeyError, match="louvain"):

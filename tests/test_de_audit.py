@@ -302,39 +302,66 @@ def test_log2_fold_change_pseudocount_is_exactly_1e_minus_9():
 # ----------------------------------------------- 3. Welch's t-test / overestim_var
 
 
-def test_t_test_methods_are_not_implemented():
-    """`de::parametric` is still `todo!()`, and the Python layer refuses the method.
+def test_every_scanpy_method_is_now_accepted():
+    """All four of scanpy's `rank_genes_groups` methods reach the core.
 
-    Recorded rather than skipped: the audit's finding is that `t-test` and
-    `t-test_overestim_var` do not exist, so nothing about their degrees of
-    freedom can be right or wrong yet.
+    This test used to record the opposite -- that `de::parametric` was `todo!()` and the
+    Python layer refused three of the four. `feat/de-methods` landed them, so what was
+    an absence to record is now a surface to check. The cross-checks against scanpy live
+    in `test_parametric_audit.py`; this only pins that the wrapper lets them through and
+    that an unknown method is still refused.
     """
     scrust_tl = pytest.importorskip("scrust.tl")
     from anndata import AnnData
 
-    adata = AnnData(
-        sp.csr_matrix(np.eye(6, 4, dtype=np.float32)),
-        obs={"group": ["a", "a", "a", "b", "b", "b"]},
-    )
+    rng = np.random.default_rng(0)
+    dense = rng.lognormal(0.0, 1.0, size=(40, 6)).astype(np.float32)
+    adata = AnnData(sp.csr_matrix(dense), obs={"group": ["a"] * 20 + ["b"] * 20})
     adata.obs["group"] = adata.obs["group"].astype("category")
-    for method in ("t-test", "t-test_overestim_var", "logreg"):
-        with pytest.raises(ValueError, match="method must be one of"):
-            scrust_tl.rank_genes_groups(adata, "group", method=method)
+
+    for method in ("wilcoxon", "t-test", "t-test_overestim_var", "logreg"):
+        # Writes in place and returns None, as scanpy does.
+        target = adata.copy()
+        assert scrust_tl.rank_genes_groups(target, "group", method=method) is None
+        names = target.uns["rank_genes_groups"]["names"]
+        assert len(names) == dense.shape[1], method
+
+    with pytest.raises(ValueError, match="method must be one of"):
+        scrust_tl.rank_genes_groups(adata, "group", method="not-a-method")
 
 
 def test_overestim_var_changes_the_statistic_not_only_the_degrees_of_freedom():
-    """A property the eventual implementation must satisfy.
+    """scanpy substitutes `ns_rest = ns_group` into `ttest_ind_from_stats`, which feeds
+    `vn2 = var_rest / ns_rest`. That term is in the Welch denominator as well as in the
+    Welch-Satterthwaite d.o.f., so `t-test_overestim_var` reports a *different t*, not
+    merely a different p-value. An implementation that changed only the d.o.f. would be
+    wrong, and would pass a test that only looked at p-values.
 
-    scanpy substitutes `ns_rest = ns_group` into `ttest_ind_from_stats`, which
-    feeds `vn2 = var_rest / ns_rest`. That term is in the Welch denominator as
-    well as in the Welch-Satterthwaite d.o.f., so `t-test_overestim_var` reports
-    a *different t*, not merely a different p-value. An implementation that
-    changes only the d.o.f. would be wrong.
+    Until the methods existed this could only be stated about scipy, comparing scipy
+    against scipy -- which said nothing about this crate. It now asserts it of the core.
     """
-    plain = stats.ttest_ind_from_stats(2.0, 1.0, 10, 1.0, 3.0, 100, equal_var=False)
+    reference = stats.ttest_ind_from_stats(2.0, 1.0, 10, 1.0, 3.0, 100, equal_var=False)
     overestimated = stats.ttest_ind_from_stats(2.0, 1.0, 10, 1.0, 3.0, 10, equal_var=False)
-    assert plain.statistic != overestimated.statistic
-    assert plain.pvalue != overestimated.pvalue
+    assert reference.statistic != overestimated.statistic, "scipy's own premise"
+
+    rng = np.random.default_rng(5)
+    n_small, n_large = 20, 160
+    dense = rng.lognormal(0.0, 1.0, size=(n_small + n_large, 8)).astype(np.float32)
+    dense[:n_small] *= np.float32(2.5)
+    labels = np.array([0] * n_small + [1] * n_large, np.uint32)
+    args = csr_args(dense)
+
+    plain = ext.rank_genes_groups_t_test(*args, labels, 2, None, DEVICE)
+    inflated = ext.rank_genes_groups_t_test_overestim_var(*args, labels, 2, None, DEVICE)
+    plain_scores = np.asarray(plain["scores"])[0]
+    inflated_scores = np.asarray(inflated["scores"])[0]
+
+    # The statistic itself moves, not just the p-value it is turned into.
+    assert not np.allclose(plain_scores, inflated_scores), (
+        "the two methods report the same t; only the degrees of freedom can have changed"
+    )
+    # And the small group's inflated reference variance makes it less confident.
+    assert np.all(np.asarray(inflated["p_values"])[0] >= np.asarray(plain["p_values"])[0] - 1e-12)
 
 
 # ------------------------------------------------------- 4. Benjamini-Hochberg / f64
