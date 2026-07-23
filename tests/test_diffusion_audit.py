@@ -480,24 +480,30 @@ def test_dpt_gives_finite_pseudotime_to_unreachable_cells_where_scanpy_gives_inf
         scrust_call("tl.diffmap", _neighbored(graph), n_comps=6, device=DEVICE)
 
 
-def test_an_explicit_zero_defeats_the_connectivity_guard() -> None:
-    """DEFECT (not fixed). `diffmap`'s refusal of a disconnected graph counts *stored*
-    CSR entries as edges, so a pair of explicitly stored zeros bridging two components
-    lets the graph through and the map is computed anyway.
+def test_an_explicit_zero_does_not_defeat_the_connectivity_guard() -> None:
+    """DELIBERATELY STRICTER THAN SCANPY, and the one place that is the right call.
 
-    The guard exists, by its own comment in `diffusion.rs`, because a disconnected graph
-    makes the leading eigenspace degenerate -- every component contributes its own
-    eigenvalue 1 -- and calls that a "silent wrong answer". This test shows the silent
-    wrong answer being produced: the returned spectrum starts with *two* eigenvalues equal
-    to 1, whose eigenvectors span an arbitrary basis of a two-dimensional space, and no
-    error is raised. Removing the two stored zeros from the same matrix makes the identical
-    call raise.
+    `diffmap` refuses a disconnected graph because the leading eigenspace is then
+    degenerate -- every component contributes its own eigenvalue 1 -- which
+    `diffusion.rs` calls a "silent wrong answer". The guard used to count *stored* CSR
+    entries as edges, so two explicitly stored zeros bridging two components let the
+    graph straight through and the silent wrong answer was produced: a spectrum starting
+    `[1.0000001, 1.0, ...]` and no error.
 
-    scanpy has the same hole -- `scipy.sparse.csgraph.connected_components` also reads
-    only the pattern, asserted below -- so this is not a divergence from the reference; it
-    is a gap between what the Rust promises in its own comment and what it checks. Fixing
-    it means testing values, not just structure, which is a change to the Rust and is out
-    of scope for this audit.
+    It now counts only entries that carry weight. A zero-weight edge transports nothing
+    -- it adds nothing to the row sums, nothing to the transition operator, nothing to
+    the diffusion -- so it is not a connection.
+
+    That is stricter than the reference: `scipy.sparse.csgraph.connected_components`
+    reads the pattern alone and calls this graph connected, asserted below, and scanpy
+    inherits that and returns the degenerate map. Matching scipy here would mean matching
+    it on the exact input the guard exists to catch, so the guard wins. Everywhere else
+    in this crate the rule is to accept what scanpy accepts; this is the exception, and
+    it is narrow -- it fires only when a component is joined to the rest by nothing but
+    zero-weight edges, where any answer would be meaningless.
+
+    Note the opposite reading of a stored zero in `paga::count_edges`, which is also
+    correct there: PAGA counts edges of a binarised graph, where the weight never enters.
     """
     from scipy.sparse.csgraph import connected_components
 
@@ -517,16 +523,29 @@ def test_an_explicit_zero_defeats_the_connectivity_guard() -> None:
     # The hole, in scipy's own words: the same graph with the bridge stored as zero.
     assert connected_components(bridged)[0] == 1, "scipy now looks at values, not structure"
 
+    # Both spellings of the same disconnected graph are refused, whether the bridge is
+    # absent or merely weightless.
     with pytest.raises(ValueError, match="connected"):
         scrust_call("tl.diffmap", _neighbored(truly_split), n_comps=4, device=DEVICE)
+    with pytest.raises(ValueError, match="connected"):
+        scrust_call("tl.diffmap", _neighbored(bridged), n_comps=4, device=DEVICE)
 
-    ours = _neighbored(bridged)
-    scrust_call("tl.diffmap", ours, n_comps=4, device=DEVICE)
-    evals = np.asarray(ours.uns["diffmap_evals"], dtype=np.float64)
-    assert evals[0] == pytest.approx(1.0, abs=1e-5)
-    assert evals[1] == pytest.approx(1.0, abs=1e-5), (
-        "the guard now catches this; if the Rust was fixed, delete this test's xfail wording"
+    # And scanpy, reading the pattern alone, still produces the degenerate map: two
+    # eigenvalues at 1, which is what refusing the graph avoids.
+    reference = _neighbored(bridged)
+    sc.tl.diffmap(reference, n_comps=4)
+    theirs = np.asarray(reference.uns["diffmap_evals"], dtype=np.float64)
+    assert theirs[0] == pytest.approx(1.0, abs=1e-5)
+    assert theirs[1] == pytest.approx(1.0, abs=1e-5), (
+        "scanpy no longer produces a degenerate leading eigenspace here, so the extra "
+        "strictness above has lost its justification and should be revisited"
     )
+
+    # A graph whose bridge carries real weight is still accepted, so the guard has not
+    # simply become "refuse anything with a stored zero".
+    weighted = bridged.copy()
+    weighted.data[weighted.data == 0.0] = 0.5
+    scrust_call("tl.diffmap", _neighbored(weighted), n_comps=4, device=DEVICE)
 
 
 def test_n_comps_at_the_cell_count_is_refused_where_scanpy_clamps() -> None:

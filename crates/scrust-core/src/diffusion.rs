@@ -245,23 +245,47 @@ fn column_sums(indices: &[u32], values: impl Iterator<Item = f64>, n_cols: usize
     sums
 }
 
-/// Weakly connected components of the sparsity pattern, matching what
-/// `scipy.sparse.csgraph.connected_components` reports for scanpy.
+/// Weakly connected components of the graph, counting only edges that carry weight.
+///
+/// A stored entry whose value is zero transports nothing: it contributes nothing to the
+/// row sums, nothing to the transition operator, and nothing to the diffusion. So it is
+/// not an edge here, and two components joined only by stored zeros are two components.
+///
+/// This is deliberately stricter than `scipy.sparse.csgraph.connected_components`, which
+/// walks the sparsity pattern and so reports such a graph as connected -- scanpy inherits
+/// that and returns a map for it. What it returns is degenerate: the leading eigenspace
+/// has multiplicity two, its spectrum starts `[1.0000001, 1.0, ...]`, and the components
+/// are then ordered by floating-point noise. Refusing that is the whole point of this
+/// guard, and matching scipy here would mean matching it on the one input the guard
+/// exists to catch.
+///
+/// Note this is the opposite reading of a stored zero from `paga::count_edges`, and for
+/// a reason: PAGA counts edges of a binarised graph, where the weight never enters, while
+/// diffusion propagates along the weights themselves.
 fn component_count(graph: &CsrMatrix) -> usize {
     let n_cells = graph.n_rows();
     // Reverse edges by counting sort, so a graph that is only nearly symmetric
     // is still judged as the undirected graph scipy sees.
+    let carries_weight =
+        |entry: usize| graph.values()[entry] != 0.0 && !graph.values()[entry].is_nan();
     let mut starts = vec![0u32; n_cells + 1];
-    for &column in graph.indices() {
-        starts[column as usize + 1] += 1;
+    for row in 0..n_cells {
+        for entry in graph.indptr()[row] as usize..graph.indptr()[row + 1] as usize {
+            if carries_weight(entry) {
+                starts[graph.indices()[entry] as usize + 1] += 1;
+            }
+        }
     }
     for cell in 0..n_cells {
         starts[cell + 1] += starts[cell];
     }
     let mut cursor = starts.clone();
-    let mut sources = vec![0u32; graph.nnz()];
+    let mut sources = vec![0u32; starts[n_cells] as usize];
     for row in 0..n_cells {
         for entry in graph.indptr()[row] as usize..graph.indptr()[row + 1] as usize {
+            if !carries_weight(entry) {
+                continue;
+            }
             let column = graph.indices()[entry] as usize;
             sources[cursor[column] as usize] = row as u32;
             cursor[column] += 1;
@@ -279,10 +303,15 @@ fn component_count(graph: &CsrMatrix) -> usize {
         seen[start] = true;
         stack.push(start);
         while let Some(cell) = stack.pop() {
-            let outgoing =
-                &graph.indices()[graph.indptr()[cell] as usize..graph.indptr()[cell + 1] as usize];
-            let incoming = &sources[starts[cell] as usize..starts[cell + 1] as usize];
-            for &next in outgoing.iter().chain(incoming) {
+            let row = graph.indptr()[cell] as usize..graph.indptr()[cell + 1] as usize;
+            let outgoing = row.filter(|&entry| carries_weight(entry)).map(|entry| {
+                let column: u32 = graph.indices()[entry];
+                column
+            });
+            let incoming = sources[starts[cell] as usize..starts[cell + 1] as usize]
+                .iter()
+                .copied();
+            for next in outgoing.chain(incoming) {
                 let next = next as usize;
                 if !seen[next] {
                     seen[next] = true;
