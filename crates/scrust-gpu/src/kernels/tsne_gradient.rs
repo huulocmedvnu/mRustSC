@@ -25,6 +25,15 @@ const REPULSIVE_FUNCTION: &str = "tsne_repulsive";
 /// repulsive part `-(4 / Z) * sum_{j != i} w_ij^2 * (y_i - y_j)` over every other
 /// point. `exaggeration` multiplies the attractive part alone.
 ///
+/// # Degrees of freedom
+/// Both the kernel `1 / (1 + d^2)` and the coefficient of four are the Student-t
+/// with *one* degree of freedom, which is what scikit-learn uses for one or two
+/// components (`degrees_of_freedom = max(n_components - 1, 1)`,
+/// `sklearn/manifold/_t_sne.py`). Three- and four-dimensional embeddings, which
+/// `MAX_EMBEDDING_DIMS` otherwise admits, would need `v = n_components - 1`:
+/// `w_ij = (1 + d^2 / v)^(-(v + 1) / 2)` and a coefficient of `2 (v + 1) / v`.
+/// The dense path in `scrust_core::tsne` does carry `v`; this kernel does not.
+///
 /// # Precision of Z
 /// `Z` sums `n^2` positive terms, so a flat `f32` accumulation drifts: once the
 /// running sum is large compared with the terms still arriving, they round away.
