@@ -129,7 +129,19 @@ class BackedMatrix:
         return stored / max(1, self.n_obs * self.n_vars)
 
     def block_size(self, max_memory_gb: float | None = None) -> int:
-        """The block size this file's shape and density imply under the budget."""
+        """The block size to stream this file at.
+
+        `settings.chunk_size` wins when it is set, which is what it is for: a caller who
+        names a number wants that number, not a derived one. At its default of 0 the size
+        is derived from the file's shape and density under `settings.max_memory_gb`.
+
+        Until now the setting was documented and read nowhere, so setting it did nothing
+        at all.
+        """
+        from .settings import settings
+
+        if settings.chunk_size > 0:
+            return settings.chunk_size
         return block_size_for(self.n_vars, self.density, max_memory_gb)
 
     def blocks(self, block_size: int | None = None) -> Iterator[tuple[int, sp.csr_matrix]]:

@@ -33,6 +33,41 @@ impl CsrMatrix {
                 format!("{} values", values.len()),
             ));
         }
+        // `indptr` has to start at zero and never decrease. Only its *last* entry used
+        // to be checked, which let three broken shapes through, all reachable from the
+        // Python boundary since every binding builds a matrix from caller-supplied
+        // arrays:
+        //
+        //  - `[1, 3]` over three values: entry 0 belongs to no row. No error, and the
+        //    damage is silent and inconsistent -- row readers (`row_reductions`, and so
+        //    `normalize_total`) never see the orphan, while column readers
+        //    (`column_reductions`, `scale`'s gene moments) zip `indices` with `values`
+        //    and do. `normalize_total(target_sum=6)` returned `[5, 3, 3]` where the
+        //    same matrix written correctly gives `[4.29, 0.857, 0.857]`.
+        //  - `[0, 2, 1, 3]`: the second row's range runs backwards, and the first
+        //    consumer to slice it panics. A panic crosses into Python as
+        //    `PanicException`, which derives from `BaseException`, so a caller's
+        //    `except Exception` does not catch it.
+        //  - `[0, 5, 3]` over three values: row 0 claims `values[0..5]`, out of bounds.
+        //
+        // `scipy.sparse.csr_matrix.check_format` rejects all three with a `ValueError`,
+        // which is what these now do.
+        if indptr[0] != 0 {
+            return Err(Error::shape(
+                "indptr starting at 0",
+                format!("indptr starting at {}", indptr[0]),
+            ));
+        }
+        if let Some(row) = indptr.windows(2).position(|pair| pair[1] < pair[0]) {
+            return Err(Error::shape(
+                "a non-decreasing indptr",
+                format!(
+                    "indptr[{row}] = {} followed by {}, so row {row} runs backwards",
+                    indptr[row],
+                    indptr[row + 1]
+                ),
+            ));
+        }
         let expected_nnz = *indptr.last().expect("checked non-empty") as usize;
         if expected_nnz != values.len() {
             return Err(Error::shape(

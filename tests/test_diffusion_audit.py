@@ -17,11 +17,13 @@ gap, not hidden behind a loose tolerance. Four such divergences are pinned below
   `n_cells - 1`, and accepts `n_comps <= 2` where scanpy refuses;
 * `tl.diffmap` fixes the sign of every component; scanpy leaves it arbitrary.
 
-One outright hole in the Rust is pinned by `test_an_explicit_zero_defeats_the
-_connectivity_guard`: the guard that refuses a disconnected graph walks the CSR sparsity
-pattern, so a stored-but-zero entry bridging two components is counted as an edge and the
-guard passes. scanpy has the same hole, because `scipy.sparse.csgraph.connected_
-components` also reads the pattern; it is recorded here rather than fixed.
+One outright hole in the Rust was found here and has been closed: the guard that refuses
+a disconnected graph walked the CSR sparsity pattern, so a stored-but-zero entry bridging
+two components counted as an edge and the guard passed, returning the degenerate map it
+exists to prevent. `component_count` now counts only entries carrying weight, which is
+deliberately stricter than `scipy.sparse.csgraph.connected_components` -- scanpy has the
+same hole and returns the degenerate map. `test_an_explicit_zero_does_not_defeat_the
+_connectivity_guard` pins both sides of that.
 """
 
 from __future__ import annotations

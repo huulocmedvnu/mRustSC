@@ -10,8 +10,9 @@ same graphs against scanpy.
 
 Two divergences from scanpy are pinned rather than smoothed over:
 
-* explicitly stored zeros in `obsp["distances"]` are dropped by scrust and counted as
-  edges by scanpy (a defect in the Rust -- see `test_explicit_zero_*`);
+* explicitly stored zeros in `obsp["distances"]` used to be dropped by scrust and are
+  counted as edges by scanpy. That was a real defect -- half the graph on data with
+  duplicate cells -- and it is fixed; `test_explicit_zero_*` now pins the agreement;
 * the spanning tree differs on tied connectivities, though the total weight matches.
 """
 

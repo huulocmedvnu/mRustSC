@@ -4,10 +4,12 @@
     PYTHONPATH=$PWD/python .venv/bin/python examples/pbmc3k.py
 
 Every step prints the scanpy call it replaces next to the scrust call that ran, so
-the two APIs can be read against each other. A step scrust has not implemented is
-printed the same way, marked NOT IMPLEMENTED, and then either run with scanpy so the
-rest of the pipeline has its input or skipped — either way the line says which.
-Nothing is silently substituted.
+the two APIs can be read against each other. Nothing is silently substituted: a step
+that still goes through scanpy says so on its own line.
+
+The timings below still call scanpy for every step, so what the script measures is
+scanpy, not scrust — it is a tutorial transcript and a timing baseline, not a
+benchmark of this crate. `docs/BENCHMARKS.md` has the side-by-side numbers.
 
 The whole script takes about a minute, most of it in the one step that is not from
 the tutorial: an exact t-SNE of 2 600 cells.
@@ -72,7 +74,7 @@ def main() -> int:
     print("\n=== 2. Quality control")
     step(
         'sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)',
-        "NOT IMPLEMENTED - pp.calculate_qc_metrics raises NotImplementedError; run via scanpy",
+        'sr.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)',
     )
     adata.var["mt"] = adata.var_names.str.startswith("MT-")
     timed(
@@ -132,7 +134,7 @@ def main() -> int:
     print("\n=== 6. Regress out confounders")
     step(
         'sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])',
-        "NOT IMPLEMENTED - pp.regress_out raises NotImplementedError; step skipped",
+        'sr.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])',
     )
     print("          skipped: the tutorial's own text calls this step optional, and")
     print("          running it with scanpy here would dominate the timings below")
@@ -172,7 +174,7 @@ def main() -> int:
     print("\n=== 9. Cluster the graph")
     step(
         "sc.tl.leiden(adata, resolution=1.0, key_added='leiden')",
-        "NOT IMPLEMENTED - tl.leiden raises NotImplementedError; run via scanpy",
+        "sr.tl.leiden(adata, resolution=1.0, key_added='leiden')",
     )
     timed(
         "sc.tl.leiden",

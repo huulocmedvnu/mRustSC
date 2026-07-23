@@ -41,7 +41,11 @@ jobs:
       - name: Install the extension and the test tools
         run: |
           python -m pip install --upgrade pip
+          # scanpy is needed even for `-m "not reference"`: tests/conftest.py imports it
+          # at module level, so collection fails without it long before any marker is
+          # applied. It is the reference the audits compare against, not an extra.
           pip install maturin ruff pytest
+          pip install "scanpy>=1.10" "leidenalg>=0.10"
           maturin develop --release
 
       - run: ruff format --check python tests benches
