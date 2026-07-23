@@ -7,9 +7,27 @@ use crate::sparse::CsrMatrix;
 
 /// Extra sketch columns beyond `n_components`.
 ///
-/// Halko et al. show the error of the randomised range finder drops sharply with
-/// the first few extra columns and then flattens; 10 is the usual choice and
-/// costs only a few more columns in matrices that are thousands wide.
+/// scikit-learn's `randomized_svd` defaults to `n_oversamples=10`; **we
+/// deliberately use more**, and the reason is measured rather than assumed.
+///
+/// Two separate questions were asked of this constant.
+///
+/// * On a *decaying* spectrum it makes no difference: against an exact SVD on
+///   synthetic matrices with `sigma_1/sigma_k` from 1e2 to 1e5, 24 was never
+///   better than 10 by more than a factor of two, and was sometimes worse. In
+///   particular it does **not** compensate for the range finder losing rank —
+///   that failure (see `RANK_TOLERANCE`) leaves the same numerical rank at 10
+///   and at 24.
+/// * On a *near-degenerate* spectrum it matters a great deal, and the effect is
+///   a property of randomised SVD rather than of this implementation. On 300
+///   cells x 200 genes of uniform counts, where adjacent singular values differ
+///   by well under a percent, correlation with `arpack` on the tenth component
+///   is 0.37 for scikit-learn at its own default of 10, 0.99 at 24, and 1.00 at
+///   40. Single-cell noise components look exactly like this.
+///
+/// So the extra columns are bought for the degenerate case, not to paper over a
+/// weaker kernel. `tests/test_pca_audit.py::test_oversampling_is_earned_on_a_degenerate_spectrum`
+/// holds that justification in place: it fails if 24 stops beating 10.
 const OVERSAMPLING: usize = 24;
 
 /// Power iterations applied to the sketch.
@@ -24,9 +42,16 @@ const POWER_ITERATIONS_DENSE_SPECTRUM: usize = 4;
 /// this size it stays a few tens of megabytes for realistic gene counts.
 const ROW_BLOCK: usize = 2048;
 
-/// Sketch directions whose Gram eigenvalue is below this fraction of the largest
-/// are treated as numerically absent. The Gram matrix squares the condition
-/// number, so f32 carries no information below roughly this ratio.
+/// Floor on the Gram eigenvalues used to whiten a sketch, as a fraction of the
+/// largest. The Gram matrix squares the condition number, so an f32 Gram carries
+/// no information below roughly this ratio and `1/sqrt(lambda)` below it would
+/// amplify rounding noise rather than a direction.
+///
+/// The floor *clamps*; it must not zero. Zeroing deletes the direction from the
+/// basis permanently — the column stays zero through every later power iteration
+/// — so the range finder silently loses rank and the trailing components come
+/// back as exact zeros. Clamping keeps the direction, merely under-normalised,
+/// and the next power iteration re-amplifies whatever data it carries.
 const RANK_TOLERANCE: f64 = 1e-7;
 
 const JACOBI_SWEEPS: usize = 60;
@@ -94,6 +119,22 @@ pub fn pca(
     // `B = Q^T X_centred` is the only decomposition left, and `B B^T` is
     // `(sketch_width, sketch_width)` — small enough to solve exactly on the CPU.
     // We keep `B^T` because that is what the gene loadings are built from.
+    //
+    // KNOWN DIVERGENCE. scikit-learn takes an exact SVD of `B`
+    // (`extmath.py::_randomized_svd`, `linalg.svd(B, full_matrices=False)`);
+    // eigendecomposing `B B^T` instead squares the condition number, so the
+    // relative error in `sigma_i` grows like `eps * (sigma_1/sigma_i)^2` rather
+    // than `eps * (sigma_1/sigma_i)`. Measured on a synthetic spectrum with
+    // `sigma_1/sigma_20 = 1e4`, components 9-16 come out 20x-500x further from
+    // an exact SVD than scikit-learn's, both in f32. Everything above
+    // `sigma_1/sigma_i ~ 30` is indistinguishable, which is why the leading
+    // components and the variance ratios agree.
+    //
+    // Fixing it means a one-sided Jacobi SVD of `B^T` directly — O(n_genes *
+    // sketch_width^2) per sweep in f64 on the CPU, giving up the GPU for the
+    // final step — or an f64 Gram, which candle cannot do on Metal. Held by a
+    // deliberately failing test:
+    // `tests/test_pca_audit.py::test_trailing_singular_values_survive_an_ill_conditioned_spectrum`.
     let b_transpose = centred.transpose_times(&range)?;
     let gram = b_transpose.t()?.contiguous()?.matmul(&b_transpose)?;
     let (eigenvalues, eigenvectors) = jacobi_eigen(to_f64_rows(&gram)?, sketch_width)?;
@@ -133,11 +174,28 @@ pub fn pca(
     let mut components = to_array2(&components)?;
     fix_component_signs(&mut embedding, &mut components);
 
-    let denominator = (n_cells - 1) as f64;
-    let explained_variance: Vec<f32> = singular
-        .iter()
-        .map(|&value| (value * value / denominator) as f32)
-        .collect();
+    // scanpy dispatches on `zero_center`, and the two branches do not report the
+    // same statistic:
+    //
+    //   zero_center=True  -> sklearn PCA:          S^2 / (n - 1), over
+    //                        `total_var = sum_g var(x_g, ddof=1)`
+    //   zero_center=False -> sklearn TruncatedSVD: `np.var(X @ V^T, axis=0)`,
+    //                        i.e. ddof=0 and with the *mean of each score column
+    //                        removed*, over `sum_g var(x_g, ddof=0)`
+    //
+    // Reporting S^2/(n-1) in the uncentred case makes the first component — the
+    // one that carries the grand mean — read as the largest, when scanpy reports
+    // it as one of the smallest. See `sklearn/decomposition/_truncated_svd.py`
+    // lines 262-273 and `_pca.py` lines 765-779.
+    let explained_variance: Vec<f32> = if zero_center {
+        let denominator = (n_cells - 1) as f64;
+        singular
+            .iter()
+            .map(|&value| (value * value / denominator) as f32)
+            .collect()
+    } else {
+        column_variances(&embedding)
+    };
     let explained_variance_ratio = explained_variance
         .iter()
         .map(|&value| {
@@ -161,7 +219,8 @@ pub fn pca(
 struct ColumnStats {
     mean: Vec<f32>,
     /// Sum over **all** genes, not just the retained components: that is the
-    /// denominator scanpy reports `variance_ratio` against.
+    /// denominator scanpy reports `variance_ratio` against. `ddof = 1` when
+    /// centring (sklearn `PCA`), `ddof = 0` when not (sklearn `TruncatedSVD`).
     total_variance: f64,
 }
 
@@ -180,19 +239,14 @@ impl ColumnStats {
             .iter()
             .map(|&sum| (sum / n_cells) as f32)
             .collect::<Vec<_>>();
-        // Without centring the components explain the second moment rather than
-        // the variance, so the denominator drops the mean term to stay consistent.
+        // scanpy's uncentred path is sklearn's `TruncatedSVD`, whose `full_var`
+        // is `mean_variance_axis(X, axis=0)[1].sum()` — still the *variance* of
+        // each gene, just with `ddof = 0`. It is not the second moment.
+        let ddof = if zero_center { 1.0 } else { 0.0 };
         let total_variance = sums
             .iter()
             .zip(&squares)
-            .map(|(&sum, &square)| {
-                let corrected = if zero_center {
-                    square - sum * sum / n_cells
-                } else {
-                    square
-                };
-                corrected.max(0.0) / (n_cells - 1.0)
-            })
+            .map(|(&sum, &square)| (square - sum * sum / n_cells).max(0.0) / (n_cells - ddof))
             .sum();
         Self {
             mean,
@@ -313,13 +367,13 @@ fn whiten(y: &Tensor) -> Result<Tensor> {
     let (eigenvalues, eigenvectors) = jacobi_eigen(to_f64_rows(&gram)?, width)?;
     let largest = eigenvalues.iter().fold(0.0f64, |a, &b| a.max(b));
 
+    let floor = largest * RANK_TOLERANCE;
     let mut transform = vec![0.0f32; width * width];
     for column in 0..width {
-        // Numerically absent directions become zero columns rather than noise
-        // amplified by 1/sqrt(tiny); they carry no variance and drop out of the
-        // final decomposition on their own.
-        let scale = if eigenvalues[column] > largest * RANK_TOLERANCE {
-            1.0 / eigenvalues[column].sqrt()
+        // Clamp, never zero: see `RANK_TOLERANCE`. A direction below the floor is
+        // left short of unit norm instead of being deleted from the basis.
+        let scale = if floor > 0.0 {
+            1.0 / eigenvalues[column].max(floor).sqrt()
         } else {
             0.0
         };
@@ -392,6 +446,30 @@ fn jacobi_eigen(mut a: Vec<f64>, n: usize) -> Result<(Vec<f64>, Vec<f64>)> {
         operation: "Jacobi eigenvalue iteration",
         iterations: JACOBI_SWEEPS,
     })
+}
+
+/// Population variance (`ddof = 0`) of every column, accumulated in f64.
+///
+/// This is `np.var(X_transformed, axis=0)`, which is what `TruncatedSVD` reports
+/// as `explained_variance_` — the mean of each score column is removed first,
+/// which matters precisely because the uncentred first component carries it.
+fn column_variances(embedding: &Array2<f32>) -> Vec<f32> {
+    let n_rows = embedding.nrows() as f64;
+    (0..embedding.ncols())
+        .map(|column| {
+            let values = embedding.column(column);
+            let mean = values.iter().map(|&value| value as f64).sum::<f64>() / n_rows;
+            let variance = values
+                .iter()
+                .map(|&value| {
+                    let centred = value as f64 - mean;
+                    centred * centred
+                })
+                .sum::<f64>()
+                / n_rows;
+            variance as f32
+        })
+        .collect()
 }
 
 /// Indices of `values` sorted from largest to smallest.
@@ -780,12 +858,38 @@ mod tests {
     }
 
     #[test]
-    fn uncentred_pca_runs_and_keeps_the_leading_direction() {
+    fn uncentred_pca_reports_truncated_svd_statistics() {
         let matrix = scanpy_fixture();
         let result = pca(&matrix, 4, false, 0, &Device::Cpu).unwrap();
-        // Without centring the first component captures the (large) grand mean.
-        assert!(result.explained_variance_ratio[0] > result.explained_variance_ratio[1]);
         assert!(result.explained_variance.iter().all(|&value| value > 0.0));
+
+        // Without centring the first component carries the grand mean, so its
+        // *scores* barely vary: sklearn's `TruncatedSVD` reports
+        // `np.var(X @ V^T, axis=0)`, under which component 1 is one of the
+        // smallest, not the largest. Reporting `S^2/(n-1)` instead would put it
+        // an order of magnitude above the rest.
+        assert!(
+            result.explained_variance[0] < result.explained_variance[1],
+            "uncentred component 1 must be the mean-carrying, low-variance one: {:?}",
+            result.explained_variance
+        );
+
+        // Each entry must be the population variance of its own score column.
+        let n_cells = matrix.n_rows() as f64;
+        for index in 0..4 {
+            let scores = column(&result.embedding, index);
+            let mean = scores.iter().map(|&v| v as f64).sum::<f64>() / n_cells;
+            let expected = scores
+                .iter()
+                .map(|&v| (v as f64 - mean) * (v as f64 - mean))
+                .sum::<f64>()
+                / n_cells;
+            let reported = result.explained_variance[index] as f64;
+            assert!(
+                (reported - expected).abs() <= 1e-4 * expected,
+                "component {index}: {reported} vs {expected}"
+            );
+        }
     }
 
     #[test]
