@@ -284,8 +284,29 @@ agrees with `scipy.special` to 6.6e-15 relative (the smallest p-value returned i
 2.5e-34, correct to 14 digits); its `wald_test` is called by nothing outside the module
 and is untested from Python.
 
-**Not audited at all:** `chunked` and `sparse`, both internal with no external reference
-to check against.
+What the Python audit could not reach in `glm.rs` is now covered by Rust tests instead:
+an all-zero gene, a perfectly separating covariate, a single sample, an out-of-scale
+count, per-gene convergence reporting, and a rank-deficient design. Six guard constants
+existed for those cases and no test mentioned any of them, so each was disabled in turn
+and the suite re-run rather than assuming the new tests covered them:
+
+| constant | caught by |
+| --- | --- |
+| `RIDGE` | `a_rank_deficient_design_is_solved_rather_than_returning_nonsense` |
+| `MAXIMUM_LINEAR_PREDICTOR` | `an_extreme_count_does_not_poison_the_first_iteration` |
+| `MAXIMUM_WORKING_RESIDUAL` | **nothing** |
+| `MINIMUM_MEAN` | **nothing** |
+
+The last two can be set to absurd values with the whole suite still green, so nothing
+depends on them and nothing would notice if they were wrong. Both carry a comment in
+`glm.rs` saying so. That exercise also showed two of the three tests written first did
+not test what their docstrings claimed, which is the same defect these audits keep
+finding elsewhere; the docstrings now claim only what they check.
+
+**Not cross-checked against an external reference:** `chunked` and `sparse` have no
+scanpy or scipy equivalent to compare against, so their audits pin invariants instead --
+block-size invariance for `chunked`, and round-trip and validation behaviour for
+`sparse`, against `scipy.sparse.csr_matrix` where the two overlap.
 
 Of the Python API itself, the only entry point that still raises `NotImplementedError`
 is `tl.dpt(n_branchings > 0)` — branch detection. See [API.md](API.md) for the current
