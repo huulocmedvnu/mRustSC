@@ -22,10 +22,9 @@ if TYPE_CHECKING:
 __all__ = ["dendrogram", "draw_graph", "embedding_density"]
 
 # What the core computes, recorded in the `uns` slot so a reader of a stored
-# AnnData can see which tree they are looking at. scanpy's own defaults are
-# `complete` linkage over the same pearson distance.
+# AnnData can see which tree they are looking at. Both are scanpy's own defaults.
 _COR_METHOD = "pearson"
-_LINKAGE_METHOD = "average"
+_LINKAGE_METHOD = "complete"
 
 # `tl.draw_graph` only knows ForceAtlas2; the igraph layouts scanpy also offers
 # are a different package, not a different argument.

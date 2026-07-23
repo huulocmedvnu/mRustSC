@@ -120,13 +120,14 @@ def test_dendrogram_matches_scipy_linkage() -> None:
     """Element-wise against `scipy.cluster.hierarchy.linkage`, and on the leaf order.
 
     scanpy's distance is `1 - pearson correlation` between group means, which is
-    scipy's `correlation` metric; the linkage method is `average`.
+    scipy's `correlation` metric; the linkage method is `complete`, which is what
+    `sc.tl.dendrogram` passes when the caller does not say otherwise.
     """
     centroids = _hand_built_centroids()
     linkage, leaves = scrust_call("_scrust.dendrogram", centroids)
 
     reference = sch.linkage(
-        pdist(centroids.astype(np.float64), metric="correlation"), method="average"
+        pdist(centroids.astype(np.float64), metric="correlation"), method="complete"
     )
     assert_allclose(linkage, reference, rtol=1e-6, atol=1e-9)
     assert list(leaves) == sch.dendrogram(reference, no_plot=True)["leaves"]
@@ -140,30 +141,23 @@ def test_dendrogram_leaf_order_matches_scanpy(
 ) -> None:
     """Same tree and same leaves left to right as `scanpy.tl.dendrogram`, on real data.
 
-    The comparison is against scanpy running `average` linkage, which is what this
-    module implements; scanpy's own default is `complete`. The two methods share
-    the pearson distance and differ only in how a merged cluster's distance to the
-    rest is recomputed, so they often produce the same leaf order — but not always,
-    and which datasets they agree on is measured here rather than assumed.
+    Against scanpy's own defaults, with nothing overridden. That is the whole point:
+    this comparison used to hand scanpy `linkage_method="average"` so that it would
+    match the core, which meant it could not have caught the core using the wrong
+    method — and the core was using the wrong method.
     """
     dataset = neighbored.uns["dataset_id"]
     ours = neighbored.copy()
     scrust_call("tl.dendrogram", ours, "group")
     slot = ours.uns["dendrogram_group"]
 
-    reference = sc.tl.dendrogram(
-        neighbored, "group", use_rep="X_pca", n_pcs=50, linkage_method="average", inplace=False
-    )
-    scanpy_default = sc.tl.dendrogram(neighbored, "group", use_rep="X_pca", n_pcs=50, inplace=False)
-    agrees_with_default = slot["categories_idx_ordered"] == list(
-        scanpy_default["categories_idx_ordered"]
-    )
+    # scanpy's own default, with no `linkage_method` override. This used to pass
+    # `linkage_method="average"` to match the core, which meant the test was pinned to
+    # the implementation rather than to the reference: the core has since been changed
+    # to `complete`, which is what `sc.tl.dendrogram` does when nobody asks.
+    reference = sc.tl.dendrogram(neighbored, "group", use_rep="X_pca", n_pcs=50, inplace=False)
     record_property(f"dendrogram.{dataset}.leaf_order", list(slot["categories_idx_ordered"]))
-    record_property(f"dendrogram.{dataset}.agrees_with_complete_linkage", agrees_with_default)
-    print(
-        f"\ndendrogram on {dataset}: leaf order {slot['categories_idx_ordered']}; "
-        f"scanpy's default complete linkage {'agrees' if agrees_with_default else 'does not agree'}"
-    )
+    print(f"\ndendrogram on {dataset}: leaf order {slot['categories_idx_ordered']}")
 
     assert slot["categories_idx_ordered"] == list(reference["categories_idx_ordered"])
     assert slot["categories_ordered"] == list(reference["categories_ordered"])
@@ -179,7 +173,7 @@ def test_dendrogram_writes_the_slots_scanpy_plotting_reads(neighbored: AnnData) 
     slot = neighbored.uns["dendrogram_group"]
     assert slot["groupby"] == ["group"]
     assert slot["cor_method"] == "pearson"
-    assert slot["linkage_method"] == "average"
+    assert slot["linkage_method"] == "complete"
     n_groups = len(neighbored.obs["group"].cat.categories)
     assert np.asarray(slot["linkage"]).shape == (n_groups - 1, 4)
     assert slot["correlation_matrix"].shape == (n_groups, n_groups)
