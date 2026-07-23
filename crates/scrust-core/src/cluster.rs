@@ -65,14 +65,26 @@ pub struct Partition {
 
 /// Leiden's `theta`: how much randomness the refinement merge allows.
 ///
-/// leidenalg's default. Zero would make refinement greedy and reproduce
-/// Louvain's tendency to lock in a bad early split.
+/// This is the value in Traag, Waltman & van Eck (2019), appendix B, and the
+/// merge below is that paper's `MergeNodesSubset`. It is *not* leidenalg's
+/// rule: leidenalg has no `theta`. Its `Optimiser` defaults
+/// `refine_consider_comms` to `RAND_NEIGH_COMM` (`Optimiser.cpp:20`), so
+/// `merge_nodes_constrained` draws a single neighbouring subcommunity uniformly
+/// over the incident edges and merges into it when the gain is non-negative.
+/// Both are randomised and both merge only within a community, but they are
+/// different distributions; see the audit note in `tests/test_cluster_audit.py`.
+/// Zero would make refinement greedy and reproduce Louvain's tendency to lock
+/// in a bad early split.
 const REFINEMENT_RANDOMNESS: f64 = 0.01;
 
 /// Leiden community detection, as `scanpy.tl.leiden`.
 ///
 /// `n_iterations` restarts the whole algorithm from the partition the previous
 /// pass found, as `leidenalg` does; it stops early once a pass changes nothing.
+/// `leidenalg` does not stop early for a positive `n_iterations` — it runs the
+/// count it was given, and only its negative-`n_iterations` mode stops, on
+/// "quality did not improve" rather than "labels did not change". scanpy passes
+/// `n_iterations=-1` by default, which has no spelling here.
 pub fn leiden(
     graph: &CsrMatrix,
     resolution: f64,
@@ -447,6 +459,18 @@ fn move_nodes(
                 }
             }
         } else {
+            // `leave` put this id on the free list if the node was its last
+            // member, and the node is coming straight back, so take it off
+            // again. Leaving it there hands a *live* community to the next
+            // node that asks for an empty one: that node is then scored as if
+            // the target were empty, merges into a community it may not even
+            // touch, and the objective can fall. Which is how a community
+            // ended up disconnected, and how the level loop could stop
+            // converging.
+            if communities.size[previous as usize] == 0 {
+                debug_assert_eq!(communities.free.last(), Some(&previous));
+                communities.free.pop();
+            }
             communities.join(node, previous, node_strength);
         }
 
@@ -470,7 +494,16 @@ enum Refinement {
 }
 
 /// A node or subcommunity counts as well connected to the rest of its community
-/// when its cut into that remainder is at least what the null model expects.
+/// when its cut into that remainder is at least what the null model expects:
+/// `E(C, S - C) >= gamma * ||C|| * (||S|| - ||C||) / 2m`, with `||.||` the summed
+/// strength, which is what the size measure becomes for RBConfiguration.
+///
+/// Both uses of this — filtering the nodes worth visiting, and filtering the
+/// merge targets — come from `MergeNodesSubset` in the paper. `leidenalg`
+/// implements neither: its own docstring says it "does not consider whether
+/// [subcommunities] are sufficiently well connected to the rest of the
+/// community", so it does not guarantee subpartition gamma-density. This is the
+/// one place where following the paper means diverging from `leidenalg`.
 fn well_connected(cut: f64, part: f64, subset: f64, resolution: f64, total: f64) -> bool {
     cut >= resolution * part * (subset - part) / total
 }
@@ -1058,6 +1091,28 @@ mod tests {
             }
         }
         reached == subset.len()
+    }
+
+    #[test]
+    fn a_community_a_node_returns_to_is_not_left_on_the_free_list() {
+        // `leave` frees a community id when its last member goes. If the node
+        // then decides to stay, the id has to come off the free list again:
+        // an occupied community handed out as an empty one is scored as if it
+        // had no members, so the node that takes it merges into a community it
+        // may not touch at all. That is how a returned community came out
+        // disconnected, and how the level loop stopped terminating.
+        let graph = Graph::from_csr(&disconnected_cliques(4, 8)).unwrap();
+        let labels: Vec<u32> = (0..graph.n_nodes() as u32).collect();
+        let mut communities = Communities::from_labels(&labels, graph.n_nodes(), &graph.strength);
+        let mut rng = StdRng::seed_from_u64(0);
+        move_nodes(&graph, &mut communities, 1.0, &mut rng);
+        for &id in &communities.free {
+            assert_eq!(
+                communities.size[id as usize], 0,
+                "community {id} is free but holds {} nodes",
+                communities.size[id as usize]
+            );
+        }
     }
 
     #[test]
