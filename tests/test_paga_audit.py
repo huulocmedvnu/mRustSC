@@ -406,24 +406,19 @@ def test_tree_diverges_from_scanpy_on_tied_connectivities() -> None:
     ), "both are maximum spanning trees: the weights must agree even though the edges do not"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT in crates/scrust-core/src/paga.rs::count_edges: it skips stored entries "
-        "whose value is 0.0, on the stated assumption that 'scanpy binarises the graph "
-        "with nonzero()'. scanpy does the opposite: _compute_connectivities_v1_2 runs "
-        "`ones.data = np.ones(len(ones.data))` FIRST and only then calls nonzero(), so "
-        "every stored entry is an edge regardless of its value."
-    ),
-)
-def test_explicit_zero_entries_should_count_as_edges() -> None:
-    """DEFECT: a stored 0.0 in `obsp["distances"]` is an edge for scanpy, not for scrust.
+def test_explicit_zero_entries_count_as_edges() -> None:
+    """A stored 0.0 in `obsp["distances"]` is an edge, on both sides. It was not always.
 
-    Four cells in two groups. Two of the eight stored entries are explicit zeros. scanpy
-    reads eight edges and reports 8 / ((4*2 + 4*2)/3) = 0.75; scrust reads six and
-    reports 2 / ((3*2 + 3*2)/3) = 0.50. `sc.pp.neighbors` stores explicit zeros whenever
-    two cells coincide, so this is reachable from an ordinary pipeline, not a contrived
-    matrix -- see the companion test below.
+    `count_edges` used to skip stored entries whose value was 0.0, citing the
+    `nonzero()` inside `get_igraph_from_adjacency`. scanpy does the opposite of what
+    that comment assumed: `_compute_connectivities_v1_2` runs
+    `ones.data = np.ones(len(ones.data))` *first* (`_paga.py:182-183`), so the
+    `nonzero()` then sees nothing but ones and drops none of them.
+
+    Four cells in two groups, two of the eight stored entries explicit zeros. Reading
+    all eight gives `8 / ((4*2 + 4*2)/3) = 0.75`; skipping the zeros gave 0.50. Not a
+    contrived matrix -- `sc.pp.neighbors` stores a zero whenever two cells coincide,
+    which the companion test below reaches through an ordinary pipeline.
     """
     labels = ["a", "a", "b", "b"]
     rows = [0, 0, 1, 1, 2, 2, 2, 3]
@@ -443,10 +438,13 @@ def test_explicit_zeros_from_duplicate_cells_shift_a_real_pipeline() -> None:
     120 cells of which 60 are exact duplicates of the other 60, so the kNN distance
     matrix stores 107 explicit zeros. The assertions below record scrust's *current,
     wrong* answer: every connectivity it reports is at least as large as scanpy's,
-    because dropping edges shrinks `es` faster than it shrinks the observed count, and
-    the worst pair is off by 0.09 absolute -- far outside any sane tolerance. When the
-    core stops skipping zero-valued entries this test must be replaced by a plain
-    parity check.
+    because dropping edges shrank `es` faster than it shrank the observed count, and the
+    worst pair was off by 0.096 absolute -- far outside any sane tolerance.
+
+    Now that `count_edges` reads every stored entry, the two agree here to float
+    precision, so this is a parity check on the shape that used to break. It stays as
+    its own test rather than folding into the duplicate-free one below, because the
+    graph it builds is the one that carries stored zeros: 540 of 1080 entries.
     """
     rng = np.random.default_rng(0)
     values = rng.normal(size=(120, 10)).astype(np.float32)
@@ -459,9 +457,8 @@ def test_explicit_zeros_from_duplicate_cells_shift_a_real_pipeline() -> None:
 
     ours = _dense(_ours(adata)["connectivities"])
     theirs = _dense(_theirs(adata)["connectivities"])
-    difference = ours - theirs
-    assert (difference >= -1e-9).all(), "scrust overstates every connectivity here"
-    assert difference.max() > 0.09, "the defect is worth ~0.1 of confidence on this graph"
+    assert theirs.max() > 0.0, "a degenerate all-zero reference would pass anything"
+    assert_allclose(ours, theirs, rtol=RTOL, atol=1e-7)
 
 
 def test_connectivities_match_scanpy_on_a_knn_graph_without_duplicates() -> None:

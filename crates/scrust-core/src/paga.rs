@@ -107,15 +107,22 @@ fn count_edges(graph: &CsrMatrix, groups: &[u32], n_groups: usize) -> (Vec<u64>,
     let mut between = vec![0u64; n_groups * n_groups];
     let indptr = graph.indptr();
     let indices = graph.indices();
-    let values = graph.values();
+    // No `values`: an edge is a stored entry, and its weight never enters the count.
     for cell in 0..graph.n_rows() {
         let group = groups[cell] as usize;
         for entry in indptr[cell] as usize..indptr[cell + 1] as usize {
-            // scanpy binarises the graph with `nonzero()`, so a stored zero is
-            // not an edge.
-            if values[entry] == 0.0 {
-                continue;
-            }
+            // Every *stored* entry is an edge, whatever its value. scanpy binarises
+            // before it builds the graph -- `ones.data = np.ones(len(ones.data))`,
+            // `_paga.py:182-183` -- so the `nonzero()` inside
+            // `get_igraph_from_adjacency` then sees nothing but ones and drops none
+            // of them. Skipping zero-valued entries here (which this used to do,
+            // citing that `nonzero()`) loses real edges.
+            //
+            // It is not a rare shape. This runs on `obsp["distances"]`, where two
+            // identical cells are a stored zero: on 120 cells of which 60 are exact
+            // duplicates, `sc.pp.neighbors(n_neighbors=10)` stores 540 zeros out of
+            // 1080 entries -- half the graph -- and dropping them moved a real
+            // connectivity by 0.096.
             edges_per_group[group] += 1;
             let neighbor = groups[indices[entry] as usize] as usize;
             if neighbor != group {
