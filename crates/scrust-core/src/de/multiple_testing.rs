@@ -144,6 +144,101 @@ mod tests {
         assert_close(&bonferroni(&[0.02]), &[0.02]);
     }
 
+    /// `scipy.stats.false_discovery_control(..., method="bh")` on the inputs the
+    /// uniform draws never reach: everything tied, a single test, a run with no
+    /// ties at all, and p-values eight decades below what `f32` can hold.
+    ///
+    /// Compared exactly, not to a tolerance: BH is arithmetic on the inputs,
+    /// and a step-up that is right should reproduce the reference bit for bit
+    /// wherever the reference itself is unambiguous.
+    #[test]
+    fn matches_scipy_on_adversarial_p_values() {
+        let cases: [(&[f64], &[f64]); 6] = [
+            (&[0.3; 7], &[0.3; 7]),
+            (&[0.02], &[0.02]),
+            (&[1.0; 5], &[1.0; 5]),
+            (&[0.0; 4], &[0.0; 4]),
+            (
+                &[1e-300, 1e-300, 1e-300, 0.5, 0.5, 0.5, 1.0],
+                &[
+                    2.333_333_333_333_333_6e-300,
+                    2.333_333_333_333_333_6e-300,
+                    2.333_333_333_333_333_6e-300,
+                    0.583_333_333_333_333_4,
+                    0.583_333_333_333_333_4,
+                    0.583_333_333_333_333_4,
+                    1.0,
+                ],
+            ),
+            (
+                &[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05],
+                &[
+                    0.9,
+                    0.888_888_888_888_889,
+                    0.875,
+                    0.857_142_857_142_857_1,
+                    0.833_333_333_333_333_4,
+                    0.8,
+                    0.75,
+                    0.666_666_666_666_666_7,
+                    0.5,
+                    0.5,
+                ],
+            ),
+        ];
+        for (p_values, expected) in cases {
+            let adjusted = benjamini_hochberg_f64(p_values);
+            for (index, (&got, &want)) in adjusted.iter().zip(expected).enumerate() {
+                assert!(
+                    (got - want).abs() <= 1e-15 * want.abs(),
+                    "{p_values:?}[{index}]: {got} != {want}"
+                );
+            }
+        }
+    }
+
+    /// The far tail is why the correction runs in `f64`.
+    ///
+    /// Every one of these p-values is below `f32::MIN_POSITIVE`, so an `f32`
+    /// correction would flatten them all to zero and lose the ordering the
+    /// step-up depends on. In `f64` the ordering survives, and the two
+    /// subnormal inputs come back as the subnormals scipy reports.
+    #[test]
+    fn the_far_tail_survives_the_correction() {
+        let p_values = [5e-324, 1e-320, 1e-300, 0.5];
+        assert!(p_values[..3].iter().all(|&p| (p as f32) == 0.0));
+
+        let adjusted = benjamini_hochberg_f64(&p_values);
+        let expected = [2e-323, 2e-320, 1.333_333_333_333_333_4e-300, 0.5];
+        for (index, (&got, &want)) in adjusted.iter().zip(&expected).enumerate() {
+            assert!(
+                (got - want).abs() <= 1e-14 * want.abs(),
+                "[{index}]: {got} != {want}"
+            );
+        }
+        // Ordering, the thing the underflow would have destroyed.
+        assert!(adjusted[0] < adjusted[1] && adjusted[1] < adjusted[2]);
+    }
+
+    /// The step-up must never let a gene overtake one with a smaller p-value.
+    #[test]
+    fn adjusted_values_stay_monotone_in_the_raw_p_values() {
+        const RAW: [f64; 12] = [
+            1e-300, 1e-300, 2e-40, 1e-12, 1e-12, 1e-12, 0.004, 0.004, 0.2, 0.2, 0.9, 1.0,
+        ];
+        let adjusted = benjamini_hochberg_f64(&RAW);
+        for i in 0..RAW.len() {
+            for j in 0..RAW.len() {
+                if RAW[i] < RAW[j] {
+                    assert!(adjusted[i] <= adjusted[j], "{i} vs {j}");
+                }
+                if RAW[i] == RAW[j] {
+                    assert_eq!(adjusted[i], adjusted[j], "tied {i} vs {j}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn adjusted_values_stay_in_the_unit_interval() {
         let p_values = [0.9, 0.5, 0.999, 1.0, 0.0];
