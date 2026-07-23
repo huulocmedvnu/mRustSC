@@ -17,6 +17,14 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/benchmark.py
 PYTHONPATH=$PWD/python .venv/bin/python benches/streaming.py
 ```
 
+Both scripts take `settings.device` as it comes, which is `"auto"`. That resolves to
+Metal where there is one and to the CPU otherwise — but only four of the timed
+operations reach the device at all, so most of this page reproduces on either. See
+[Which rows actually used the GPU](#which-rows-actually-used-the-gpu) before reading a
+row as a GPU number, and [The two devices are not
+interchangeable](#the-two-devices-are-not-interchangeable) before assuming the two
+produce the same values.
+
 ## How it was measured
 
 - Each library runs in its **own subprocess**, so a peak-memory reading belongs to
@@ -33,7 +41,59 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/streaming.py
   which preserves sparsity and depth. Above 2 638 cells this is a cost model, not
   biology.
 - Machine: Apple silicon, GPU path live (`gpu_available() == True`), scanpy 1.12.2,
-  scrust 0.2.0.
+  scrust 0.2.0. Every number on this page was measured on that one machine, on that
+  configuration, and has **not** been re-measured since. Where a note below says a
+  figure is stale, it is stale — it is kept with its provenance rather than deleted or
+  guessed at.
+
+### Which rows actually used the GPU
+
+`settings.device` defaults to `"auto"`, and `DeviceKind::Auto` resolves to
+`Device::new_metal(0).unwrap_or(Device::Cpu)` (`crates/scrust-core/src/device.rs`), so
+the sweep above ran with Metal selected. **Selected is not the same as used.** Several
+bindings take the device and then never touch it — the core signature is `_device` —
+and those rows are CPU timings no matter what the machine offers:
+
+| benchmarked operation | device reaches the arithmetic? | evidence |
+| --- | --- | --- |
+| `pp.filter_cells`, `pp.filter_genes` | no — no device parameter at all | `preprocess/filter.rs:68,84` |
+| `pp.normalize_total` | **no** — `_device` | `preprocess/normalize.rs:35` |
+| `pp.log1p` | no — no device parameter | `preprocess/normalize.rs:69` |
+| `pp.highly_variable_genes` | **no** — `_device` | `preprocess/hvg.rs:44` |
+| `pp.scale` | yes (moments in f64 on the CPU, the broadcast arithmetic on the device) | `preprocess/scale.rs:13` |
+| `pp.pca` | yes | `pca.rs:79` |
+| `pp.neighbors` | yes | `neighbors.rs:29` |
+| `tl.umap` | **no** — `_device`; UMAP always runs on the CPU | `umap.rs:61` |
+| `tl.tsne` | yes | `tsne.rs:77` |
+| `tl.rank_genes_groups` (wilcoxon) | **no** — `_device` | `de/wilcoxon.rs:51` |
+| `tl.paga` | no — no device parameter | `paga.rs:36` |
+| `get.*` | no — plain Python and pandas | — |
+
+`tl.leiden` and `tl.louvain` also take `_device` (`cluster.rs:93,129`) and always run on
+the CPU; they are not in the timing tables. So do the parametric DE methods
+(`de/parametric.rs:39,59`).
+
+Read the table that way: on a machine without Metal, only the `pp.scale`, `pp.pca`,
+`pp.neighbors` and `tl.tsne` rows can move. The rest are the same code either way.
+
+### The two devices are not interchangeable
+
+Choosing a device changes more than the clock. Both devices run the same candle source,
+which means the same algorithm — it does **not** mean bit-identical output. `f32`
+addition is not associative, and a GPU reduction lands a few ulps away from a sequential
+CPU one.
+
+That gap has already produced one real bug, fixed this session: `|a-b|^2` expanded as
+`|a|^2 + |b|^2 - 2a.b` cancels to exactly 0 for two identical cells on the CPU but left
+a sub-ulp positive on Metal, which the square root amplified. Duplicate cells then
+carried a non-zero `rho` and their UMAP connectivities stopped being 1. `neighbors.rs`
+now snaps squared distances below `(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` to
+zero.
+
+So a timing on one device is not a claim about the other's *results*, only about its
+speed. `tests/test_device_parity.py` is what holds the two against each other, and it
+**skips entirely where there is no GPU** — including GitHub's hosted macOS runners. CI
+being green is not evidence the GPU path was exercised.
 
 ## Results
 
@@ -130,8 +190,14 @@ unaffected and was not re-run.
 `rank_genes_groups` and `paga` are the same shape of problem: a large amount of
 independent per-gene or per-edge work that scanpy does through numpy in several full
 passes over the matrix, and that Rust does in one pass with no interpreter in the
-loop. `umap` and `pca` are the tensor-algebra wins — dense batched work on a device
-with unified memory.
+loop. Neither touches the GPU — `wilcoxon.rs` takes `_device` and `paga.rs` takes no
+device at all — so these are CPU-against-CPU wins.
+
+`pca` and `neighbors` are the tensor-algebra wins: dense batched work that does reach
+the device, on hardware with unified memory. `umap` is **not** one of them, despite
+being the largest win in the top block — `umap.rs:61` takes `_device` and never uses
+it. Its 3-5x is single-threaded-interpreter-versus-Rust, not CPU-versus-GPU, and it
+will hold on a machine with no GPU at all.
 
 Note that `pca` and `neighbors` are *slower* than scanpy at 499 cells and only pull
 ahead as the matrix grows, for the same boundary-cost reason as the elementwise
@@ -270,19 +336,35 @@ what the block sizing is derived from.
 
 ## What could not be benchmarked
 
-**The 24 unimplemented functions.** `benchmark.py` calls every one of them once and
-prints what it raised, so the coverage gap is measured rather than asserted. All 24
-raise `NotImplementedError` naming the branch that owes them —
-`pp.calculate_qc_metrics`, `pp.regress_out`, `pp.combat`, `pp.subsample`,
-`tl.leiden`, `tl.louvain`, `tl.diffmap`, `tl.dpt`, `tl.score_genes`,
-`tl.dendrogram`, `tl.draw_graph`, all four `metrics`, and the rest. See
-[API.md](API.md) for the full list.
+**The 24 probed functions.** `benchmark.py` keeps a second list, `PROBES`, of every
+remaining public name — `pp.calculate_qc_metrics`, `pp.regress_out`, `pp.combat`,
+`pp.subsample`, `tl.leiden`, `tl.louvain`, `tl.diffmap`, `tl.dpt`, `tl.score_genes`,
+`tl.dendrogram`, `tl.draw_graph`, all four `metrics`, and the rest — and calls each
+once on a small input so that its outcome is measured rather than asserted.
 
-**The hand-written Metal kernels.** `crates/scrust-gpu` contains CSR SpMM,
-transposed SpMM, column moments, row scaling, k-NN, UMAP SGD and t-SNE gradient
-kernels, tested in Rust against their `scrust-core` counterparts. None of them is
-reachable from Python: `crates/scrust-core` does not depend on `scrust-gpu`, and
-`crates/scrust-py/src/lib.rs` registers only `preprocess`, `embedding`, `de` and
-`paga`. Any SpMM speedup figure quoted elsewhere in the project comes from a Rust
-measurement, not from this benchmark, and none of the numbers on this page includes
-their effect. What the GPU contributes here is candle's Metal backend.
+**These are no longer stubs.** An earlier version of this page said all 24 raise
+`NotImplementedError` naming the branch that owed them; that was true while the
+feature branches were in flight and is not true now. Every name in `PROBES` is exported
+and implemented; the only `NotImplementedError` left anywhere in `python/scrust/` is
+`tl.dpt(n_branchings > 0)`, which refuses branch detection specifically. What is still
+missing is *timings*: none of these 24 appears in the tables above, because `PROBES`
+calls them once and does not time them. Benchmarking them means adding them to `OPS`
+and re-running the sweep. See [API.md](API.md) for the current state of each.
+
+**The hand-written Metal kernels.** `crates/scrust-gpu` contains four kernel modules —
+`spmm` (CSR SpMM, transposed SpMM, column moments, row scaling), `knn`, `umap_sgd` and
+`tsne_gradient` — tested in Rust against their `scrust-core` counterparts.
+
+**None of them is reachable from Python, so none of them is the shipped GPU path.**
+`crates/scrust-py/Cargo.toml` lists no `scrust-gpu` dependency, and says so in a comment:
+nothing in the binding called it. `crates/scrust-py/src/lib.rs` registers thirteen
+modules — `cluster`, `preprocess`, `embedding`, `de`, `diffusion`, `metrics`,
+`parametric`, `paga`, `qc`, `sampling`, `batch`, `scoring`, `layout` — and every one of
+them goes through `scrust-core`, which does not depend on `scrust-gpu` either.
+
+So any kernel speedup figure quoted elsewhere in the project is a Rust-against-Rust
+microbenchmark of code no Python caller can invoke. It is not on this page, none of the
+numbers above includes its effect, and it should not be read as what `sr.pp.pca` or
+`sr.tl.tsne` do. What the GPU actually contributes to the rows above is candle's Metal
+backend, on the four operations marked "yes" in
+[Which rows actually used the GPU](#which-rows-actually-used-the-gpu).

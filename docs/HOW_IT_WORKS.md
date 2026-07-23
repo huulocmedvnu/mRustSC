@@ -33,7 +33,9 @@ Three consequences you can observe:
 
 Algorithms are written once against `candle_core::Tensor` and take a device. Asking
 for `"auto"` resolves to Metal when a Metal device initialises, and to the CPU
-otherwise. The same source runs both ways, so the CPU path is not a second
+otherwise (`DeviceKind::resolve`, `crates/scrust-core/src/device.rs`). `settings.device`
+is `"auto"`, so on a Mac with Metal a caller who names no device is on the GPU without
+having chosen to be. The same source runs both ways, so the CPU path is not a second
 implementation that can drift — it is the oracle the GPU path is tested against.
 `scrust.gpu_available()` tells you which one you will get.
 
@@ -41,20 +43,94 @@ Apple's unified memory is what makes this worth doing at single-cell sizes: a Me
 buffer over a Rust slice is a view, not a copy across a PCIe bus, so an operation
 does not have to be large enough to amortise a transfer before it pays.
 
-Two honest qualifications:
+Three honest qualifications:
 
-- **A GPU does not make everything faster.** Elementwise work over a sparse matrix
-  — `log1p`, `normalize_total`, `scale` — is bandwidth-bound and small, and scrust
-  is *slower* than scanpy on several of these. The wins are in the dense batched
-  work: PCA, the layouts, and the rank-sum test. [BENCHMARKS.md](BENCHMARKS.md) has
-  both columns.
+- **A GPU does not make everything faster**, which is why some paths do not use one.
+  Elementwise work over a sparse matrix — `log1p`, `normalize_total`, `scale` — is
+  bandwidth-bound and small, and scrust is *slower* than scanpy on several of these.
+  The tensor-algebra wins that do reach the device are `pca` and `neighbors`; the
+  largest speedups over scanpy — `rank_genes_groups` and `paga` — are plain Rust that
+  never touches it. [BENCHMARKS.md](BENCHMARKS.md) has both columns.
 - **The hand-written Metal kernels are not on your call path.** `crates/scrust-gpu`
   holds CSR SpMM, column moments, row scaling, k-NN, UMAP SGD and t-SNE gradient
-  kernels, and they are tested against their core counterparts. But
-  `crates/scrust-core` does not depend on `scrust-gpu`, and
-  `crates/scrust-py/src/lib.rs` registers only `preprocess`, `embedding`, `de` and
-  `paga` — so nothing you can call from Python reaches them. Today the GPU you get
-  is candle's Metal backend. The kernels are the next step, not the current state.
+  kernels, and they are tested against their core counterparts. But neither
+  `scrust-core` nor `scrust-py` depends on the crate — the dependency was dropped from
+  `crates/scrust-py/Cargo.toml` because nothing there called it — so nothing you can
+  call from Python reaches them. Today the GPU you get is candle's Metal backend. The
+  kernels are the next step, not the current state.
+- **Not every call that takes a `device` uses it.** `pca`, `scale`, `neighbors`,
+  `tsne`, `diffusion`, `layout`, `batch`, `scoring` and `autocorrelation` build
+  tensors on it. `cluster`, `umap`, `de/wilcoxon`, `de/parametric`,
+  `preprocess/normalize` and `preprocess/hvg` bind it as `_device` and never touch it:
+  `tl.leiden`, `tl.louvain`, `tl.umap`, `tl.rank_genes_groups`, `pp.normalize_total`
+  and `pp.highly_variable_genes` are CPU code whatever you ask for (`pp.log1p` is
+  honest about it and takes no `device` at all). The binding still resolves the name,
+  so `device="gpu"` on a machine without Metal raises — it just never changes where
+  that work runs. `grep -n "device: &Device"
+  crates/scrust-core/src/<module>.rs` is the check.
+
+## Why the two devices do not agree bit for bit
+
+One source is not one answer. `f32` addition is not associative, and a GPU reduction
+adds its terms in a different order from a sequential one, so the same tensor
+expression lands a few ulps apart on Metal and on the CPU. Usually that is invisible.
+The case where it was not is worth understanding, because it is the shape the problem
+takes generally: a cancellation whose *exact* result carries meaning downstream.
+
+`neighbors::knn` gets the whole distance matrix out of one matmul by expanding
+`|a - b|^2 = |a|^2 + |b|^2 - 2 a.b`. For two identical cells the three terms cancel to
+exactly zero on the CPU. On Metal they left a sub-ulp positive — 9.5e-7 against a norm
+scale of 12 — and the square root amplified it a thousandfold, to 9.8e-4. A duplicated
+cell therefore had a non-zero `rho`, `rho` is subtracted when the UMAP fuzzy simplicial
+set is built, and its connectivities stopped being 1. A distance of 1e-3 became a
+visible change in the graph.
+
+The fix is in `expansion_resolution`: the expansion accumulates one rounding per term
+of the dot product and one for each addition, so anything below
+`(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` is noise it cannot tell from zero, and
+is snapped to zero before the square root. The bound scales with the norms, so it
+cannot swallow a real neighbour: on PBMC 3k's first 50 principal components the floor
+is 0.049 as a distance, against a *smallest* nearest-neighbour distance of 6.40 and a
+first percentile of 7.21 — 0 of 39 570 neighbours are snapped, a margin of 130x. What
+it reaches is cells that are identical, or closer together than `f32` can say.
+
+Two things follow for you as a caller:
+
+- **Hold cross-device results to `f32`, not to equality.** `tests/test_device_parity.py`
+  requires the neighbour *lists* to match exactly — a different neighbour is a
+  different graph — and the distances only to `rtol=1e-5, atol=1e-6`.
+- **That file skips entirely where there is no Metal device**, which includes GitHub's
+  hosted macOS runners. A green CI is not evidence that the GPU path passes; the
+  parity suite runs on developer hardware and a self-hosted Apple-silicon runner.
+  `SCRUST_TEST_DEVICE` (default `"cpu"`) chooses the device the rest of the audits run
+  against.
+
+## A stored zero means different things in different modules
+
+A CSR matrix distinguishes "no entry" from "an entry whose value is 0.0", and the
+neighbour graph is full of the second kind: two identical cells are at distance zero,
+and that zero is stored. On 120 cells of which 60 are exact duplicates,
+`sc.pp.neighbors(n_neighbors=10)` stores 540 zeros out of 1080 entries — half the
+graph. Whether those entries count is not a detail; it is a question each consumer has
+to answer for itself, and the two in this codebase answer it opposite ways.
+
+- **`paga::count_edges` counts every stored entry, whatever its value.** scanpy
+  binarises the graph before building it — `ones.data = np.ones(len(ones.data))`,
+  `_paga.py:182-183` — so the `nonzero()` inside `get_igraph_from_adjacency` sees
+  nothing but ones and drops none of them. Skipping zero-valued entries here, citing
+  that `nonzero()`, is what the code used to do, and it overstated a connectivity by
+  0.096 on the duplicate-heavy graph above.
+- **`diffusion` counts only entries that carry weight.** It propagates *along* the
+  weights, so an edge of weight zero transports nothing and cannot join two
+  components. Its connected-graph guard used to walk the sparsity pattern, so stored
+  zeros bridged separate components and a degenerate map (spectrum
+  `[1.0000001, 1.0, ...]`) came back instead of an error. This is deliberately
+  stricter than `scipy.sparse.csgraph.connected_components`, which walks the pattern
+  and calls such a graph connected; scanpy inherits that.
+
+Both readings are argued in the source, at `paga.rs::count_edges` and
+`diffusion.rs::component_count`. If you write a new consumer of `obsp`, decide which
+of the two it is before you index.
 
 ## Memory
 
@@ -103,7 +179,9 @@ by `tests/test_reference.py` rather than asserted here.
 
 ## Reproducibility
 
-Randomness takes an explicit seed and the same seed gives the same bytes. Note that
-this holds *within* scrust: a scrust UMAP with `random_state=0` will not match a
+Randomness takes an explicit seed and the same seed gives the same bytes — on one
+device. Across devices the seed fixes the algorithm, not the last few bits of the
+arithmetic, for the reason above. Note also that this holds *within* scrust: a scrust
+UMAP with `random_state=0` will not match a
 scanpy UMAP with `random_state=0`, because they are different implementations of a
 stochastic method. That is what the preservation band exists to measure.

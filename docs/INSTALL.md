@@ -30,7 +30,8 @@ pip install scrust scanpy
 Needed:
 
 - a Rust toolchain (`rustup`, stable; the workspace pins `rust-version = 1.85`),
-- Xcode command line tools, which supply the Metal compiler,
+- Xcode command line tools, which supply the macOS SDK the extension links
+  Metal against,
 - Python 3.11 or newer.
 
 ```bash
@@ -62,9 +63,18 @@ python -c "import scrust; print(scrust.__version__); print(scrust.gpu_available(
 
 - `True` — the GPU path is live.
 - `False` — everything still runs, on the CPU path. The CPU path is the same
-  algorithm (it is the oracle the GPU path is tested against), so results are
-  the same; only the speed differs. GitHub's hosted macOS runners are the usual
-  place this happens, as they have no usable GPU.
+  algorithm (it is the oracle the GPU path is tested against), but it is not
+  bit-identical: f32 addition is not associative, so a GPU reduction lands a few
+  ulps from a sequential one, and an unstable expression can amplify that. It
+  has bitten us — an identical pair of cells cancelled to exactly zero distance
+  on the CPU and to 9.8e-4 on Metal, which cost those cells their connectivity
+  of 1 in UMAP (fixed in `neighbors.rs`). Expect agreement to tolerance, not to
+  the last bit. GitHub's hosted macOS runners are the usual place `False` shows
+  up, as they have no usable GPU.
+
+Note that `settings.device` defaults to `"auto"`, which resolves to Metal
+wherever one exists, so on a machine where `gpu_available()` is `True` a caller
+who names no device is on the GPU.
 
 A quick end-to-end check, without any dataset download:
 
@@ -80,6 +90,49 @@ sr.pp.pca(adata, n_comps=10)
 print(adata.obsm["X_pca"].shape)
 ```
 
+## Running the tests
+
+The suite is not shipped in the wheel; run it from a source checkout, against an
+extension you have already installed with `maturin develop --release`. Every
+test file is collected through `tests/conftest.py`, which imports scanpy
+unconditionally, so scanpy is needed for the whole suite and not only for the
+cross-checks:
+
+```bash
+.venv/bin/pip install pytest scanpy
+PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
+```
+
+Two markers are declared in `pyproject.toml`:
+
+- `reference` — cross-checks against scanpy that want the PBMC 3k download.
+- `slow` — drives umap-learn or scikit-learn over a full run; minutes, not
+  seconds. Currently only `tests/test_umap_audit.py`.
+
+`-m "not reference"` is the fast loop: it selects 644 of the 710 collected
+tests, and it is what the `quality` CI job runs. Dropping the filter adds the
+PBMC-3k legs, which download two h5ad files on first use and take appreciably
+longer; CI gives them their own job with a cache.
+
+### Which device the tests run against
+
+`SCRUST_TEST_DEVICE` (`tests/scrust_call.py`) names the device the audits pass
+into `_scrust`. It defaults to `"cpu"`; set it to `"auto"` to run the same suite
+on the GPU:
+
+```bash
+SCRUST_TEST_DEVICE=auto PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
+```
+
+Both legs are worth running before a release, because `"auto"` is the device
+most callers actually get.
+
+`tests/test_device_parity.py` is the file that holds the two devices against
+each other, and its `pytestmark` skips the whole file where `gpu_available()` is
+false. That includes GitHub's hosted macOS runners, so **CI never executes it,
+and a green tick is not evidence that the GPU path passes.** The GPU leg runs on
+developer hardware and on a self-hosted Apple-silicon runner only.
+
 ## Type checking
 
 The package ships a `py.typed` marker, so mypy and pyright use the inline
@@ -92,17 +145,20 @@ python -c "import scrust, pathlib; print((pathlib.Path(scrust.__file__).parent /
 
 ## Other platforms
 
-The GPU path is Metal-only, and the Metal bindings are currently an
-unconditional dependency of the extension crate — they are not behind a
-`cfg(target_os = "macos")`. The practical consequences:
+The GPU path is Metal-only, and Metal is currently an unconditional dependency
+of the extension. Not through `scrust-gpu` — the extension crate no longer
+depends on it — but through candle: the workspace pins
+`candle-core = { version = "0.9", features = ["metal"] }` with no
+`cfg(target_os = "macos")` around it, and `scrust-core` and `scrust-py` both
+take it from there. The practical consequences:
 
 - **Apple silicon macOS** — supported. Wheels published, GPU path active.
 - **Intel macOS** — no wheel is published. A source build should compile, since
   Metal exists there too, but it is neither tested nor benchmarked; treat it as
   unsupported.
 - **Linux and Windows** — no wheel, and a source build fails to compile because
-  the `metal` crate does not build off Apple platforms. Gating the GPU crate
-  behind a target `cfg` would make a CPU-only build possible; until someone does
-  that work, there is nothing to install.
+  candle's `metal` feature does not build off Apple platforms. Gating that
+  feature behind a target `cfg` would make a CPU-only build possible; until
+  someone does that work, there is nothing to install.
 
 If you are not on Apple silicon, use scanpy.

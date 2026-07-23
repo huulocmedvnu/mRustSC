@@ -5,9 +5,9 @@ Apple M-series chips. Python is the interface only: it holds the AnnData plumbin
 and the defaults, and every matrix operation happens in Rust.
 
 The API mirrors scanpy, so a script changes its import and keeps its plotting — for
-the steps scrust implements. It does not yet implement all of scanpy; the
-[status table](#status) below is the honest list, and the numbers are
-[measured, not claimed](docs/VALIDATION.md).
+the 40 functions scrust mirrors. All 40 are implemented at 0.2.0; scanpy is much
+larger than 40 functions, so the [status table](#status) below is the list of what
+is covered, and the numbers are [measured, not claimed](docs/VALIDATION.md).
 
 ```python
 import scanpy as sc
@@ -27,14 +27,19 @@ sr.pp.pca(adata, n_comps=50)
 sr.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")
 sr.tl.umap(adata)
 
-sc.tl.leiden(adata)                      # scrust has no clustering yet — see below
+sr.tl.leiden(adata)
 sr.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
 sc.pl.umap(adata, color="leiden")        # scanpy plotting still works
 ```
 
+`method=` takes all four of scanpy's values: `"wilcoxon"`, `"t-test"`,
+`"t-test_overestim_var"` and `"logreg"`. As in scanpy, `"logreg"` reports scores
+only — no p-values and no fold changes.
+
 `examples/pbmc3k.py` is this pipeline end to end, printing each scanpy call beside
-the scrust call that replaced it and marking the one step (`leiden`) it has to
-borrow back from scanpy. It runs today.
+the scrust call that replaced it. It still borrows `calculate_qc_metrics` and
+`leiden` back from scanpy and labels them `NOT IMPLEMENTED`; both are implemented
+now, so those two labels are stale and the script has not caught up.
 
 ## Why Rust and Metal
 
@@ -47,6 +52,16 @@ single-cell matrix sizes.
 Everything expressible as tensor algebra is written once against
 [candle](https://github.com/huggingface/candle) and runs on either device, so the
 CPU path is the same code and serves as the correctness oracle.
+
+Same code is not the same bits. `settings.device` defaults to `"auto"`, which
+resolves to Metal wherever Metal exists (`crates/scrust-core/src/device.rs`), so a
+caller who names no device is on the GPU. f32 addition is not associative and a GPU
+reduction lands a few ulps from a sequential one; the two devices agree to within
+floating-point tolerance, not exactly. That gap has produced at least one real bug:
+the expansion `|a-b|^2 = |a|^2 + |b|^2 - 2a.b` cancelled to exactly zero for two
+identical cells on the CPU but left 9.5e-7 on Metal, which the square root amplified
+to 9.8e-4, and duplicate cells stopped being at connectivity 1 in the UMAP graph.
+`tests/test_device_parity.py` now holds the devices against each other.
 
 This buys speed unevenly, and the benchmark reports both directions. Measured at
 499, 2 638 and 10 000 cells, speedup against scanpy (above 1.00x scrust is faster):
@@ -77,9 +92,10 @@ Full tables, peak memory, and what could not be measured are in
 [docs/BENCHMARKS.md](docs/BENCHMARKS.md); run it yourself with
 `benches/benchmark.py`.
 
-Note also that the hand-written Metal kernels in `crates/scrust-gpu` (sparse SpMM
-and friends) are written and tested but **not yet wired to any Python call** — today
-the GPU you get is candle's Metal backend. See
+Note also that the four hand-written Metal kernels in `crates/scrust-gpu` (`knn`,
+`spmm`, `tsne_gradient`, `umap_sgd`) are written and tested but **not reachable from
+Python at all**: nothing in `crates/scrust-py` called them, so the dependency was
+removed from its `Cargo.toml`. Today the GPU you get is candle's Metal backend. See
 [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ## Install
@@ -93,8 +109,9 @@ VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
 Needs a Rust toolchain and Xcode's Metal compiler. Without a GPU everything still
-runs on the CPU path, which is the same algorithm. Full detail, including why
-Linux and Windows do not build, is in [docs/INSTALL.md](docs/INSTALL.md).
+runs on the CPU path, which is the same algorithm — the same algorithm, not the
+same bits; see [above](#why-rust-and-metal). Full detail, including why Linux and
+Windows do not build, is in [docs/INSTALL.md](docs/INSTALL.md).
 
 Verify:
 
@@ -104,22 +121,31 @@ python -c "import scrust; print(scrust.__version__, scrust.gpu_available())"
 
 ## Status
 
-16 of scanpy's 40 mirrored functions are implemented at 0.2.0. The other 24 exist,
-import and type-check, and raise `NotImplementedError` naming the branch that owes
-them — none is a silent no-op. Cross-check figures are in
+All 40 mirrored functions are implemented at 0.2.0. There are no stubs left:
+`grep -rn 'todo!' crates/` returns nothing, and the one remaining
+`NotImplementedError` in `python/scrust/` is `tl.dpt(n_branchings=)` above 0, which
+is branch detection rather than a whole function. Cross-check figures are in
 [docs/VALIDATION.md](docs/VALIDATION.md); per-function detail in
 [docs/API.md](docs/API.md).
 
-| area | implemented | not yet |
-| --- | --- | --- |
-| `pp` | `filter_cells`, `filter_genes`, `normalize_total`, `log1p`, `highly_variable_genes`, `scale`, `pca`, `neighbors` | `calculate_qc_metrics`, `normalize_per_cell`, `sqrt`, `filter_genes_dispersion`, `regress_out`, `combat`, `subsample`, `sample`, `downsample_counts` |
-| `tl` | `umap`, `tsne`, `rank_genes_groups`, `paga` | `leiden`, `louvain`, `diffmap`, `dpt`, `score_genes`, `score_genes_cell_cycle`, `marker_gene_overlap`, `filter_rank_genes_groups`, `dendrogram`, `draw_graph`, `embedding_density` |
-| `metrics` | — | `morans_i`, `gearys_c`, `confusion_matrix`, `modularity` |
-| `get` | `obs_df`, `var_df`, `rank_genes_groups_df`, `aggregate` | — |
+| area | mirrored |
+| --- | --- |
+| `pp` | `calculate_qc_metrics`, `combat`, `downsample_counts`, `filter_cells`, `filter_genes`, `filter_genes_dispersion`, `highly_variable_genes`, `log1p`, `neighbors`, `normalize_per_cell`, `normalize_total`, `pca`, `regress_out`, `sample`, `scale`, `sqrt`, `subsample` |
+| `tl` | `dendrogram`, `diffmap`, `dpt`, `draw_graph`, `embedding_density`, `filter_rank_genes_groups`, `leiden`, `louvain`, `marker_gene_overlap`, `paga`, `rank_genes_groups`, `score_genes`, `score_genes_cell_cycle`, `tsne`, `umap` |
+| `metrics` | `morans_i`, `gearys_c`, `confusion_matrix`, `modularity` |
+| `get` | `obs_df`, `var_df`, `rank_genes_groups_df`, `aggregate` |
 
-The gap you will hit first is clustering: there is no `leiden` or `louvain`, so a
-tutorial run reaches the clustering step and stops. `examples/pbmc3k.py` bridges it
-with `sc.tl.leiden` and says so.
+Implemented is not identical. Several functions diverge from scanpy deliberately —
+`tl.dendrogram` records the linkage it used, `tl.diffmap` raises where scanpy clamps,
+`tl.dpt` gives unreachable cells a finite pseudotime where scanpy writes `inf`, and
+`tl.paga` does not write `uns["<groups>_sizes"]`, which `sc.pl.paga` reads to size
+nodes. Each divergence is listed and pinned by a test; see
+[docs/API.md](docs/API.md) and [docs/VALIDATION.md](docs/VALIDATION.md).
+
+Not everything that takes a `device` uses one. `tl.umap`, `tl.leiden`, `tl.louvain`,
+`pp.normalize_total`, `pp.highly_variable_genes` and the differential-expression
+methods take the argument and bind it to `_device`: they always run on the CPU.
+`pp.pca`, `pp.neighbors` and `tl.tsne` do use it.
 
 ## Documentation
 
@@ -131,8 +157,8 @@ with `sc.tl.leiden` and says so.
   wins and losses.
 - [docs/INSTALL.md](docs/INSTALL.md) — install and platform support.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-  [docs/API_CONTRACT.md](docs/API_CONTRACT.md) — the internal contract branches are
-  built against.
+  [docs/API_CONTRACT.md](docs/API_CONTRACT.md) — the internal contract the parallel
+  feature branches were built against; all of them are merged.
 
 ## Layout
 
@@ -143,7 +169,7 @@ crates/
   scrust-py/      PyO3 bindings, conversion only
 python/scrust/    the scanpy-shaped API and AnnData plumbing
 benches/          benchmark.py (vs scanpy) and streaming.py (out-of-core memory)
-examples/         pbmc3k.py, the tutorial as far as scrust supports it
+examples/         pbmc3k.py, the tutorial run through scrust
 tests/            cross-checks against scanpy
 ```
 
@@ -154,3 +180,14 @@ cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 PYTHONPATH=$PWD/python .venv/bin/pytest
 ```
+
+`tests/` holds 437 Python tests across 34 files, of which 16 are `test_*_audit.py`
+cross-checks against scanpy, scikit-learn, umap-learn, scipy and statsmodels. Two
+internal modules, `chunked` and `sparse`, have no such cross-check because they have
+no equivalent to check against.
+
+The audits run against one device at a time, chosen by `SCRUST_TEST_DEVICE`
+(default `"cpu"`; set it to `"auto"` for the GPU). `tests/test_device_parity.py` is
+the file that holds the two against each other, and it skips entirely where there is
+no Metal device — which includes the `macos-14` hosted runners CI uses. **A green CI
+is not evidence that the GPU path passes.** That leg runs on developer hardware.
