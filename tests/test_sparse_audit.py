@@ -384,82 +384,68 @@ def test_the_triple_round_trips_bit_for_bit_under_a_unit_rescale():
 # --------------------------------------------------------------------------------------
 
 
-def test_a_non_monotone_indptr_is_accepted_and_panics_downstream():
-    """DEFECT.
+def test_a_non_monotone_indptr_is_refused_at_construction():
+    """A row whose range runs backwards is rejected, and rejected as a `ValueError`.
 
-    `CsrMatrix::new` checks `indptr` is non-empty and that its *last* entry equals the
-    stored count, and nothing else. A decreasing step such as `[0, 2, 1, 3]` passes, and the
-    first consumer to slice `values[indptr[r]..indptr[r + 1]]` (here
-    `preprocess/filter.rs:14`) panics with "slice index starts at 2 but ends at 1".
+    `CsrMatrix::new` used to check only that `indptr` was non-empty and that its *last*
+    entry equalled the stored count. `[0, 2, 1, 3]` passed, and the first consumer to
+    slice `values[indptr[r]..indptr[r + 1]]` panicked.
 
-    A panic is not an error the bindings can convert: it crosses into Python as
-    `pyo3_runtime.PanicException`, which derives from `BaseException`, so an `except
-    Exception` around a scrust call does not catch it and the process is left with a
-    poisoned thread. `scipy.sparse.csr_matrix.check_format()` reports this as a clean
-    ValueError. This test pins the current behaviour so the fix is visible when it lands.
+    Which mattered more than an ordinary error: a panic crosses into Python as
+    `pyo3_runtime.PanicException`, which derives from `BaseException`, so a caller's
+    `except Exception` does not catch it. The type asserted below is the point of the
+    test, not just the fact of raising -- `scipy.sparse.csr_matrix.check_format()`
+    reports the same triple as a `ValueError`, and so does this now.
     """
-    log1p([0, 2, 1, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4)  # construction alone does not complain
-
-    with pytest.raises(BaseException) as excinfo:  # PanicException is not an Exception subclass
-        normalize_total([0, 2, 1, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4, 10.0)
-    assert type(excinfo.value).__name__ == "PanicException", (
-        f"expected the unchecked indptr to panic, got {excinfo.value!r}"
-    )
-    assert "slice index starts at 2 but ends at 1" in str(excinfo.value)
+    for call in (
+        lambda: log1p([0, 2, 1, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4),
+        lambda: normalize_total([0, 2, 1, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4, 10.0),
+    ):
+        with pytest.raises(ValueError, match="non-decreasing indptr"):
+            call()
 
 
-def test_an_interior_indptr_entry_past_the_stored_count_is_accepted_and_panics():
-    """DEFECT, same root cause.
+def test_an_interior_indptr_entry_past_the_stored_count_is_refused():
+    """Same root cause, kept separate because it is the shape an off-by-one produces.
 
-    Only `indptr[-1]` is compared against `len(values)`, so `[0, 5, 3]` with three stored
-    entries passes: row 0 claims entries `0..5` of a three-element buffer. The slice then
-    panics with "range end index 5 out of range for slice of length 3".
-
-    Worth pinning separately from the non-monotone case because it is the one an off-by-one
-    in a caller's own CSR construction produces, and because the two panics come from
-    different bounds checks.
+    Only `indptr[-1]` used to be compared against `len(values)`, so `[0, 5, 3]` over three
+    stored entries passed: row 0 claimed entries `0..5` of a three-element buffer, and the
+    slice panicked. The monotonicity check catches it first now -- 5 is followed by 3 --
+    so the message names the backwards step rather than the overrun.
     """
-    log1p([0, 5, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4)
+    for call in (
+        lambda: log1p([0, 5, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4),
+        lambda: normalize_total([0, 5, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4, 10.0),
+    ):
+        with pytest.raises(ValueError, match="non-decreasing indptr"):
+            call()
 
-    with pytest.raises(BaseException) as excinfo:
-        normalize_total([0, 5, 3], [0, 1, 2], [1.0, 2.0, 3.0], 4, 10.0)
-    assert type(excinfo.value).__name__ == "PanicException"
-    assert "range end index 5 out of range" in str(excinfo.value)
 
+def test_an_indptr_not_starting_at_zero_is_refused():
+    """The worst of the three while it lasted, because it did not even panic.
 
-def test_an_indptr_not_starting_at_zero_is_accepted_and_silently_drops_entries():
-    """DEFECT, and the worst of the three: this one does not even panic.
+    CSR requires `indptr[0] == 0`; scipy's `check_format` rejects anything else.
+    `CsrMatrix::new` did not look at `indptr[0]`, so `[1, 3]` over three stored entries
+    built a one-row matrix whose row spanned `values[1..3]` -- entry 0 belonging to no
+    row at all, with nothing raised.
 
-    CSR requires `indptr[0] == 0`; scipy's `check_format` rejects anything else. `CsrMatrix`
-    does not look at `indptr[0]`, so `[1, 3]` over three stored entries builds a one-row
-    matrix whose row spans `values[1..3]` -- entry 0 belongs to no row at all.
+    What made that dangerous is that the readers of the *same* matrix then disagreed.
+    `row_reductions` (behind `normalize_total` and `filter_cells`) walks `indptr` and
+    never saw `values[0]`; `column_reductions` and the `scale` moments zip `indices` with
+    `values` and did. On `[5.0, 1.0, 1.0]` with `target_sum=6` the row total came out as
+    `1 + 1 = 2`, so the result was `[5.0, 3.0, 3.0]`: the orphan excluded from the total
+    and still exported as part of the matrix. Written correctly (`indptr == [0, 3]`) the
+    total is 7 and every value moves.
 
-    The result is that the row-oriented readers and the column-oriented readers of the very
-    same matrix disagree. `row_reductions` (used by `normalize_total` and `filter_cells`)
-    walks `indptr` and never sees `values[0]`; `column_reductions` and the `scale` moments
-    zip `indices` with `values` and do see it. Nothing is raised either way.
-
-    Demonstrated on `[5.0, 1.0, 1.0]` with `indptr == [1, 3]` and `target_sum == 6`:
-
-      * as `CsrMatrix` reads it, the row total is `1 + 1 == 2`, factor `3`, giving
-        `[5.0, 3.0, 3.0]` -- the orphaned `5.0` untouched, so it is *both* excluded from the
-        total and still exported as part of the matrix;
-      * as scipy reads the same triple, `check_format` raises; as a correct CSR would read
-        it (`indptr == [0, 3]`), the total is `7`, the factor `6/7`, and every value moves.
+    Both halves are asserted below -- the refusal, and that the correct spelling still
+    gives the answer the broken one should have given.
     """
-    out_indptr, out_indices, out_values, _ = normalize_total(
-        [1, 3], [0, 1, 2], [5.0, 1.0, 1.0], 4, 6.0
-    )
+    with pytest.raises(ValueError, match="indptr starting at 0"):
+        normalize_total([1, 3], [0, 1, 2], [5.0, 1.0, 1.0], 4, 6.0)
 
-    assert_array_equal(out_indptr, [1, 3])
-    assert_array_equal(out_indices, [0, 1, 2])
-    assert out_values == pytest.approx([5.0, 3.0, 3.0]), (
-        "the leading entry should have been part of the row total"
-    )
-    # The correct reading of the same data, for contrast: no value survives unscaled.
     correct = normalize_total([0, 3], [0, 1, 2], [5.0, 1.0, 1.0], 4, 6.0)[2]
     assert correct == pytest.approx([30.0 / 7.0, 6.0 / 7.0, 6.0 / 7.0])
 
-    # scipy refuses the same triple outright.
+    # scipy refuses the same triple too, and always did.
     with pytest.raises(ValueError):
         scipy_csr([1, 3], [0, 1, 2], [5.0, 1.0, 1.0], (1, 4)).check_format(full_check=True)

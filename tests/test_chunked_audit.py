@@ -291,27 +291,34 @@ def test_the_default_block_size_tracks_settings_max_memory_gb(h5ad):
     assert len(large[1]) < len(small[1])
 
 
-def test_settings_chunk_size_is_never_read(h5ad):
-    """DEFECT (documentation): `settings.chunk_size` has no effect anywhere.
+def test_settings_chunk_size_overrides_the_derived_block_size(h5ad):
+    """`settings.chunk_size` is honoured, which it was not when this module was audited.
 
-    It is documented as "Rows per streamed block; `0` derives one from
-    `max_memory_gb`", but `_backed.blocks` defaults to `self.block_size()` and
-    never consults it, and no Rust binding reads it either. Setting it to 3 must
-    therefore change nothing; this pins that it does not, so the day someone
-    wires it up the test says where the contract changed.
+    It is documented as "Rows per streamed block; `0` derives one from `max_memory_gb`",
+    but nothing read it: `_backed.block_size` went straight to `block_size_for` and no
+    Rust binding consulted it either, so a caller who set it got silence.
+
+    The budget below is chosen so the derived size is *not* the number under test --
+    otherwise the assertion would pass whether or not the setting is read, which is the
+    shape of test this audit was written to catch.
     """
     path, _ = h5ad
     settings.max_memory_gb = 8 / 1024**2
     settings.chunk_size = 3
     try:
         with open_backed(path) as backed:
-            derived = backed.block_size()
+            chosen = backed.block_size()
             first = next(iter(backed.blocks()))[1].shape[0]
+        settings.chunk_size = 0
+        with open_backed(path) as backed:
+            derived = backed.block_size()
     finally:
         settings.chunk_size = 0
         settings.max_memory_gb = 4.0
-    assert derived != 3, "pick a budget whose block size is not the chunk_size under test"
-    assert first == derived, "chunk_size now has an effect; the setting was dead when audited"
+
+    assert derived != 3, "pick a budget whose derived block size is not the chunk_size"
+    assert chosen == 3, f"chunk_size ignored: block_size() gave {chosen}"
+    assert first == 3, f"chunk_size ignored by blocks(): first block held {first} rows"
 
 
 # --------------------------------------------------------------------------

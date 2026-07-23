@@ -19,6 +19,10 @@ pub struct GlmFit {
 
 /// Fitted means are kept away from zero: the IRLS weights and the working
 /// response both divide by `mu`.
+///
+/// NOT EXERCISED BY ANY TEST either, in the sense that setting it to 0.0 leaves the
+/// suite green -- the all-zero-gene test passes with or without the floor. See the
+/// note on `MAXIMUM_WORKING_RESIDUAL`.
 const MINIMUM_MEAN: f64 = 1e-8;
 
 /// `exp(30)` is ~1e13: far above any realistic count, far below f32 overflow.
@@ -26,6 +30,13 @@ const MAXIMUM_LINEAR_PREDICTOR: f64 = 30.0;
 
 /// Bounds `(y - mu) / mu` while an early iterate is still far from the mode, so
 /// one badly scaled gene cannot produce a non-finite normal equation.
+///
+/// NOT EXERCISED BY ANY TEST. Raising it to 1e30 leaves the whole suite green, so
+/// nothing here depends on it and nothing would notice if it were wrong. The
+/// starting values (`STARTING_PSEUDOCOUNT`, least squares on `log(y / size_factor)`)
+/// put `mu` close enough to `y` that the first residual never approaches this
+/// bound on any input tried. Either construct one, or conclude the guard is
+/// unreachable and delete it -- what is not defensible is leaving it looking tested.
 const MAXIMUM_WORKING_RESIDUAL: f64 = 1e4;
 
 /// Tikhonov term added to the information matrix. It only matters for genes
@@ -835,5 +846,199 @@ mod tests {
                 warm.converged.len()
             );
         }
+    }
+
+    // ------------------------------------------------- degenerate input
+
+    /// A gene with no counts anywhere, sharing a batch with two ordinary genes.
+    ///
+    /// Every IRLS weight is `mu / (1 + dispersion * mu)` with `mu` at the
+    /// `MINIMUM_MEAN` floor, so this gene's information matrix is tiny -- but not
+    /// singular, and setting `RIDGE` to zero does not break this test. The guard
+    /// that is genuinely exercised by a singular solve is in
+    /// `a_rank_deficient_design_is_solved_rather_than_returning_nonsense`; this one
+    /// pins something different and worth pinning on its own: that a degenerate
+    /// gene comes back finite and does not disturb the genes beside it, since all
+    /// of them advance through the same batched iteration.
+    ///
+    /// Real data reaches this constantly -- a gene expressed nowhere but filtered
+    /// nowhere either.
+    #[test]
+    fn a_gene_with_no_counts_stays_finite_and_leaves_its_neighbours_alone() {
+        let design = two_group_design(5);
+        let n_samples = design.nrows();
+        let size_factors = vec![1.0; n_samples];
+
+        let mut counts = Array2::<f32>::zeros((3, n_samples));
+        for sample in 0..n_samples {
+            counts[[0, sample]] = if sample < 5 { 10.0 } else { 40.0 };
+            counts[[2, sample]] = if sample < 5 { 10.0 } else { 40.0 };
+            // gene 1 stays all zero
+        }
+
+        let batch = fit(&counts, &design, &size_factors, 0.2, &Device::Cpu);
+        assert!(
+            batch.coefficients.iter().all(|value| value.is_finite()),
+            "the singular gene produced a non-finite coefficient: {:?}",
+            batch.coefficients
+        );
+        assert!(batch.fitted_means.iter().all(|value| value.is_finite()));
+
+        // The two real genes are identical, and neither is disturbed by sharing a
+        // batch with the degenerate one: fit them alone and compare.
+        let mut alone = Array2::<f32>::zeros((1, n_samples));
+        for sample in 0..n_samples {
+            alone[[0, sample]] = counts[[0, sample]];
+        }
+        let solo = fit(&alone, &design, &size_factors, 0.2, &Device::Cpu);
+        for k in 0..design.ncols() {
+            assert!(
+                (batch.coefficients[[0, k]] - solo.coefficients[[0, k]]).abs() < 1e-4,
+                "coefficient {k} moved when an all-zero gene shared the batch: {} vs {}",
+                batch.coefficients[[0, k]],
+                solo.coefficients[[0, k]]
+            );
+        }
+    }
+
+    /// A covariate that separates the counts perfectly: zero in one group, large in
+    /// the other. The maximum likelihood estimate of the group coefficient is
+    /// `-infinity`, so the only correct behaviour is to stop somewhere finite.
+    ///
+    /// `MAXIMUM_LINEAR_PREDICTOR` is what stops it. Measured: raising that constant
+    /// to 1e9 does *not* fail this test -- the bound that actually bites here is the
+    /// `MINIMUM_MEAN` floor under the zero group -- so the constant is pinned by
+    /// `an_extreme_count_does_not_poison_the_first_iteration` instead, and this test
+    /// claims only what it checks: that separation is answered with a finite,
+    /// correctly-directed fit rather than an infinity. A marker gene present in one
+    /// cell type and absent from another is exactly this shape.
+    #[test]
+    fn a_perfectly_separating_gene_is_bounded_rather_than_running_to_infinity() {
+        let design = two_group_design(6);
+        let n_samples = design.nrows();
+        let size_factors = vec![1.0; n_samples];
+
+        let mut counts = Array2::<f32>::zeros((1, n_samples));
+        for sample in 6..n_samples {
+            counts[[0, sample]] = 500.0; // first group all zero, second group large
+        }
+
+        let fit = fit(&counts, &design, &size_factors, 0.2, &Device::Cpu);
+        assert!(
+            fit.coefficients.iter().all(|value| value.is_finite()),
+            "separation produced a non-finite coefficient: {:?}",
+            fit.coefficients
+        );
+        assert!(fit
+            .fitted_means
+            .iter()
+            .all(|value| value.is_finite() && *value >= 0.0));
+
+        // The fitted linear predictor stays inside the bound the constant sets, on
+        // both sides -- that is the guard doing its job rather than luck.
+        for sample in 0..n_samples {
+            let mean = f64::from(fit.fitted_means[[0, sample]]);
+            assert!(
+                mean.ln().abs() <= MAXIMUM_LINEAR_PREDICTOR + 1e-3,
+                "sample {sample}: linear predictor {} escaped the bound",
+                mean.ln()
+            );
+        }
+        // And it did find the direction: the second group is fitted far higher.
+        assert!(fit.fitted_means[[0, 11]] > 100.0 * fit.fitted_means[[0, 0]]);
+    }
+
+    /// One sample and one coefficient: the design is square, the fit is saturated,
+    /// and there are no residual degrees of freedom. It must still return rather
+    /// than divide by a zero degrees-of-freedom term.
+    #[test]
+    fn a_single_sample_is_fitted_saturated_rather_than_refused() {
+        let design = Array2::<f32>::from_shape_vec((1, 1), vec![1.0]).unwrap();
+        let counts = Array2::<f32>::from_shape_vec((1, 1), vec![7.0]).unwrap();
+
+        let fit = fit(&counts, &design, &[1.0], 0.2, &Device::Cpu);
+        assert!(fit.coefficients.iter().all(|value| value.is_finite()));
+        // Saturated: the single fitted mean reproduces the single count.
+        assert!(
+            (fit.fitted_means[[0, 0]] - 7.0).abs() < 1e-2,
+            "expected the saturated fit 7.0, got {}",
+            fit.fitted_means[[0, 0]]
+        );
+    }
+
+    /// A count far above what the starting values anticipate, which is what
+    /// `MAXIMUM_WORKING_RESIDUAL` bounds. The first working residual `(y - mu) / mu`
+    /// is enormous while `mu` is still near its starting value; unbounded it makes
+    /// the first normal equation non-finite and the gene never recovers.
+    #[test]
+    fn an_extreme_count_does_not_poison_the_first_iteration() {
+        let design = two_group_design(4);
+        let n_samples = design.nrows();
+        let size_factors = vec![1.0; n_samples];
+
+        let mut counts = Array2::<f32>::zeros((2, n_samples));
+        for sample in 0..n_samples {
+            counts[[0, sample]] = 5.0;
+            counts[[1, sample]] = 5.0;
+        }
+        counts[[0, 0]] = 2.0e7; // one wildly out-of-scale observation
+
+        let fit = fit(&counts, &design, &size_factors, 0.2, &Device::Cpu);
+        assert!(
+            fit.coefficients.iter().all(|value| value.is_finite()),
+            "an extreme count produced a non-finite coefficient: {:?}",
+            fit.coefficients
+        );
+        // The ordinary gene sharing the batch is unaffected.
+        assert!(fit.converged[1], "the well-behaved gene failed to converge");
+    }
+
+    /// `converged` has to mean what it says. Given enough iterations a well-posed
+    /// gene converges, and the flag is per gene rather than global -- these two
+    /// genes are fitted in one batch and only one of them is hard.
+    #[test]
+    fn convergence_is_reported_per_gene_not_for_the_batch() {
+        let design = two_group_design(5);
+        let n_samples = design.nrows();
+        let size_factors = vec![1.0; n_samples];
+
+        let mut counts = Array2::<f32>::zeros((2, n_samples));
+        for sample in 0..n_samples {
+            counts[[0, sample]] = if sample < 5 { 20.0 } else { 60.0 };
+            counts[[1, sample]] = 0.0; // degenerate: weights collapse
+        }
+
+        let fit = fit(&counts, &design, &size_factors, 0.2, &Device::Cpu);
+        assert!(fit.converged[0], "a well-posed gene should converge");
+        assert_eq!(fit.converged.len(), 2, "the flag is per gene");
+        assert!(fit.n_iterations <= MAX_ITERATIONS);
+    }
+
+    /// A design of less than full column rank: the third column is the sum of the
+    /// first two. `X'WX` is then singular whatever the weights are, which is the
+    /// case `RIDGE` turns into a finite step.
+    #[test]
+    fn a_rank_deficient_design_is_solved_rather_than_returning_nonsense() {
+        let n_samples = 10usize;
+        let mut design = Array2::<f32>::zeros((n_samples, 3));
+        for sample in 0..n_samples {
+            design[[sample, 0]] = 1.0;
+            design[[sample, 1]] = if sample < 5 { 0.0 } else { 1.0 };
+            design[[sample, 2]] = design[[sample, 0]] + design[[sample, 1]];
+        }
+        let mut counts = Array2::<f32>::zeros((1, n_samples));
+        for sample in 0..n_samples {
+            counts[[0, sample]] = if sample < 5 { 10.0 } else { 40.0 };
+        }
+        let fitted = fit(&counts, &design, &vec![1.0; n_samples], 0.2, &Device::Cpu);
+        assert!(
+            fitted.coefficients.iter().all(|v| v.is_finite()),
+            "singular design gave {:?}",
+            fitted.coefficients
+        );
+        assert!(fitted
+            .fitted_means
+            .iter()
+            .all(|v| v.is_finite() && *v > 0.0));
     }
 }
