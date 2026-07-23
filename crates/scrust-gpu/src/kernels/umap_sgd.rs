@@ -24,11 +24,15 @@ const KERNEL_NAME: &str = "umap_sgd_epoch";
 /// # Concurrency
 ///
 /// One thread per edge, and edges share endpoints, so threads race on the same
-/// coordinates. That race is **accepted**, as umap-learn accepts it in its
-/// `parallel=True` mode: edge colouring would leave most of the GPU idle on a
-/// realistic k-NN graph, and a per-thread accumulate-then-reduce pass would cost
-/// a full extra `edges x dim` of traffic to remove noise the algorithm is known
-/// to tolerate.
+/// coordinates. That race is **accepted**. umap-learn has the same trade in its
+/// `parallel=True` mode, but it is not the mode scanpy uses: `UMAP.__init__`
+/// forces `n_jobs = 1` whenever a `random_state` is set (`umap/umap_.py:1950`),
+/// and `scanpy.tl.umap` calls `simplicial_set_embedding` without `parallel`, so
+/// it takes the sequential default. This kernel is therefore a deliberate
+/// departure from the reference path, not a copy of it. Edge colouring would
+/// leave most of the GPU idle on a realistic k-NN graph, and a per-thread
+/// accumulate-then-reduce pass would cost a full extra `edges x dim` of traffic
+/// to remove noise the algorithm tolerates.
 ///
 /// The race is narrowed where it is cheap to do so. Writes are atomic adds, so
 /// no thread's contribution is ever lost, and a thread accumulates its own
@@ -42,9 +46,20 @@ const KERNEL_NAME: &str = "umap_sgd_epoch";
 ///   endpoints, even for a fixed seed. It is reproducible in structure — which
 ///   vertices end up together — not in coordinates.
 /// - Because the whole edge list is in flight at once, a high-degree vertex
-///   receives most of its attractions computed from the same starting position.
-///   The update is therefore closer to a simultaneous (Jacobi) step than to
-///   umap-learn's sequential sweep. Still a descent step, but not the same one.
+///   receives most of its attractions computed from the same starting position,
+///   and the `+-4` clip bounds each contribution rather than their sum. The
+///   update is therefore a simultaneous (Jacobi) step rather than umap-learn's
+///   sequential sweep. Simulating both on a 15-neighbour graph of 800 points
+///   (max degree 67) leaves the fuzzy-set cross entropy indistinguishable
+///   (100501 +- 500 against 100767 +- 1030 over three seeds); on two 40-cliques,
+///   where every vertex takes 39 attractions per epoch, the objective is still
+///   equivalent but the layout comes out at roughly half the diameter.
+///
+/// One further, deliberate simplification: umap-learn tracks a per-edge
+/// `epoch_of_next_negative_sample` and so draws a *variable* number of negative
+/// samples per firing — 4 on the first, then 3 to 8 for a non-integer schedule,
+/// averaging `negative_sample_rate`. This kernel draws exactly
+/// `negative_sample_rate` every time, which has the same mean and no state.
 ///
 /// Edges that share no endpoint, with negative sampling off, race with nothing
 /// and are bit-for-bit reproducible; the tests assert exactly that split.
@@ -69,8 +84,7 @@ pub fn umap_epoch(
         a,
         b,
         gamma: REPULSION_STRENGTH,
-        // umap-learn decays the learning rate linearly to zero over the run.
-        alpha: params.learning_rate * (1.0 - epoch as f32 / params.n_epochs as f32),
+        alpha: alpha_for_epoch(epoch, params),
         dim: dim as u32,
         n_vertices: n_vertices as u32,
         n_edges: head.len() as u32,
@@ -122,6 +136,19 @@ pub fn umap_epoch(
     let updated = unsafe { MetalContext::read::<f32>(&embedding_buffer, coordinates.len()) };
     coordinates.copy_from_slice(&updated);
     Ok(())
+}
+
+/// The learning rate umap-learn runs `epoch` with.
+///
+/// `optimize_layout_euclidean` (layouts.py:321, 431) starts at `initial_alpha`
+/// and applies `alpha = initial_alpha * (1 - n / n_epochs)` *after* epoch `n`,
+/// so epoch `n` itself runs with the rate that epoch `n - 1` left behind:
+/// `initial_alpha` for both epoch 0 and epoch 1, then decaying. Computing
+/// `1 - epoch / n_epochs` here would run every epoch one step ahead of both
+/// umap-learn and the CPU loop in `scrust_core::umap`.
+fn alpha_for_epoch(epoch: usize, params: &UmapParams) -> f32 {
+    let elapsed = epoch.saturating_sub(1) as f32;
+    params.learning_rate * (1.0 - elapsed / params.n_epochs as f32)
 }
 
 fn validate(
@@ -250,9 +277,12 @@ kernel void umap_sgd_epoch(device atomic_float *embedding [[buffer(0)]],
         return;
     }
     // umap-learn fires an edge when a per-edge counter, stepped by `schedule`,
-    // reaches the epoch number. Since `schedule >= 1` an edge fires at most once
-    // per epoch, so that counter is exactly floor(epoch / schedule) and the
-    // schedule needs no state carried between epochs.
+    // reaches the epoch number: that is, on every epoch containing a multiple of
+    // `schedule`, which is exactly where floor(epoch / schedule) increments. So
+    // the schedule needs no state carried between epochs. In exact arithmetic
+    // the two agree for every schedule; in f32 the multiples near an integer can
+    // land on the other side of it, which shifts about one firing in 30000 by a
+    // single epoch.
     const uint fired_through_now = (uint)floor((float)uniforms.epoch / schedule);
     const uint fired_before = uniforms.epoch == 0u
         ? 0u
@@ -343,7 +373,7 @@ mod tests {
         params: &UmapParams,
     ) {
         let (a, b) = fit_ab_params(params.min_dist, params.spread).unwrap();
-        let alpha = params.learning_rate * (1.0 - epoch as f32 / params.n_epochs as f32);
+        let alpha = alpha_for_epoch(epoch, params);
         let dim = embedding.ncols();
         let clip = |value: f32| value.clamp(-4.0, 4.0);
 
@@ -480,13 +510,14 @@ mod tests {
         let Ok(context) = MetalContext::new() else {
             return; // no GPU on this machine
         };
-        // alpha = learning_rate * (1 - epoch / n_epochs) = 2 * (1 - 1/2) = 1.
         // Epoch 1 is the first one an edge with epochs_per_sample = 1 fires on,
         // exactly as in umap-learn, whose counter starts at epochs_per_sample.
+        // umap-learn decays alpha *after* each epoch, so epoch 1 still runs at
+        // the initial rate; `learning_rate` is halved here so that rate is 1.
         let params = UmapParams {
             n_epochs: 2,
             negative_sample_rate: 0,
-            learning_rate: 2.0,
+            learning_rate: 1.0,
             ..UmapParams::default()
         };
         let mut embedding = arr2(&[[0.0f32, 0.0], [1.0, 0.0]]);
