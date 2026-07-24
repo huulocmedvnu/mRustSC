@@ -13,6 +13,7 @@ pub mod de;
 pub mod device;
 pub mod diffusion;
 pub mod error;
+pub mod harmony;
 pub mod layout;
 pub mod neighbors;
 pub mod paga;
