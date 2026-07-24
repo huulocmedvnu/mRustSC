@@ -65,12 +65,14 @@ pub fn knn_metal(context: &MetalContext, embedding: &Array2<f32>, k: usize) -> R
         k,
     );
 
-    let contiguous = embedding.as_standard_layout();
-    let rows = contiguous
-        .as_slice()
-        .ok_or_else(|| Error::shape("a contiguous embedding", "a strided view"))?;
+    // Centre column-wise and carry each row's squared norm, so the shader can
+    // reproduce `neighbors::knn`'s zero-snapping. Both are the CPU path's numerical
+    // safeguards: without them a tight cluster orders by sub-ulp noise on the GPU
+    // where the CPU has snapped it to zero, and device parity breaks.
+    let (centred, norm_sq) = centre_and_norms(embedding);
 
-    let input = context.buffer(rows);
+    let input = context.buffer(&centred);
+    let norms = context.buffer(&norm_sq);
     let out_indices = context.empty_buffer::<u32>(n_cells * k);
     let out_distances = context.empty_buffer::<f32>(n_cells * k);
 
@@ -80,6 +82,7 @@ pub fn knn_metal(context: &MetalContext, embedding: &Array2<f32>, k: usize) -> R
     encoder.set_buffer(0, Some(&input), 0);
     encoder.set_buffer(1, Some(&out_indices), 0);
     encoder.set_buffer(2, Some(&out_distances), 0);
+    encoder.set_buffer(6, Some(&norms), 0);
     set_u32(encoder, 3, n_cells as u32);
     set_u32(encoder, 4, n_dims as u32);
     set_u32(encoder, 5, k as u32);
@@ -121,6 +124,39 @@ fn threads_per_query(pipeline_limit: usize, threadgroup_memory: usize, k: usize)
     1 << (usize::BITS - 1 - threads.leading_zeros())
 }
 
+/// The embedding centred column-wise, plus each centred row's squared norm.
+///
+/// Mirrors `scrust_core::neighbors`' `centred`: the means accumulate in `f64` and
+/// round once, so the centred coordinates are correct to one `f32` rounding and the
+/// snapping threshold the shader forms from these norms matches the CPU path. The
+/// distance itself is translation-invariant, but the expansion's *resolution* is
+/// not -- centring makes it the radius of the cloud rather than the distance to the
+/// origin, which is what keeps the snapping floor from swallowing a real neighbour.
+fn centre_and_norms(embedding: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
+    let (n_cells, n_dims) = embedding.dim();
+    let mut means = vec![0.0f64; n_dims];
+    for row in embedding.rows() {
+        for (mean, &value) in means.iter_mut().zip(row) {
+            *mean += value as f64;
+        }
+    }
+    for mean in means.iter_mut() {
+        *mean /= n_cells as f64;
+    }
+    let mut centred = Vec::with_capacity(n_cells * n_dims);
+    let mut norm_sq = Vec::with_capacity(n_cells);
+    for row in embedding.rows() {
+        let mut norm = 0.0f32;
+        for (&value, &mean) in row.iter().zip(means.iter()) {
+            let coord = (value as f64 - mean) as f32;
+            centred.push(coord);
+            norm = coord.mul_add(coord, norm);
+        }
+        norm_sq.push(norm);
+    }
+    (centred, norm_sq)
+}
+
 fn set_u32(encoder: &metal::ComputeCommandEncoderRef, index: u64, value: u32) {
     encoder.set_bytes(
         index,
@@ -132,6 +168,10 @@ fn set_u32(encoder: &metal::ComputeCommandEncoderRef, index: u64, value: u32) {
 const KNN_SOURCE: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
+
+// f32::EPSILON (2^-23) as an exact literal, so the snapping threshold below is the
+// same number the CPU path forms with `f32::EPSILON`.
+constant float F32_EPSILON = 1.1920928955078125e-07f;
 
 // Nearer wins; equal distances are broken by the smaller cell index. Without
 // the tie break the answer would depend on which lane happened to see a
@@ -163,6 +203,7 @@ inline void insert(threadgroup float* distances,
 kernel void knn_select(device const float* embedding [[buffer(0)]],
                        device uint* out_cells [[buffer(1)]],
                        device float* out_distances [[buffer(2)]],
+                       device const float* norm_sq [[buffer(6)]],
                        constant uint& n_cells [[buffer(3)]],
                        constant uint& n_dims [[buffer(4)]],
                        constant uint& k [[buffer(5)]],
@@ -188,6 +229,14 @@ kernel void knn_select(device const float* embedding [[buffer(0)]],
         for (uint dim = 0; dim < n_dims; dim++) {
             float delta = query_row[dim] - candidate_row[dim];
             squared = fma(delta, delta, squared);
+        }
+        // Below the expansion's own resolution the result is rounding noise, not a
+        // distance, so it is snapped to zero -- exactly as `neighbors::knn` does on
+        // the CPU -- and both devices then treat a knot tighter than f32 can resolve
+        // as a set of coincident points, ordered by index alone.
+        float threshold = (float(n_dims) + 2.0f) * F32_EPSILON * (norm_sq[query] + norm_sq[cell]);
+        if (squared < threshold) {
+            squared = 0.0f;
         }
         // Squared distances rank identically to Euclidean ones, so the n per
         // row square roots are deferred to the k survivors below.
@@ -231,18 +280,26 @@ mod tests {
     /// differ by an ulp, which is enough to swap a pair of neighbours that are
     /// equidistant to `f32` and break the exact index comparison.
     fn cpu_knn(embedding: &Array2<f32>, k: usize) -> KnnGraph {
-        let n_cells = embedding.nrows();
+        let (n_cells, n_dims) = embedding.dim();
+        // Mirror the kernel: centre, then snap sub-resolution squared distances to
+        // zero using the same `(n_dims + 2) * EPSILON * (|a|^2 + |b|^2)` threshold.
+        let (centred, norm_sq) = centre_and_norms(embedding);
         let mut indices = Array2::zeros((n_cells, k));
         let mut distances = Array2::zeros((n_cells, k));
         for query in 0..n_cells {
             let mut candidates: Vec<(f32, u32)> = (0..n_cells)
                 .filter(|&cell| cell != query)
                 .map(|cell| {
-                    let squared = embedding
-                        .row(query)
-                        .iter()
-                        .zip(embedding.row(cell))
-                        .fold(0.0f32, |acc, (a, b)| (a - b).mul_add(a - b, acc));
+                    let mut squared = 0.0f32;
+                    for dim in 0..n_dims {
+                        let delta = centred[query * n_dims + dim] - centred[cell * n_dims + dim];
+                        squared = delta.mul_add(delta, squared);
+                    }
+                    let threshold =
+                        (n_dims as f32 + 2.0) * f32::EPSILON * (norm_sq[query] + norm_sq[cell]);
+                    if squared < threshold {
+                        squared = 0.0;
+                    }
                     (squared, cell as u32)
                 })
                 .collect();

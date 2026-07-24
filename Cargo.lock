@@ -1230,6 +1230,7 @@ dependencies = [
  "numpy",
  "pyo3",
  "scrust-core",
+ "scrust-gpu",
 ]
 
 [[package]]

@@ -9,10 +9,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 scrust-core.workspace = true
-# No scrust-gpu: nothing here calls it. The hand-written Metal kernels are not on any
-# path reachable from Python, so depending on the crate only lengthened the build and
-# suggested otherwise. GPU work that does reach Python goes through candle, which
-# `scrust-core` drives from the `Device` each binding resolves.
+# SPIKE (feature/multiagent-gpu-spike): scrust-gpu is wired in behind a device check so
+# a Metal caller reaches the hand-written `knn_metal` kernel instead of the candle path.
+# The dispatch lives in `embedding.rs`; the CPU path is unchanged. See the branch report
+# for the overhead measurement that decides whether this stays.
+scrust-gpu.workspace = true
 candle-core.workspace = true
 ndarray.workspace = true
 numpy = "0.23"
