@@ -382,7 +382,39 @@ uses a hand-tuned Accelerate BLAS, and the remaining gap is small-matrix matmul 
 pure-Rust build without a BLAS backend cannot close. A profiled attempt at an `(N, K)`
 contiguous layout and a batch-parallel E-step was measured, found either neutral or
 correctness-breaking (iLISI collapsed to 1.00), and reverted; 0.182 s is the honest floor
-that keeps iLISI ≥ 1.85.
+that keeps iLISI ≥ 1.85. An optional Accelerate BLAS backend (below) narrows the CPU-side
+margin but does not close the harmonypy gap.
+
+## Optional Apple Accelerate BLAS (post-v0.2.0)
+
+The Harmony gap above motivated an opt-in `accelerate` cargo feature (`maturin develop
+--release --features accelerate`) that links Apple's Accelerate (vecLib) BLAS/LAPACK behind
+the dense CPU paths — ndarray's `.dot()` and candle's CPU backend — for PCA, Harmony,
+neighbour distances and diffusion. It is **off by default**: the shipped build stays
+pure-Rust and Linux/CI-portable, and the sparse CSR paths (`normalize_total`, `log1p`)
+never touch BLAS either way, so enabling it cannot change their memory profile.
+
+The gain is real but modest, and CPU-path only. Measured on an M3 Pro, each config rebuilt
+and the extension reinstalled, best (min) of 5 runs, `device="cpu"`:
+
+| workload | pure-Rust | `--features accelerate` | gain |
+| --- | ---: | ---: | ---: |
+| Harmony, 2 638 cells | 0.1163 s | 0.1083 s | ~7% |
+| Harmony, 10 000 cells | 0.6369 s | 0.5872 s | ~8% |
+| Harmony + PCA | 0.513 s | 0.467 s | ~9% |
+| pipeline PCA→Neighbors→UMAP→Harmony | 1.321 s | 1.274 s | ~4% |
+
+Two honest caveats:
+
+- **These absolutes come from a separate A/B harness** (`device="cpu"`, min of 5), not the
+  sweep at the top of this page — so read them as a with/without *ratio* on one machine,
+  not against the 0.182 s Harmony row. A different injected shift and repeat policy move the
+  absolute Harmony time, which is why the pure-Rust column here reads faster than 0.182 s;
+  only the two columns beside each other are comparable.
+- **The gain is small because these routines are not purely matmul-bound at single-cell
+  sizes**, and the default `device="auto"` runs the dense ops on Metal, not CPU BLAS.
+  Accelerate only touches the explicit CPU path; on the GPU path it changes nothing, and it
+  narrows rather than closes the harmonypy margin.
 
 ## What could not be benchmarked
 
