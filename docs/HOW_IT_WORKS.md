@@ -71,6 +71,15 @@ Three honest qualifications:
   that work runs. `grep -n "device: &Device"
   crates/scrust-core/src/<module>.rs` is the check.
 
+One optional build switch touches the CPU side of all this. The `accelerate` cargo
+feature (`maturin develop --release --features accelerate`) links Apple's Accelerate
+(vecLib) BLAS behind the dense CPU paths — the ndarray `.dot()` and candle-CPU work in
+`pca`, `harmony`, `neighbors` and `diffusion`. It is off by default so the pure-Rust
+build stays portable to Linux and CI, it never touches the sparse CSR paths, and it buys
+a modest CPU-only margin (~7-8% on Harmony, ~4-9% on the full pipeline); on the default
+`"auto"`/Metal path it changes nothing, because that work is already on the GPU.
+[BENCHMARKS.md](BENCHMARKS.md#optional-apple-accelerate-blas-post-v020) has the numbers.
+
 ## Why the two devices do not agree bit for bit
 
 One source is not one answer. `f32` addition is not associative, and a GPU reduction
@@ -150,12 +159,16 @@ Two places where something does densify, both worth planning around:
   *slower* relative to scanpy as your data grows: 17x slower at 10 000 cells. Use
   `sc.tl.tsne` above a couple of thousand cells.
 
-For matrices that do not fit at all there is `scrust._backed.open_backed`, which
-iterates row blocks straight out of an `.h5ad` and sizes them against
-`settings.max_memory_gb`. It is private and no `pp` function consumes it yet, so
-today it is a tool you drive yourself. Measured on a 50 000 x 20 000 file: 1.41 GB
-peak streaming against 4.34 GB for read-then-densify, computing the same per-gene
-sums.
+For matrices that do not fit at all there is `scrust._backed`, which iterates row
+blocks straight out of an `.h5ad` and sizes them against `settings.max_memory_gb`.
+As of v0.2.0 `pp.normalize_total` and `pp.log1p` consume it automatically when
+`adata.isbacked` (`python/scrust/pp/_basics.py`): they stream `X` in row blocks and
+rewrite it on disk in place, so peak memory is one block rather than the whole matrix,
+and the output is bit-for-bit the in-memory result (`benches/backed_transform.py`:
+737 MB peak against 1141 MB in memory, 0.65x). The lower-level `open_backed` iterator
+is still there to drive yourself for other reductions — measured on a 50 000 x 20 000
+file computing per-gene sums, 1.41 GB peak streaming against 4.34 GB for
+read-then-densify.
 
 ## What "agrees with scanpy" means
 
