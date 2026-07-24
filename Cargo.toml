@@ -17,6 +17,10 @@ ndarray = "0.16"
 rand = "0.8"
 rayon = "1.10"
 thiserror = "2.0"
+# Optional Apple Accelerate (vecLib) BLAS/LAPACK for dense linear algebra on macOS ARM64.
+# Off by default so the pure-Rust build stays cross-platform (Linux/CI); the `accelerate`
+# feature on each crate links it. Never used for the sparse CSR paths.
+blas-src = { version = "0.10", features = ["accelerate"] }
 
 [profile.release]
 lto = "thin"
