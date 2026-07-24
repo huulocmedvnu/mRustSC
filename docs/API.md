@@ -583,10 +583,14 @@ runners. **CI passing is not evidence the GPU path works**; that check only happ
 a machine with a GPU. `SCRUST_TEST_DEVICE` (default `"cpu"`, set it to `"auto"`)
 selects the device the audit suite runs against, and both legs pass locally.
 
-The four hand-written Metal kernels in `crates/scrust-gpu` (`knn`, `spmm`,
-`tsne_gradient`, `umap_sgd`) are not on any path a Python caller can reach: the crate
-is not a dependency of `crates/scrust-py`. Every GPU operation described here goes
-through candle.
+Of the four hand-written Metal kernels in `crates/scrust-gpu`, one — `knn` — is now on
+the call path: `crates/scrust-py` depends on the crate and routes a Metal caller's k-NN
+(behind `pp.neighbors`) to it, with the candle CPU path as the fallback and the oracle.
+It reproduces `neighbors::knn`'s mean-centering and squared-distance snapping, so
+`tests/test_device_parity.py` holds the two devices' neighbour lists equal. The other
+three (`spmm`, `tsne_gradient`, `umap_sgd`) are not reachable — `spmm` has no plain
+sparse×dense caller and `umap_sgd` is Hogwild and left unwired on purpose — so every GPU
+operation described here except k-NN goes through candle.
 
 The general rule to work from: expect agreement to `f32` precision, not equality, and
 treat any quantity that is *defined* by an exact cancellation as a place where the two

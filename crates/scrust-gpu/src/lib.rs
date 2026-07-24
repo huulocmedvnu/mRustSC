@@ -5,33 +5,31 @@
 //! UMAP's negative sampling, t-SNE's repulsive forces — need their own kernel,
 //! and they live here.
 //!
-//! # Nothing here is wired in, and that is a decision rather than an oversight
+//! # What is wired in, and what is not
 //!
-//! No code outside this crate calls any of these kernels. `scrust-py` does not even
-//! depend on it. `git log -S"scrust_gpu::" -- crates/scrust-core/src crates/scrust-py/src`
-//! is empty across every branch: there has never been a call site. The kernels were
-//! each written on their own branch under a file-ownership split that put the call
-//! sites — `core::umap`, `core::tsne`, `core::neighbors` — in *other* branches'
-//! territory, so no branch owned the join.
+//! **`knn` is wired.** `crates/scrust-py` depends on this crate and dispatches a Metal
+//! caller's k-NN to [`kernels::knn::knn_metal`] (`scrust-py/src/embedding.rs`); the CPU
+//! path in `core::neighbors` stays the oracle. To match it bit for bit on degenerate
+//! input the kernel reproduces the CPU path's two numerical safeguards — f64
+//! mean-centering and snapping a squared distance below
+//! `(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` to zero — so both devices treat a
+//! knot tighter than `f32` can resolve as coincident points. `tests/test_device_parity.py`
+//! holds the two devices to this: 4 of 4 pass. Measured on an M3 Pro the kernel is
+//! ~2-2.5x faster than the candle path it replaces.
 //!
-//! Connecting them is deliberately deferred. Two reasons, both about correctness
-//! rather than effort:
+//! **`spmm` and `tsne_gradient` are not wired.** They are finished and tested against
+//! their `scrust-core` counterparts, but no call site reaches them yet: `spmm`'s only
+//! natural consumer, `core::pca`, does a *centred* product with a rank-one correction
+//! rather than the plain sparse×dense this kernel offers.
 //!
-//! 1. **`umap_sgd` is Hogwild.** It accepts racing writes between threads, so it does
-//!    not reproduce bit for bit against itself, let alone against the sequential CPU
-//!    sweep. See its own module docs for the measurements.
-//! 2. **`core::umap` currently ignores `device` entirely.** Wiring the kernel in makes
-//!    it start reading `device`, and the default is `"auto"`, which resolves to Metal
-//!    wherever one exists. Callers would silently get different layouts on different
-//!    machines without asking for anything — the same failure mode as the duplicate
-//!    distance bug in `core::neighbors`, but across a whole algorithm.
-//!
-//! Both would also break the scanpy cross-checks in `tests/test_*_audit.py`, which
-//! compare against a transcription of `umap-learn`'s sequential loop within `2e-3`.
-//!
-//! So this is not dead code to delete on sight. It is finished, tested work waiting on
-//! a decision about non-determinism that has not been made. Whoever makes it should
-//! start with `docs/API_CONTRACT.md`, which is where the reproducibility promise lives.
+//! **`umap_sgd` is deliberately not wired, and should stay that way for now.** It is
+//! Hogwild — it accepts racing writes between threads, so it does not reproduce bit for
+//! bit against itself, let alone against the sequential CPU sweep (see its module docs).
+//! `core::umap` also ignores `device` today, so wiring the kernel in would make a UMAP
+//! layout depend on whether the caller's machine has a GPU — the same failure mode the
+//! `knn` fix closes for k-NN, but across a whole stochastic algorithm — and it would
+//! break the `umap-learn` cross-checks in `tests/test_umap_audit.py`. Whoever revisits
+//! it should start with `docs/API_CONTRACT.md`, where the reproducibility promise lives.
 
 pub mod context;
 pub mod kernels;

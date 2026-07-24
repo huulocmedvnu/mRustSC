@@ -146,11 +146,12 @@ python -c "import scrust, pathlib; print((pathlib.Path(scrust.__file__).parent /
 ## Other platforms
 
 The GPU path is Metal-only, and Metal is currently an unconditional dependency
-of the extension. Not through `scrust-gpu` — the extension crate no longer
-depends on it — but through candle: the workspace pins
+of the extension, through two routes now. The first is candle: the workspace pins
 `candle-core = { version = "0.9", features = ["metal"] }` with no
-`cfg(target_os = "macos")` around it, and `scrust-core` and `scrust-py` both
-take it from there. The practical consequences:
+`cfg(target_os = "macos")` around it, and `scrust-core` and `scrust-py` both take
+it from there. The second is `scrust-gpu`, which `scrust-py` now depends on for the
+wired `knn` kernel and which links the `metal` crate directly. Either route makes the
+build Apple-only. The practical consequences:
 
 - **Apple silicon macOS** — supported. Wheels published, GPU path active.
 - **Intel macOS** — no wheel is published. A source build should compile, since

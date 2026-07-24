@@ -77,13 +77,18 @@ names no device is on the GPU.
   `autocorrelation` use it. Accepting `device` and ignoring it is allowed, but
   the parameter must be spelled `_device` so the fact is visible at the
   signature, and the reason belongs in the doc comment.
-- **`scrust-gpu` is not reachable from Python.** The dependency was removed from
-  `crates/scrust-py/Cargo.toml` because nothing there called it. The four
-  hand-written Metal kernels (`knn`, `spmm`, `tsne_gradient`, `umap_sgd`) sit on
-  no path a Python caller can take; the GPU work that does happen goes through
-  candle. A kernel that is wired in later is an **optimisation, not a separate
-  algorithm**: it must return what its `scrust-core` counterpart returns, and
-  its tests must assert that.
+- **`scrust-gpu` is partly reachable: `knn` is wired, the rest is not.**
+  `crates/scrust-py` depends on `scrust-gpu` and its `embedding` binding routes a
+  Metal caller's k-NN to `kernels::knn::knn_metal`, falling back to the candle path
+  on the CPU or where no Metal context builds (`scrust-py/src/embedding.rs`). A wired
+  kernel is an **optimisation, not a separate algorithm**: it must return what its
+  `scrust-core` counterpart returns, and its tests must assert that. `knn` meets this —
+  it reproduces `neighbors::knn`'s f64 mean-centering and its
+  `(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` snapping inside the MSL, so
+  `tests/test_device_parity.py` holds the two devices' neighbour lists equal (4 of 4).
+  The other three kernels (`spmm`, `tsne_gradient`, `umap_sgd`) sit on no path a Python
+  caller can take: `spmm` has no plain sparse×dense consumer, and `umap_sgd` is Hogwild
+  and left unwired on purpose. All other GPU work still goes through candle.
 
 ## scanpy is the reference
 

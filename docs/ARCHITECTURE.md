@@ -23,8 +23,9 @@ below it, and each has exactly one job:
 - **Core** owns the algorithms and the data types. It knows nothing about Python
   or AnnData.
 - **GPU** owns Metal: the device, the pipeline cache, and the kernels. It sits
-  *beside* the pipeline rather than under it — it depends on `scrust-core`, and
-  nothing above it depends on it.
+  *beside* the pipeline rather than under it — it depends on `scrust-core`. The
+  bindings now depend on it too, for the one kernel (`knn`) that is wired in; see
+  below.
 
 ## The GPU path is candle
 
@@ -53,13 +54,20 @@ and the fused attract/repel passes of t-SNE and UMAP. Expressing those with
 tensor ops would mean materialising an `(n, n)` matrix that only exists to be
 thrown away.
 
-**None of them is reachable from Python.** `crates/scrust-py/Cargo.toml` does
-not depend on `scrust-gpu` and no binding names it; the dependency was removed
-once it became clear nothing there called it. The crate is still built and
-tested in the workspace — each kernel's tests hold it against a brute force CPU
-reference written in the same module — but it is exploratory work, not the path
-a `scrust.pp` or `scrust.tl` call takes. Read a claim about "the GPU path" in
-this repository as candle unless it names a kernel.
+**One of them, `knn`, is now reachable from Python.** `crates/scrust-py/Cargo.toml`
+depends on `scrust-gpu`, and the `embedding` binding dispatches a Metal caller's k-NN to
+`knn_metal`, falling back to the candle path on the CPU or where no Metal context builds
+(`scrust-py/src/embedding.rs`). To stay a drop-in for the CPU oracle it reproduces
+`neighbors::knn`'s mean-centering and squared-distance snapping in the MSL, and
+`tests/test_device_parity.py` holds the two devices' neighbour lists equal.
+
+**The other three are not.** `spmm` has no Python-reachable consumer — `core::pca`
+multiplies a *centred* sparse matrix with a rank-one correction, not the plain
+sparse×dense the kernel offers — `tsne_gradient` is unwired, and `umap_sgd` is left
+unwired on purpose: it is Hogwild, so wiring it would make a UMAP layout depend on
+whether the caller has a GPU. Each is still tested against a brute-force CPU reference in
+its own module. Outside of k-NN, read a claim about "the GPU path" in this repository as
+candle unless it names a kernel.
 
 If a kernel and its reference ever disagree, the core version is right.
 

@@ -62,7 +62,7 @@ and those rows are CPU timings no matter what the machine offers:
 | `pp.highly_variable_genes` | **no** — `_device` | `preprocess/hvg.rs:44` |
 | `pp.scale` | yes (moments in f64 on the CPU, the broadcast arithmetic on the device) | `preprocess/scale.rs:13` |
 | `pp.pca` | yes | `pca.rs:79` |
-| `pp.neighbors` | yes | `neighbors.rs:29` |
+| `pp.neighbors` | yes — hand-written `knn` Metal kernel on Metal, candle path on the CPU | `scrust-py/src/embedding.rs` (dispatch), `scrust-gpu/.../knn.rs` |
 | `tl.umap` | **no** — `_device`; UMAP always runs on the CPU | `umap.rs:61` |
 | `tl.tsne` | yes | `tsne.rs:77` |
 | `tl.rank_genes_groups` (wilcoxon) | **no** — `_device` | `de/wilcoxon.rs:51` |
@@ -111,7 +111,7 @@ being green is not evidence the GPU path was exercised.
 | `pp.highly_variable_genes` | 10339 | 0.0053 | 0.0033 | 1.62x | 697 | 721 |
 | `pp.scale` | 2000 | 0.0026 | 0.0156 | **0.17x** | 710 | 743 |
 | `pp.pca` | 2000 | 0.0407 | 0.1133 | **0.36x** | 758 | 825 |
-| `pp.neighbors` | 2000 | 0.0043 | 0.0102 | **0.43x** | 775 | 830 |
+| `pp.neighbors` | 2000 | 0.0037 | 0.0058 | **0.64x** | 715 | 730 |
 | `tl.umap` | 2000 | 0.4729 | 0.1388 | 3.41x | 778 | 791 |
 | `tl.tsne` | 2000 | 0.8776 | 0.6189 | 1.42x | 245 | 799 |
 | `tl.rank_genes_groups` | 10339 | 0.1329 | 0.0131 | 10.15x | 355 | 797 |
@@ -132,7 +132,7 @@ being green is not evidence the GPU path was exercised.
 | `pp.highly_variable_genes` | 13656 | 0.0129 | 0.0120 | 1.07x | 1060 | 1119 |
 | `pp.scale` | 2000 | 0.0106 | 0.0299 | **0.35x** | 1060 | 1148 |
 | `pp.pca` | 2000 | 0.4699 | 0.3460 | 1.36x | 1186 | 1478 |
-| `pp.neighbors` | 2000 | 0.0198 | 0.0334 | **0.59x** | 1195 | 1344 |
+| `pp.neighbors` | 2000 | 0.0188 | 0.0163 | 1.15x | 1012 | 1023 |
 | `tl.umap` | 2000 | 2.2144 | 0.7482 | 2.96x | 1197 | 1190 |
 | `tl.tsne` | 2000 | 4.1346 | 16.6965 | **0.25x** | 1187 | 1258 |
 | `tl.rank_genes_groups` | 13656 | 0.9081 | 0.0316 | 28.72x | 1302 | 343 |
@@ -153,7 +153,7 @@ being green is not evidence the GPU path was exercised.
 | `pp.highly_variable_genes` | 16004 | 0.0360 | 0.0360 | 1.00x | 2242 | 2257 |
 | `pp.scale` | 2000 | 0.0409 | 0.0981 | **0.42x** | 2403 | 2522 |
 | `pp.pca` | 2000 | 1.4019 | 0.8592 | 1.63x | 3028 | 3627 |
-| `pp.neighbors` | 2000 | 0.7448 | 0.3191 | 2.33x | 2709 | 2600 |
+| `pp.neighbors` | 2000 | 0.7251 | 0.1251 | 5.80x | 2221 | 2230 |
 | `tl.umap` | 2000 | 9.8716 | 2.0403 | 4.84x | 2402 | 2413 |
 | `tl.tsne` | 2000 | 15.4091 | 271.7281 | **0.06x** | 2489 | 2920 |
 | `tl.rank_genes_groups` | 16004 | 3.8273 | 0.0912 | 41.95x | 2422 | 365 |
@@ -185,7 +185,7 @@ unaffected and was not re-run.
 | `tl.rank_genes_groups` | 10.15x | 28.72x | **41.95x** |
 | `tl.umap` | 3.41x | 2.96x | 4.84x |
 | `pp.pca` | 0.36x | 1.36x | 1.63x |
-| `pp.neighbors` | 0.43x | 0.59x | 2.33x |
+| `pp.neighbors` | 0.64x | 1.15x | 5.80x |
 
 `rank_genes_groups` and `paga` are the same shape of problem: a large amount of
 independent per-gene or per-edge work that scanpy does through numpy in several full
@@ -194,14 +194,21 @@ loop. Neither touches the GPU — `wilcoxon.rs` takes `_device` and `paga.rs` ta
 device at all — so these are CPU-against-CPU wins.
 
 `pca` and `neighbors` are the tensor-algebra wins: dense batched work that does reach
-the device, on hardware with unified memory. `umap` is **not** one of them, despite
-being the largest win in the top block — `umap.rs:61` takes `_device` and never uses
-it. Its 3-5x is single-threaded-interpreter-versus-Rust, not CPU-versus-GPU, and it
-will hold on a machine with no GPU at all.
+the device, on hardware with unified memory. `neighbors` is now the strongest of the
+two, because it is the one row backed by a **hand-written Metal kernel**: a Metal caller
+runs `scrust-gpu`'s `knn` kernel rather than candle's backend, which does the distance
+matrix and the k-selection in one GPU pass. That is what re-measured the row from
+`0.43x / 0.59x / 2.33x` (candle) to `0.64x / 1.15x / 5.80x` (kernel) — the scanpy
+baseline reproduced within noise, so the change is the kernel, not the machine. The
+kernel reproduces the CPU path bit-for-bit on degenerate input (`tests/test_device_parity.py`,
+4 of 4). `umap` is **not** a GPU win despite being large in the top block — `umap.rs:61`
+takes `_device` and never uses it. Its 3-5x is single-threaded-interpreter-versus-Rust,
+not CPU-versus-GPU, and it will hold on a machine with no GPU at all.
 
 Note that `pca` and `neighbors` are *slower* than scanpy at 499 cells and only pull
 ahead as the matrix grows, for the same boundary-cost reason as the elementwise
-steps below.
+steps below; `neighbors` now crosses into a win by 2 638 cells where before it took
+until 10 000.
 
 ### Where scrust loses, and why
 
@@ -355,16 +362,19 @@ and re-running the sweep. See [API.md](API.md) for the current state of each.
 `spmm` (CSR SpMM, transposed SpMM, column moments, row scaling), `knn`, `umap_sgd` and
 `tsne_gradient` — tested in Rust against their `scrust-core` counterparts.
 
-**None of them is reachable from Python, so none of them is the shipped GPU path.**
-`crates/scrust-py/Cargo.toml` lists no `scrust-gpu` dependency, and says so in a comment:
-nothing in the binding called it. `crates/scrust-py/src/lib.rs` registers thirteen
-modules — `cluster`, `preprocess`, `embedding`, `de`, `diffusion`, `metrics`,
-`parametric`, `paga`, `qc`, `sampling`, `batch`, `scoring`, `layout` — and every one of
-them goes through `scrust-core`, which does not depend on `scrust-gpu` either.
+**One of them, `knn`, is now on the call path.** `crates/scrust-py` depends on
+`crates/scrust-gpu` and its `embedding` binding dispatches a Metal caller's k-NN to the
+`knn` kernel (`scrust-py/src/embedding.rs`), falling back to the candle path on the CPU
+or where no Metal context builds. The `pp.neighbors` row above is measured with that
+kernel live, which is why it improved: the figure is no longer a Rust-against-Rust
+microbenchmark of unreachable code but the shipped path a Metal caller takes. The kernel
+matches the CPU oracle bit-for-bit on the degenerate inputs that matter
+(`tests/test_device_parity.py`, 4 of 4).
 
-So any kernel speedup figure quoted elsewhere in the project is a Rust-against-Rust
-microbenchmark of code no Python caller can invoke. It is not on this page, none of the
-numbers above includes its effect, and it should not be read as what `sr.pp.pca` or
-`sr.tl.tsne` do. What the GPU actually contributes to the rows above is candle's Metal
-backend, on the four operations marked "yes" in
-[Which rows actually used the GPU](#which-rows-actually-used-the-gpu).
+**The other three are still not reachable.** `spmm` has no Python-reachable consumer
+(`core::pca` does a *centred* product, not the plain sparse×dense it offers),
+`tsne_gradient` is unwired, and `umap_sgd` is left unwired on purpose — it is Hogwild, so
+wiring it would make a UMAP layout depend on whether the caller has a GPU. Their speedup
+figures elsewhere remain Rust-against-Rust microbenchmarks. For every row other than
+`pp.neighbors`, what the GPU contributes is candle's Metal backend, on the operations
+marked "yes" in [Which rows actually used the GPU](#which-rows-actually-used-the-gpu).

@@ -51,13 +51,15 @@ Three honest qualifications:
   The tensor-algebra wins that do reach the device are `pca` and `neighbors`; the
   largest speedups over scanpy — `rank_genes_groups` and `paga` — are plain Rust that
   never touches it. [BENCHMARKS.md](BENCHMARKS.md) has both columns.
-- **The hand-written Metal kernels are not on your call path.** `crates/scrust-gpu`
-  holds CSR SpMM, column moments, row scaling, k-NN, UMAP SGD and t-SNE gradient
-  kernels, and they are tested against their core counterparts. But neither
-  `scrust-core` nor `scrust-py` depends on the crate — the dependency was dropped from
-  `crates/scrust-py/Cargo.toml` because nothing there called it — so nothing you can
-  call from Python reaches them. Today the GPU you get is candle's Metal backend. The
-  kernels are the next step, not the current state.
+- **One hand-written Metal kernel is now on your call path: `knn`.** `crates/scrust-gpu`
+  holds CSR SpMM, column moments, row scaling, k-NN, UMAP SGD and t-SNE gradient kernels,
+  all tested against their core counterparts. `crates/scrust-py` now depends on the crate
+  and routes a Metal caller's k-NN — the search behind `sr.pp.neighbors` — to the `knn`
+  kernel, which is ~2-2.5x faster than the candle path and agrees with the CPU result
+  bit-for-bit (`tests/test_device_parity.py`). The other kernels (SpMM, UMAP SGD, t-SNE
+  gradient) are not reachable: SpMM has no plain sparse×dense caller, and UMAP SGD is left
+  unwired on purpose because it is non-deterministic. For everything except k-NN, the GPU
+  you get is still candle's Metal backend.
 - **Not every call that takes a `device` uses it.** `pca`, `scale`, `neighbors`,
   `tsne`, `diffusion`, `layout`, `batch`, `scoring` and `autocorrelation` build
   tensors on it. `cluster`, `umap`, `de/wilcoxon`, `de/parametric`,

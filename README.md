@@ -36,10 +36,11 @@ sc.pl.umap(adata, color="leiden")        # scanpy plotting still works
 `"t-test_overestim_var"` and `"logreg"`. As in scanpy, `"logreg"` reports scores
 only — no p-values and no fold changes.
 
-`examples/pbmc3k.py` is this pipeline end to end, printing each scanpy call beside
-the scrust call that replaced it. It still borrows `calculate_qc_metrics` and
-`leiden` back from scanpy and labels them `NOT IMPLEMENTED`; both are implemented
-now, so those two labels are stale and the script has not caught up.
+`examples/pbmc3k.py` is this pipeline end to end, printing each scanpy call beside the
+scrust call that replaces it. Every mirrored step has a scrust equivalent — including
+`calculate_qc_metrics` and `leiden` — so the transcript shows the pairs in full. The
+timings the script prints still call scanpy for every step: it is a tutorial transcript
+and a scanpy baseline, not a scrust benchmark. The benchmark is `benches/benchmark.py`.
 
 ## Why Rust and Metal
 
@@ -71,7 +72,7 @@ This buys speed unevenly, and the benchmark reports both directions. Measured at
 | `tl.paga` | 23.00x | 55.67x | 90.40x |
 | `tl.rank_genes_groups` | 10.15x | 28.72x | 41.95x |
 | `tl.umap` | 3.41x | 2.96x | 4.84x |
-| `pp.neighbors` | 0.43x | 0.59x | 2.33x |
+| `pp.neighbors` | 0.64x | 1.15x | 5.80x |
 | `pp.pca` | 0.36x | 1.36x | 1.63x |
 | `pp.log1p` | 0.43x | 0.44x | 0.45x |
 | `pp.scale` | 0.17x | 0.35x | 0.42x |
@@ -92,11 +93,17 @@ Full tables, peak memory, and what could not be measured are in
 [docs/BENCHMARKS.md](docs/BENCHMARKS.md); run it yourself with
 `benches/benchmark.py`.
 
-Note also that the four hand-written Metal kernels in `crates/scrust-gpu` (`knn`,
-`spmm`, `tsne_gradient`, `umap_sgd`) are written and tested but **not reachable from
-Python at all**: nothing in `crates/scrust-py` called them, so the dependency was
-removed from its `Cargo.toml`. Today the GPU you get is candle's Metal backend. See
-[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
+The `pp.neighbors` row is the first hand-written Metal kernel on the call path.
+`crates/scrust-py` now depends on `crates/scrust-gpu` and routes a Metal caller's k-NN
+to the `knn` kernel, which is ~2-2.5x faster than the candle path and agrees with the
+CPU oracle bit-for-bit (`tests/test_device_parity.py`, 4 of 4). That is what lifts the
+row from `0.43x / 0.59x / 2.33x` to `0.64x / 1.15x / 5.80x`.
+
+The other three kernels (`spmm`, `tsne_gradient`, `umap_sgd`) are written and tested but
+**not on the call path**: `spmm` has no natural Python-reachable consumer, and
+`umap_sgd` is Hogwild and left unwired on purpose so a UMAP layout does not depend on
+whether the caller has a GPU. Everything else GPU still goes through candle's Metal
+backend. See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
 ## Install
 
@@ -165,7 +172,7 @@ methods take the argument and bind it to `_device`: they always run on the CPU.
 ```
 crates/
   scrust-core/    data types and every algorithm, written against candle
-  scrust-gpu/     Metal context and hand written kernels (not yet bound to Python)
+  scrust-gpu/     Metal context and hand written kernels (knn bound to Python; rest not)
   scrust-py/      PyO3 bindings, conversion only
 python/scrust/    the scanpy-shaped API and AnnData plumbing
 benches/          benchmark.py (vs scanpy) and streaming.py (out-of-core memory)

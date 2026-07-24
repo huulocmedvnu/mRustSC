@@ -262,12 +262,18 @@ above — is the device CI never exercises. A green tick on `ci.yml` is evidence
 CPU path and nothing else; the GPU legs run on developer hardware and on a self-hosted
 Apple-silicon runner.
 
-**The Metal kernels are not reachable from Python.** `crates/scrust-gpu` holds four
-hand-written kernels — `knn`, `spmm`, `tsne_gradient`, `umap_sgd` — and the dependency
-was removed from `crates/scrust-py/Cargo.toml` because nothing there called it. No path
-a Python caller can take reaches them; GPU work that does happen goes through candle.
-They are checked in Rust against brute-force CPU references written in the same files,
-which as above is vacuous on a machine without Metal.
+**One Metal kernel, `knn`, is now reachable from Python; the other three are not.**
+`crates/scrust-py` depends on `scrust-gpu` and routes a Metal caller's k-NN to
+`knn_metal` (`scrust-py/src/embedding.rs`). It is validated two ways on Apple silicon: as
+a kernel, `cargo test -p scrust-gpu` holds it against a brute-force CPU reference (35 of
+35 pass), and end to end, `tests/test_device_parity.py` holds its neighbour lists equal
+to the candle CPU path (4 of 4, `SCRUST_TEST_DEVICE=auto`) — including a knot tighter
+than `f32` can resolve, which both devices now collapse the same way because the kernel
+reproduces the CPU path's mean-centering and squared-distance snapping. `spmm`,
+`tsne_gradient` and `umap_sgd` remain unreachable — `spmm` has no plain sparse×dense
+caller and `umap_sgd` is Hogwild and left unwired on purpose — and are still checked only
+against their in-module CPU references, which is vacuous on a machine without Metal. All
+other GPU work goes through candle.
 
 **`de/glm` and `de/dispersion` are not reachable from Python.** No pyfunction in
 `crates/scrust-py/src/` mentions `fit_negative_binomial`,
