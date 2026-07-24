@@ -15,6 +15,7 @@ from scrust.pp._basics import (
     scale,
 )
 from scrust.pp._batch import combat, regress_out
+from scrust.pp._harmony import harmony_integrate
 from scrust.pp._qc import calculate_qc_metrics, filter_genes_dispersion, normalize_per_cell, sqrt
 from scrust.pp._sampling import downsample_counts, sample, subsample
 
@@ -25,6 +26,7 @@ __all__ = [
     "filter_cells",
     "filter_genes",
     "filter_genes_dispersion",
+    "harmony_integrate",
     "highly_variable_genes",
     "log1p",
     "neighbors",

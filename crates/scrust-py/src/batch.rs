@@ -8,6 +8,7 @@ use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
 use scrust_core::batch;
+use scrust_core::harmony;
 use scrust_core::sparse::CsrMatrix;
 use scrust_core::{Error, Result};
 
@@ -67,6 +68,47 @@ fn combat<'py>(
     Ok(corrected.into_pyarray(py))
 }
 
+/// Harmony batch-effect correction on a dense PCA embedding. Returns the corrected
+/// embedding and the harmony objective at each outer iteration (the convergence curve).
+#[pyfunction]
+#[pyo3(signature = (embedding, batch, n_batches, theta, sigma, lambda, n_clusters,
+                    max_iter_harmony, max_iter_kmeans, seed, device))]
+fn harmony_integrate<'py>(
+    py: Python<'py>,
+    embedding: &Bound<'py, PyAny>,
+    batch: &Bound<'py, PyAny>,
+    n_batches: usize,
+    theta: f32,
+    sigma: f32,
+    lambda: f32,
+    n_clusters: usize,
+    max_iter_harmony: usize,
+    max_iter_kmeans: usize,
+    seed: u64,
+    device: &str,
+) -> PyResult<(Bound<'py, PyArray2<f32>>, Vec<f32>)> {
+    let embedding = array2_from_py::<f32>(embedding, "embedding")?;
+    let batch = vec_from_py::<u32>(batch, "batch")?;
+    let device = device_from_py(device)?;
+    let defaults = harmony::HarmonyParams::defaults(embedding.nrows());
+    let params = harmony::HarmonyParams {
+        theta,
+        sigma,
+        lambda,
+        n_clusters: if n_clusters == 0 { defaults.n_clusters } else { n_clusters },
+        max_iter_harmony,
+        max_iter_kmeans,
+        epsilon_cluster: defaults.epsilon_cluster,
+        epsilon_harmony: defaults.epsilon_harmony,
+        block_size: defaults.block_size,
+        seed,
+    };
+    let result = py
+        .allow_threads(|| harmony::harmony_integrate(&embedding, &batch, n_batches, &params, &device))
+        .map_err(to_py_error)?;
+    Ok((result.corrected.into_pyarray(py), result.objective))
+}
+
 /// Both algorithms are dense over the whole matrix, so the CSR arrays are
 /// expanded once here rather than per call inside the core.
 fn densify(matrix: &CsrMatrix) -> Result<Array2<f32>> {
@@ -78,5 +120,6 @@ fn densify(matrix: &CsrMatrix) -> Result<Array2<f32>> {
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(regress_out, module)?)?;
     module.add_function(wrap_pyfunction!(combat, module)?)?;
+    module.add_function(wrap_pyfunction!(harmony_integrate, module)?)?;
     Ok(())
 }
