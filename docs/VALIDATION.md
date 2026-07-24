@@ -27,6 +27,26 @@ The figures here are from one such run on Apple silicon with the GPU path live
 (`gpu_available() == True`), 26 of 26 reference tests passing. A stochastic step
 moves in the last digit or two between runs; a deterministic one does not.
 
+### The optional Accelerate build passes the same suite
+
+The opt-in `accelerate` feature (Apple vecLib BLAS behind the dense CPU paths — see
+[BENCHMARKS.md](BENCHMARKS.md#optional-apple-accelerate-blas-post-v020)) is a build
+switch, not a change to the numerics: it routes ndarray's `.dot()` and candle's CPU
+backend through a different BLAS, and the sparse CSR paths never touch it. It is held to
+the same bar as the default build, and passes it:
+
+| build | command | result |
+| --- | --- | --- |
+| default (pure-Rust) | `cargo test --workspace` | pass |
+| Accelerate | `cargo test --workspace --features accelerate` | **300 / 300 pass** |
+
+`cargo clippy --workspace` is clean under both feature sets. The one caveat is the
+default build's `umap_sgd::is_reproducible_only_in_structure...` unit test, which is a
+pre-existing Hogwild race check that accepts racing writes by design and can flake
+independently of this feature; it passes under `--features accelerate`. Because both
+builds compute the same algorithm to within floating-point reassociation, the reference
+and audit numbers below are not re-tabulated per feature — they hold for either build.
+
 ## Deterministic transforms — element-wise
 
 Compared with `numpy.testing.assert_allclose` at `rtol=1e-5, atol=1e-6`. Measured
