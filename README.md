@@ -154,6 +154,18 @@ Not everything that takes a `device` uses one. `tl.umap`, `tl.leiden`, `tl.louva
 methods take the argument and bind it to `_device`: they always run on the CPU.
 `pp.pca`, `pp.neighbors` and `tl.tsne` do use it.
 
+## Tutorial
+
+[docs/tutorials/pbmc3k_clustering.py](docs/tutorials/pbmc3k_clustering.py) is the
+scanpy PBMC 3k clustering walkthrough with **every computational step run by scrust** —
+QC, normalisation, HVGs, scaling, PCA, the Metal-accelerated k-NN graph, Leiden, UMAP and
+Wilcoxon marker genes. scanpy appears only to load the data and to plot the results; the
+script asserts that with an AST check on itself before it runs. Execute it with:
+
+```bash
+PYTHONPATH=$PWD/python .venv/bin/python docs/tutorials/pbmc3k_clustering.py
+```
+
 ## Documentation
 
 - [docs/API.md](docs/API.md) — every function, what it writes, and how it differs

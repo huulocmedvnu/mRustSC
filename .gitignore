@@ -8,3 +8,4 @@ __pycache__/
 *.so
 dist/
 data/
+docs/tutorials/figures/
