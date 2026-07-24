@@ -13,7 +13,8 @@
 //! The per-cluster ridge solve is a tiny `(B+1)×(B+1)` system done on the CPU.
 
 use candle_core::{Device, Tensor};
-use ndarray::{s, Array1, Array2, Axis};
+use ndarray::{s, Array1, Array2, ArrayView2, Axis};
+use rayon::prelude::*;
 
 use crate::error::{Error, Result};
 
@@ -42,8 +43,10 @@ impl HarmonyParams {
             n_clusters: ((n_cells as f64 / 30.0).round() as usize).clamp(1, 100),
             max_iter_harmony: 10,
             max_iter_kmeans: 20,
-            epsilon_cluster: 1e-5,
-            epsilon_harmony: 1e-4,
+            // harmonypy's tolerances: looser than the earlier 1e-5/1e-4, which spent many
+            // outer/inner iterations chasing digits that do not change the partition.
+            epsilon_cluster: 1e-3,
+            epsilon_harmony: 1e-2,
             block_size: 0.05,
             seed: 0,
         }
@@ -118,7 +121,7 @@ pub fn harmony_integrate(
         // ---- cluster (soft k-means E-step) ----
         let mut prev_kmeans = f32::INFINITY;
         for _ in 0..params.max_iter_kmeans {
-            y = gemm(&z_cos, &r.t().to_owned(), device)?; // (d, K) = Z R'
+            y = matmul(z_cos.view(), r.t(), device)?; // (d, K) = Z R'
             normalise_columns_inplace(&mut y);
             dist = distance_matrix(&y, &z_cos, device)?;
             update_r(
@@ -134,31 +137,14 @@ pub fn harmony_integrate(
         }
 
         // ---- moe_correct_ridge (M-step) ----
-        z_corr = z_orig.clone();
-        for cluster in 0..k {
-            let r_k = r.row(cluster); // (N,)
-            // phi_rk = phi_moe * R_k, each column scaled by that cell's assignment (B+1, N)
-            let mut phi_rk = phi_moe.clone();
-            for j in 0..n_cells {
-                let scale = r_k[j];
-                for row in 0..bp1 {
-                    phi_rk[[row, j]] *= scale;
-                }
-            }
-            // x = phi_rk @ phi_moeᵀ + diag(lamb)   (B+1, B+1)
-            let mut x = phi_rk.dot(&phi_moe.t());
-            for d in 0..bp1 {
-                x[[d, d]] += lamb[d];
-            }
-            let x_inv = invert(&x)?; // (B+1, B+1)
-            // W = x_inv @ phi_rk @ z_origᵀ    (B+1, d)
-            let w = x_inv.dot(&phi_rk.dot(&z_orig.t()));
-            let mut w = w;
-            w.row_mut(0).fill(0.0); // never remove the intercept
-            // z_corr -= Wᵀ @ phi_rk   (d, N)
-            let correction = gemm(&w.t().to_owned(), &phi_rk, device)?;
-            z_corr = &z_corr - &correction;
-        }
+        // Each cluster's correction is independent and they sum into Z_corr, so the K of
+        // them run in parallel (rayon) and are folded together. All the matmuls here are
+        // small `(B+1)`-sized systems, so they go straight through ndarray, not candle.
+        let correction_total = (0..k)
+            .into_par_iter()
+            .map(|cluster| cluster_correction(cluster, &r, &phi_moe, &z_orig, &lamb))
+            .reduce(|| Array2::<f32>::zeros(z_orig.raw_dim()), |a, b| a + b);
+        z_corr = &z_orig - &correction_total;
         z_cos = l2_normalise_columns(&z_corr);
 
         let harmony_obj = kmeans_objective(&r, &dist, &e_mat, &o_mat, &phi, &theta, params.sigma);
@@ -174,9 +160,40 @@ pub fn harmony_integrate(
     Ok(HarmonyResult { corrected: z_corr.t().to_owned(), objective })
 }
 
+/// The M-step correction contributed by one cluster: `Wᵀ (Φ_moe ∘ R_k)`, a `(d, N)` array.
+///
+/// Independent of every other cluster, so `harmony_integrate` runs the `K` of them in
+/// parallel. Every matmul is a small `(B+1)`-sized system, so ndarray (SIMD) is fastest.
+fn cluster_correction(
+    cluster: usize,
+    r: &Array2<f32>,
+    phi_moe: &Array2<f32>,
+    z_orig: &Array2<f32>,
+    lamb: &Array1<f32>,
+) -> Array2<f32> {
+    let (bp1, n_cells) = phi_moe.dim();
+    let r_k = r.row(cluster);
+    let mut phi_rk = Array2::<f32>::zeros((bp1, n_cells));
+    for j in 0..n_cells {
+        let scale = r_k[j];
+        for row in 0..bp1 {
+            phi_rk[[row, j]] = phi_moe[[row, j]] * scale;
+        }
+    }
+    let mut x = phi_rk.dot(&phi_moe.t()); // (B+1, B+1)
+    for d in 0..bp1 {
+        x[[d, d]] += lamb[d];
+    }
+    // With lambda > 0 the ridge system is positive definite, so it is always invertible.
+    let x_inv = invert(&x).expect("ridge system with lambda > 0 is invertible");
+    let mut w = x_inv.dot(&phi_rk.dot(&z_orig.t())); // (B+1, d)
+    w.row_mut(0).fill(0.0); // never remove the intercept
+    w.t().dot(&phi_rk) // (d, N)
+}
+
 /// `2 (1 - Yᵀ Z)` via candle, so the matmul runs on the caller's device.
 fn distance_matrix(y: &Array2<f32>, z: &Array2<f32>, device: &Device) -> Result<Array2<f32>> {
-    let yt_z = gemm(&y.t().to_owned(), z, device)?; // (K, N)
+    let yt_z = matmul(y.t(), z.view(), device)?; // (K, N)
     Ok(yt_z.mapv(|v| 2.0 * (1.0 - v)))
 }
 
@@ -204,7 +221,13 @@ fn update_r(
     params: &HarmonyParams,
     rng: &mut SplitMix64,
 ) {
-    let scale = dist.mapv(|v| (-v / params.sigma).exp()); // (K, N)
+    let mut scale = dist.clone(); // (K, N)
+    let sigma = params.sigma;
+    scale
+        .as_slice_mut()
+        .expect("dist is contiguous")
+        .par_iter_mut()
+        .for_each(|v| *v = (-*v / sigma).exp());
     let n_cells = r.ncols();
     let n_clusters = r.nrows();
     let batch_of: Vec<usize> = (0..n_cells)
@@ -276,8 +299,15 @@ fn kmeans_objective(
     theta: &Array1<f32>,
     sigma: f32,
 ) -> f32 {
-    let kmeans_error: f32 = (r * dist).sum();
-    let entropy: f32 = r.mapv(|v| if v > 0.0 { -v * v.ln() } else { 0.0 }).sum() * sigma;
+    let r_flat = r.as_slice().expect("R is contiguous");
+    let dist_flat = dist.as_slice().expect("dist is contiguous");
+    let kmeans_error: f32 = r_flat
+        .par_iter()
+        .zip(dist_flat.par_iter())
+        .map(|(&a, &b)| a * b)
+        .sum();
+    let entropy: f32 =
+        r_flat.par_iter().map(|&v| if v > 0.0 { -v * v.ln() } else { 0.0 }).sum::<f32>() * sigma;
     // cross entropy: sum over cells of sigma * R[:,cell] . ( theta * log((O+1)/(E+1)) )[:, batch]
     let mut log_ratio = Array2::<f32>::zeros(e.raw_dim());
     for k in 0..e.nrows() {
@@ -286,18 +316,36 @@ fn kmeans_objective(
         }
     }
     let projected = log_ratio.dot(phi); // (K, N)
-    let cross: f32 = (r * &projected).sum() * sigma;
+    let cross: f32 = r_flat
+        .par_iter()
+        .zip(projected.as_slice().expect("projected is contiguous").par_iter())
+        .map(|(&a, &b)| a * b)
+        .sum::<f32>()
+        * sigma;
     kmeans_error + entropy + cross
 }
 
 // ---------------------------------------------------------------- linear algebra helpers
 
-/// One candle matmul `(m,k) x (k,n) -> (m,n)`, on the caller's device.
-fn gemm(a: &Array2<f32>, b: &Array2<f32>, device: &Device) -> Result<Array2<f32>> {
+/// Above this many output elements a Metal matmul repays the host<->device round-trip;
+/// below it (all single-cell PCA sizes) ndarray's SIMD `matrixmultiply` wins outright.
+const GPU_MATMUL_THRESHOLD: usize = 1_000_000;
+
+/// Matmul `(m,k) x (k,n) -> (m,n)` that takes views, so a transpose costs nothing.
+///
+/// Small products go straight through ndarray (SIMD `matrixmultiply`, no allocation or
+/// device transfer). Only a large product on a Metal device pays for candle, which is
+/// where the GPU actually helps.
+fn matmul(a: ArrayView2<f32>, b: ArrayView2<f32>, device: &Device) -> Result<Array2<f32>> {
     let (m, ka) = a.dim();
     let (kb, n) = b.dim();
     if ka != kb {
         return Err(Error::shape(format!("({m}, {ka}) x ({kb}, {n})"), "a matmul"));
+    }
+    if !device.is_metal() || m * n < GPU_MATMUL_THRESHOLD {
+        // `.dot()` of a transposed view can come back non-standard; force C-contiguous so
+        // downstream `as_slice()` (the rayon reductions) always succeeds.
+        return Ok(a.dot(&b).as_standard_layout().into_owned());
     }
     let a = a.as_standard_layout();
     let b = b.as_standard_layout();
