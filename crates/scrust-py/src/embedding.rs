@@ -4,6 +4,8 @@
 //! lists are long by design.
 #![allow(clippy::too_many_arguments)]
 
+use std::cell::RefCell;
+
 use candle_core::Device;
 use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
@@ -17,6 +19,18 @@ use scrust_gpu::{kernels::knn::knn_metal, MetalContext};
 use crate::convert::{array2_from_py, csr_from_py, csr_to_py, device_from_py, PyCsr, PyKnn};
 use crate::to_py_error;
 
+thread_local! {
+    /// One `MetalContext` per thread, built on first use and reused after.
+    ///
+    /// The context owns the compiled-pipeline cache, so recreating it per call would
+    /// recompile the MSL shader every time — the dominant cost the spike measured.
+    /// Thread-local rather than a global: a `MetalContext` holds `metal` handles that
+    /// are not `Sync`, and PyO3 releases the GIL around the call, so two Python threads
+    /// could otherwise share one. `None` means we tried and found no usable GPU, so we
+    /// do not retry on every call.
+    static METAL_CONTEXT: RefCell<Option<Option<MetalContext>>> = const { RefCell::new(None) };
+}
+
 /// Run the k-NN search, routing a Metal caller to the hand-written `knn_metal` kernel.
 ///
 /// SPIKE dispatch (`feature/multiagent-gpu-spike`). The candle path in
@@ -27,10 +41,18 @@ use crate::to_py_error;
 /// return the same `KnnGraph`, so the caller above cannot tell which ran.
 fn knn_dispatch(embedding: &Array2<f32>, k: usize, device: &Device) -> scrust_core::Result<KnnGraph> {
     if device.is_metal() {
-        match MetalContext::new() {
-            Ok(context) => return knn_metal(&context, embedding, k),
-            Err(_) => { /* no usable Metal context: fall through to the candle path */ }
+        let kernel_result = METAL_CONTEXT.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            // Build the context once (outer `None`), caching success or failure.
+            let context = slot.get_or_insert_with(|| MetalContext::new().ok());
+            context
+                .as_ref()
+                .map(|context| knn_metal(context, embedding, k))
+        });
+        if let Some(result) = kernel_result {
+            return result;
         }
+        // No usable Metal context: fall through to the candle path.
     }
     neighbors::knn(embedding, k, device)
 }
