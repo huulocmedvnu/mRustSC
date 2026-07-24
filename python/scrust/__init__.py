@@ -11,4 +11,13 @@ from scrust.settings import settings
 
 __version__ = "0.2.0"
 
-__all__ = ["__version__", "get", "gpu_available", "metrics", "pp", "settings", "tl"]
+__all__ = ["__version__", "get", "gpu_available", "metrics", "pl", "pp", "settings", "tl"]
+
+
+def __getattr__(name: str):
+    """Load `scrust.pl` on first access, so `import scrust` stays free of matplotlib."""
+    if name == "pl":
+        import scrust.pl as pl
+
+        return pl
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
