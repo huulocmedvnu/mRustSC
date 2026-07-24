@@ -156,20 +156,13 @@ methods take the argument and bind it to `_device`: they always run on the CPU.
 
 ## Tutorial
 
-[docs/tutorials/pbmc3k_clustering.py](docs/tutorials/pbmc3k_clustering.py) is the
-scanpy PBMC 3k clustering walkthrough with **every computational step run by scrust** —
-QC, normalisation, HVGs, scaling, PCA, the Metal-accelerated k-NN graph, Leiden, UMAP and
-Wilcoxon marker genes. scanpy appears only to load the data and to plot the results; the
-script asserts that with an AST check on itself before it runs. Execute it with:
-
-```bash
-PYTHONPATH=$PWD/python .venv/bin/python docs/tutorials/pbmc3k_clustering.py
-```
-
-The same content is available as a notebook,
-[docs/tutorials/pbmc3k_clustering.ipynb](docs/tutorials/pbmc3k_clustering.ipynb) — every
-cell is top-level, so *Run All* on a kernel with `scrust` installed runs the whole
-tutorial. It is built from the `.py` with `jupytext --to notebook`.
+[docs/tutorials/pbmc3k_clustering.ipynb](docs/tutorials/pbmc3k_clustering.ipynb) is a
+PBMC 3k clustering walkthrough on a **pure scrust stack — no scanpy anywhere**: the data is
+fetched from 10x Genomics and read with `anndata`, every computational step (QC,
+normalisation, HVGs, scaling, PCA, the Metal-accelerated k-NN graph, Leiden, UMAP, Wilcoxon
+marker genes) runs on `scrust`, and every figure is drawn by the native `scrust.pl` module.
+The notebook is the source — open it and *Run All* on a kernel with `scrust` installed. Its
+last cell proves the run never imported scanpy (`"scanpy" not in sys.modules`).
 
 ## Documentation
 
