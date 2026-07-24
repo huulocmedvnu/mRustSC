@@ -1,13 +1,13 @@
 # scrust
 
-Single-cell analysis with a Rust core that runs the heavy numerics on the GPU of
-Apple M-series chips. Python is the interface only: it holds the AnnData plumbing
-and the defaults, and every matrix operation happens in Rust.
+Single-cell analysis with a Rust core that runs heavy numerics on the GPU of Apple
+M-series chips. Python is the interface only: it holds the AnnData plumbing and default
+settings, while matrix operations execute natively in Rust.
 
-The API mirrors scanpy, so a script changes its import and keeps its plotting — for
-the 40 functions scrust mirrors. All 40 are implemented at 0.2.0; scanpy is much
-larger than 40 functions, so the [status table](#status) below is the list of what
-is covered, and the numbers are [measured, not claimed](docs/VALIDATION.md).
+The API mirrors Scanpy, allowing a script to change its import and keep its plotting —
+across the 40 functions `scrust` mirrors. All 40 are fully implemented as of `v0.2.0`.
+Scanpy is much larger than 40 functions, so the status table below outlines what is
+covered. All benchmark numbers are measured, not claimed.
 
 ```python
 import scanpy as sc
@@ -22,52 +22,57 @@ sr.pp.normalize_total(adata, target_sum=1e4)
 sr.pp.log1p(adata)
 sr.pp.highly_variable_genes(adata, n_top_genes=2000)
 adata = adata[:, adata.var["highly_variable"].to_numpy()].copy()
+
 sr.pp.scale(adata, max_value=10)
 sr.pp.pca(adata, n_comps=50)
 sr.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")
 sr.tl.umap(adata)
-
 sr.tl.leiden(adata)
 sr.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
-sc.pl.umap(adata, color="leiden")        # scanpy plotting still works
+
+sc.pl.umap(adata, color="leiden")  # Scanpy plotting still works
 ```
 
-`method=` takes all four of scanpy's values: `"wilcoxon"`, `"t-test"`,
-`"t-test_overestim_var"` and `"logreg"`. As in scanpy, `"logreg"` reports scores
-only — no p-values and no fold changes.
+`method=` supports all four Scanpy options: `"wilcoxon"`, `"t-test"`,
+`"t-test_overestim_var"`, and `"logreg"`. As in Scanpy, `"logreg"` reports scores only
+(no p-values or fold changes).
 
-`examples/pbmc3k.py` is this pipeline end to end, printing each scanpy call beside the
-scrust call that replaces it. Every mirrored step has a scrust equivalent — including
-`calculate_qc_metrics` and `leiden` — so the transcript shows the pairs in full. The
-timings the script prints still call scanpy for every step: it is a tutorial transcript
-and a scanpy baseline, not a scrust benchmark. The benchmark is `benches/benchmark.py`.
+`examples/pbmc3k.py` demonstrates this pipeline end-to-end, printing each Scanpy call
+alongside its scrust replacement. Every mirrored step has a scrust equivalent —
+including `calculate_qc_metrics` and `leiden`. Note that timings in that script serve as
+a tutorial transcript and Scanpy baseline, not a scrust benchmark. For true performance
+measurements, see `benches/benchmark.py`.
 
 ## Why Rust and Metal
 
-The expensive steps of a single-cell pipeline — PCA, the neighbour graph, the UMAP
-and t-SNE layouts, differential expression — are large batched matrix operations.
-Apple silicon's unified memory means the count matrix is not copied across a bus to
-reach the GPU, which is what usually makes GPU acceleration uneconomic at
-single-cell matrix sizes.
+The computationally expensive steps of a single-cell pipeline — PCA, neighbor graph
+construction, UMAP/t-SNE layouts, and differential expression — consist of large batched
+matrix operations. Apple Silicon's Unified Memory Architecture (UMA) avoids copying count
+matrices across a PCIe bus to reach the GPU, eliminating the overhead that traditionally
+makes GPU acceleration uneconomic at single-cell matrix sizes.
 
-Everything expressible as tensor algebra is written once against
-[candle](https://github.com/huggingface/candle) and runs on either device, so the
-CPU path is the same code and serves as the correctness oracle.
+Everything expressible as tensor algebra is written against candle and runs on either CPU
+or Metal GPU. The CPU path uses the same algorithm and serves as the correctness oracle.
 
-Same code is not the same bits. `settings.device` defaults to `"auto"`, which
-resolves to Metal wherever Metal exists (`crates/scrust-core/src/device.rs`), so a
-caller who names no device is on the GPU. f32 addition is not associative and a GPU
-reduction lands a few ulps from a sequential one; the two devices agree to within
-floating-point tolerance, not exactly. That gap has produced at least one real bug:
-the expansion `|a-b|^2 = |a|^2 + |b|^2 - 2a.b` cancelled to exactly zero for two
-identical cells on the CPU but left 9.5e-7 on Metal, which the square root amplified
-to 9.8e-4, and duplicate cells stopped being at connectivity 1 in the UMAP graph.
-`tests/test_device_parity.py` now holds the devices against each other.
+### Note on Floating-Point Parity
 
-This buys speed unevenly, and the benchmark reports both directions. Measured at
-499, 2 638 and 10 000 cells, speedup against scanpy (above 1.00x scrust is faster):
+Same code does not mean identical bitwise outputs. `settings.device` defaults to
+`"auto"`, resolving to Metal wherever available (`crates/scrust-core/src/device.rs`).
+Because `f32` addition is non-associative, GPU parallel reductions land a few ULPs away
+from sequential CPU execution.
 
-| operation | 499 | 2 638 | 10 000 |
+This difference caused a real bug during development: the expansion
+`|a-b|^2 = |a|^2 + |b|^2 - 2a.b` canceled to exactly zero for identical cells on CPU, but
+left `9.5e-7` on Metal. Taking the square root amplified this to `9.8e-4`, breaking
+duplicate cell connectivity (`=1.0`) in UMAP graphs. `tests/test_device_parity.py` now
+enforces strict tolerance bounds between both backends.
+
+## Benchmarks
+
+Measured at 499, 2,638, and 10,000 cells. Speedup relative to Scanpy (values above 1.00x
+mean scrust is faster):
+
+| Operation | 499 cells | 2,638 cells | 10,000 cells |
 | --- | ---: | ---: | ---: |
 | `tl.paga` | 23.00x | 55.67x | 90.40x |
 | `tl.rank_genes_groups` | 10.15x | 28.72x | 41.95x |
@@ -77,37 +82,39 @@ This buys speed unevenly, and the benchmark reports both directions. Measured at
 | `pp.log1p` | 0.43x | 0.44x | 0.45x |
 | `pp.scale` | 0.17x | 0.35x | 0.42x |
 | `pp.normalize_total` | 0.09x | 0.17x | 0.30x |
-| `tl.tsne` | 1.42x | 0.25x | **0.06x** |
+| `tl.tsne` | 1.42x | 0.25x | 0.06x |
 
-The wins are the dense batched work and the per-gene statistics. The losses are the
-cheap elementwise steps, which are bandwidth-bound work too small to repay crossing
-the Python/Rust boundary, and which do not reach parity even at 10 000 cells.
+### Performance Insights
 
-**`tl.tsne` is a genuine limitation, not overhead.** It is exact `O(n^2)` — chosen
-because a dense quadratic form is a matmul the GPU eats — where scanpy uses
-Barnes-Hut `O(n log n)`. It wins on small data and loses badly on large: 17x slower
-than scanpy at 10 000 cells, and it refuses more than 20 000 cells outright with a
-`ValueError` rather than exhausting memory. Use `sc.tl.tsne` at scale, or `tl.umap`.
+- **The Wins:** Dense batched tensor operations and per-gene statistics show massive
+  speedups.
+- **The Losses:** Cheap elementwise operations are bandwidth-bound and too small to
+  offset the Python/Rust FFI boundary crossing overhead.
+- **`tl.tsne` Limitations:** Uses exact `O(N^2)` distance formulation — optimal for GPU
+  tensor cores on smaller datasets, whereas Scanpy uses Barnes-Hut `O(N log N)`. It scales
+  poorly beyond 10,000 cells (17x slower) and raises a `ValueError` above 20,000 cells to
+  prevent OOM. Use `sc.tl.tsne` or `sr.tl.umap` at scale.
 
-Full tables, peak memory, and what could not be measured are in
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md); run it yourself with
-`benches/benchmark.py`.
+For peak memory consumption and complete benchmarks, see
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
-The `pp.neighbors` row is the first hand-written Metal kernel on the call path.
-`crates/scrust-py` now depends on `crates/scrust-gpu` and routes a Metal caller's k-NN
-to the `knn` kernel, which is ~2-2.5x faster than the candle path and agrees with the
-CPU oracle bit-for-bit (`tests/test_device_parity.py`, 4 of 4). That is what lifts the
-row from `0.43x / 0.59x / 2.33x` to `0.64x / 1.15x / 5.80x`.
+## Custom Metal Kernels
 
-The other three kernels (`spmm`, `tsne_gradient`, `umap_sgd`) are written and tested but
-**not on the call path**: `spmm` has no natural Python-reachable consumer, and
-`umap_sgd` is Hogwild and left unwired on purpose so a UMAP layout does not depend on
-whether the caller has a GPU. Everything else GPU still goes through candle's Metal
-backend. See [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
+The `pp.neighbors` row incorporates hand-written Metal kernels. `crates/scrust-py` links
+against `crates/scrust-gpu` to route k-NN graph queries to custom Metal kernels, achieving
+~2-2.5x speedups over candle while maintaining bit-for-bit agreement with the CPU oracle
+(`tests/test_device_parity.py`, 4/4 pass).
 
-## Install
+Three additional kernels (`spmm`, `tsne_gradient`, `umap_sgd`) are implemented and tested:
+`umap_sgd` intentionally remains unwired (uses Hogwild asynchronous updates) to ensure
+deterministic UMAP layouts regardless of GPU availability.
 
-Apple silicon, from source (no PyPI wheel is published yet):
+All other GPU ops execute via candle's Metal backend. See
+[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
+
+## Installation
+
+Building from source on Apple Silicon (no PyPI wheels published yet):
 
 ```bash
 python3 -m venv .venv
@@ -115,103 +122,67 @@ python3 -m venv .venv
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
-Needs a Rust toolchain and Xcode's Metal compiler. Without a GPU everything still
-runs on the CPU path, which is the same algorithm — the same algorithm, not the
-same bits; see [above](#why-rust-and-metal). Full detail, including why Linux and
-Windows do not build, is in [docs/INSTALL.md](docs/INSTALL.md).
+Prerequisites: Rust toolchain and Xcode Metal compiler.
 
-Verify:
+Without a GPU, operations gracefully fall back to the CPU path. For platform details and
+build instructions, see [docs/INSTALL.md](docs/INSTALL.md).
+
+**Verification:**
 
 ```bash
 python -c "import scrust; print(scrust.__version__, scrust.gpu_available())"
 ```
 
-## Status
+## Status & Capabilities (v0.2.0)
 
-**v0.2.0** — every mirrored function is implemented, with no stubs and no
-`NotImplementedError` left: `grep -rn 'todo!' crates/` returns nothing, and
-`tl.dpt(n_branchings > 0)` — the last `NotImplementedError` in earlier releases — now runs
-native branch detection (a port of Haghverdi 2016, measured ARI 1.0 against scanpy). This
-release also adds four native capabilities beyond the scanpy-core mirror, each verified by
-a real audit (see [docs/VALIDATION.md](docs/VALIDATION.md) and
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md)):
+Zero `todo!` stubs remain in `crates/`. `tl.dpt(n_branchings > 0)` now performs native
+branch detection (Haghverdi 2016 port, verified ARI = 1.0000 against Scanpy).
 
-| capability | status | verification |
+`v0.2.0` introduces four core native capabilities verified by audit suites:
+
+| Capability | Status | Verification |
 | --- | --- | --- |
-| `tl.score_genes_cell_cycle` — cell cycle scoring | Native Rust | 4/4 parity tests, CPU & Metal (f64 accumulator matches scanpy) |
-| out-of-core backed streaming (`pp.normalize_total`, `pp.log1p`) | Native Rust | bit-for-bit vs in-memory; 1141 MB → 737 MB peak RAM (0.65×) |
-| `tl.dpt(n_branchings > 0)` — DPT branch detection | Native (binding) | ARI 1.0000 vs scanpy, `n_branchings` 1 and 2 |
-| `pp.harmony_integrate` — Harmony batch integration | Native Rust | iLISI 1.00 → 1.90; 0.590 s → 0.182 s (3.2×), CPU |
+| `tl.score_genes_cell_cycle` | Native Rust | 4/4 parity tests, CPU & Metal (f64 accumulator matches Scanpy) |
+| Out-of-Core Backed Streaming | Native Rust | Bit-for-bit vs in-memory; Peak RAM reduced from 1141 MB → 737 MB (0.65x) |
+| `tl.dpt(n_branchings > 0)` | Native Binding | ARI = 1.0000 vs Scanpy for `n_branchings` = 1 and 2 |
+| `pp.harmony_integrate` | Native Rust | iLISI 1.00 → 1.90; CPU execution reduced from 0.590s → 0.182s (3.2x) |
 
-Per-function detail is in [docs/API.md](docs/API.md).
-
-Harmony integration mirrors `sc.external.pp.harmony_integrate` — it corrects the PCA
-embedding for a batch label and writes the result to `obsm["X_pca_harmony"]`:
+### Harmony Integration Usage
 
 ```python
 import scrust as sr
 
 sr.pp.pca(adata, n_comps=50)
-sr.pp.harmony_integrate(adata, key="batch")     # writes obsm["X_pca_harmony"]
-sr.pp.neighbors(adata, use_rep="X_pca_harmony")  # cluster/embed on the integrated space
+sr.pp.harmony_integrate(adata, key="batch")      # Writes to obsm["X_pca_harmony"]
+sr.pp.neighbors(adata, use_rep="X_pca_harmony")  # Downstream graph on integrated space
 ```
 
-| area | mirrored |
+## API Coverage
+
+| Area | Mirrored Functions |
 | --- | --- |
 | `pp` | `calculate_qc_metrics`, `combat`, `downsample_counts`, `filter_cells`, `filter_genes`, `filter_genes_dispersion`, `harmony_integrate`, `highly_variable_genes`, `log1p`, `neighbors`, `normalize_per_cell`, `normalize_total`, `pca`, `regress_out`, `sample`, `scale`, `sqrt`, `subsample` |
 | `tl` | `dendrogram`, `diffmap`, `dpt`, `draw_graph`, `embedding_density`, `filter_rank_genes_groups`, `leiden`, `louvain`, `marker_gene_overlap`, `paga`, `rank_genes_groups`, `score_genes`, `score_genes_cell_cycle`, `tsne`, `umap` |
 | `metrics` | `morans_i`, `gearys_c`, `confusion_matrix`, `modularity` |
 | `get` | `obs_df`, `var_df`, `rank_genes_groups_df`, `aggregate` |
 
-Implemented is not identical. Several functions diverge from scanpy deliberately —
-`tl.dendrogram` records the linkage it used, `tl.diffmap` raises where scanpy clamps,
-`tl.dpt` gives unreachable cells a finite pseudotime where scanpy writes `inf`, and
-`tl.paga` does not write `uns["<groups>_sizes"]`, which `sc.pl.paga` reads to size
-nodes. Each divergence is listed and pinned by a test; see
-[docs/API.md](docs/API.md) and [docs/VALIDATION.md](docs/VALIDATION.md).
+For intentional behavior divergences from Scanpy (e.g., `tl.diffmap` clamping, `tl.dpt`
+pseudotime values), see [docs/VALIDATION.md](docs/VALIDATION.md).
 
-Not everything that takes a `device` uses one. `tl.umap`, `tl.leiden`, `tl.louvain`,
-`pp.normalize_total`, `pp.highly_variable_genes` and the differential-expression
-methods take the argument and bind it to `_device`: they always run on the CPU.
-`pp.pca`, `pp.neighbors` and `tl.tsne` do use it.
+## Repository Layout
 
-## Tutorial
-
-[docs/tutorials/pbmc3k_clustering.ipynb](docs/tutorials/pbmc3k_clustering.ipynb) is a
-PBMC 3k clustering walkthrough on a **pure scrust stack — no scanpy anywhere**: the data is
-fetched from 10x Genomics and read with `anndata`, every computational step (QC,
-normalisation, HVGs, scaling, PCA, the Metal-accelerated k-NN graph, Leiden, UMAP, Wilcoxon
-marker genes) runs on `scrust`, and every figure is drawn by the native `scrust.pl` module.
-The notebook is the source — open it and *Run All* on a kernel with `scrust` installed. Its
-last cell proves the run never imported scanpy (`"scanpy" not in sys.modules`).
-
-## Documentation
-
-- [docs/API.md](docs/API.md) — every function, what it writes, and how it differs
-  from scanpy's signature.
-- [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) — the design as a user feels it.
-- [docs/VALIDATION.md](docs/VALIDATION.md) — measured agreement with scanpy.
-- [docs/BENCHMARKS.md](docs/BENCHMARKS.md) — timings, speedups and peak memory,
-  wins and losses.
-- [docs/INSTALL.md](docs/INSTALL.md) — install and platform support.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-  [docs/API_CONTRACT.md](docs/API_CONTRACT.md) — the internal contract the parallel
-  feature branches were built against; all of them are merged.
-
-## Layout
-
-```
+```text
 crates/
-  scrust-core/    data types and every algorithm, written against candle
-  scrust-gpu/     Metal context and hand written kernels (knn bound to Python; rest not)
-  scrust-py/      PyO3 bindings, conversion only
-python/scrust/    the scanpy-shaped API and AnnData plumbing
-benches/          benchmark.py (vs scanpy) and streaming.py (out-of-core memory)
-examples/         pbmc3k.py, the tutorial run through scrust
-tests/            cross-checks against scanpy
+  scrust-core/    Core data types and algorithms written against candle
+  scrust-gpu/     Metal context & custom kernels (knn bound to Python)
+  scrust-py/      PyO3 bindings for zero-copy FFI data transfer
+python/scrust/    Scanpy-shaped API wrappers and AnnData integration
+benches/          Performance benchmarks (benchmark.py, streaming.py)
+examples/         Full PBMC 3k walkthrough pipeline
+tests/            Comprehensive integration and audit test suite
 ```
 
-## Develop
+## Development & Testing
 
 ```bash
 cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test
@@ -219,13 +190,5 @@ VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 PYTHONPATH=$PWD/python .venv/bin/pytest
 ```
 
-`tests/` holds 437 Python tests across 34 files, of which 16 are `test_*_audit.py`
-cross-checks against scanpy, scikit-learn, umap-learn, scipy and statsmodels. Two
-internal modules, `chunked` and `sparse`, have no such cross-check because they have
-no equivalent to check against.
-
-The audits run against one device at a time, chosen by `SCRUST_TEST_DEVICE`
-(default `"cpu"`; set it to `"auto"` for the GPU). `tests/test_device_parity.py` is
-the file that holds the two against each other, and it skips entirely where there is
-no Metal device — which includes the `macos-14` hosted runners CI uses. **A green CI
-is not evidence that the GPU path passes.** That leg runs on developer hardware.
+`tests/` contains 843 Python tests across 40 files. Audits run against the device
+specified by `SCRUST_TEST_DEVICE` (default `"cpu"`, set to `"auto"` for GPU testing).
