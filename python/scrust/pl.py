@@ -63,9 +63,10 @@ def _style() -> dict[str, Any]:
         "xtick.labelsize": 9,
         "ytick.labelsize": 9,
         "legend.frameon": False,
-        "figure.dpi": 110,
-        "savefig.dpi": 200,
+        "figure.dpi": 300,
+        "savefig.dpi": 300,
         "savefig.bbox": "tight",
+        "svg.fonttype": "none",  # keep text as text in vector output, not outlines
     }
 
 
@@ -77,12 +78,28 @@ def _categorical_palette(n: int, name: str = "husl") -> list:
     return [cmap(i % cmap.N) for i in range(n)]
 
 
-def _finish(fig: Figure, result: Any, show: bool, save: str | Path | None) -> Any:
-    """Save and/or show a finished figure, mirroring scanpy's `show`/`save` contract."""
+def _auto_point_size(n: int) -> float:
+    """A scatter point size that keeps a dense embedding legible: smaller for more cells."""
+    return float(np.clip(24000.0 / max(n, 1), 4.0, 18.0))
+
+
+def _finish(
+    fig: Figure,
+    result: Any,
+    show: bool,
+    save: str | Path | None,
+    extra_artists: Any = None,
+) -> Any:
+    """Save and/or show a finished figure, mirroring scanpy's `show`/`save` contract.
+
+    Saves with explicit `dpi=300` and `bbox_inches="tight"` because this runs after the
+    `rc_context` has closed, so the style's savefig settings no longer apply. `extra_artists`
+    (an outside legend) is folded into the tight bounding box so it is never clipped.
+    """
     if save is not None:
         path = Path(save)
         path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(path)
+        fig.savefig(path, dpi=300, bbox_inches="tight", bbox_extra_artists=extra_artists)
     if show:
         plt.show()
         return None
@@ -166,8 +183,8 @@ def umap(
     title: str | None = None,
     palette: str = "husl",
     frameon: bool = False,
-    alpha: float = 0.85,
-    size: float = 12,
+    alpha: float = 0.7,
+    size: float | None = None,
     figsize: tuple[float, float] = (7, 6),
     show: bool = True,
     save: str | Path | None = None,
@@ -176,14 +193,16 @@ def umap(
 
     A string/categorical `obs` column (e.g. ``"leiden"``) draws one colour per level with a
     legend; a numeric column or a gene name draws a `viridis` colour bar. `color=None` is a
-    single-colour scatter.
+    single-colour scatter. `size=None` picks a point size from the cell count.
     """
     coords = np.asarray(adata.obsm["X_umap"], dtype=float)
     x, y = coords[:, 0], coords[:, 1]
+    point_size = _auto_point_size(coords.shape[0]) if size is None else size
 
     with plt.rc_context(_style()):
         fig, ax = plt.subplots(figsize=figsize)
         heading = title if title is not None else (color or "UMAP")
+        legend_artist = None
 
         categorical = (
             color is not None
@@ -191,7 +210,7 @@ def umap(
             and adata.obs[color].dtype.kind not in "biufc"
         )
         if color is None:
-            ax.scatter(x, y, s=size, c=_ACCENT, alpha=alpha, linewidths=0)
+            ax.scatter(x, y, s=point_size, c=_ACCENT, alpha=alpha, linewidths=0)
         elif categorical:
             cats = adata.obs[color].astype("category")
             levels = list(cats.cat.categories)
@@ -200,15 +219,16 @@ def umap(
             for i, level in enumerate(levels):
                 mask = codes == i
                 ax.scatter(
-                    x[mask], y[mask], s=size, color=colours[i],
+                    x[mask], y[mask], s=point_size, color=colours[i],
                     alpha=alpha, linewidths=0, label=str(level),
                 )
             ncol = 1 if len(levels) <= 14 else 2
             legend = ax.legend(
-                loc="upper left", bbox_to_anchor=(1.01, 1.0), title=color,
+                loc="upper left", bbox_to_anchor=(1.05, 1.0), title=color,
                 markerscale=2.0, ncol=ncol, handletextpad=0.3, borderaxespad=0.0,
             )
             legend.get_title().set_fontweight("bold")
+            legend_artist = legend
         else:
             values = _expression(adata, color)
             if values is None:
@@ -216,7 +236,7 @@ def umap(
                     f"{color!r} is not a numeric obs column or a gene in var_names / raw"
                 )
             points = ax.scatter(
-                x, y, s=size, c=values, cmap="viridis", alpha=alpha, linewidths=0
+                x, y, s=point_size, c=values, cmap="viridis", alpha=alpha, linewidths=0
             )
             bar = fig.colorbar(points, ax=ax, fraction=0.046, pad=0.02)
             bar.set_label(color, rotation=90)
@@ -231,9 +251,13 @@ def umap(
             ax.grid(False)
         else:
             _bare(ax)
+        # Fill the canvas: equal aspect via data limits, with only a hair of margin so the
+        # cloud is not swimming in whitespace.
+        ax.margins(0.02)
         ax.set_aspect("equal", adjustable="datalim")
         result = ax
-    return _finish(fig, result, show, save)
+        extra = [legend_artist] if legend_artist is not None else None
+    return _finish(fig, result, show, save, extra_artists=extra)
 
 
 def rank_genes_groups(
@@ -255,10 +279,11 @@ def rank_genes_groups(
     n_cols = max(1, min(n_cols, n_groups))
     n_rows = int(np.ceil(n_groups / n_cols))
     palette = _categorical_palette(n_groups, "husl")
+    panel_height = max(2.6, 0.30 * n_genes + 0.9)  # taller panels when more genes are shown
 
     with plt.rc_context(_style()):
         fig, axes = plt.subplots(
-            n_rows, n_cols, figsize=(n_cols * 3.1, n_rows * 2.9), squeeze=False
+            n_rows, n_cols, figsize=(n_cols * 3.3, n_rows * panel_height), squeeze=False
         )
         flat = axes.ravel()
         for index, group in enumerate(groups):
@@ -276,7 +301,8 @@ def rank_genes_groups(
             ax.margins(x=0.08)
         for spare in flat[n_groups:]:
             spare.set_visible(False)
-        fig.suptitle("Top marker genes per group", fontsize=13, fontweight="bold")
-        fig.tight_layout(rect=(0, 0, 1, 0.97))
+        fig.suptitle("Top marker genes per group", fontsize=14, fontweight="bold", y=0.995)
+        # Explicit padding so per-panel titles and gene labels never collide or crush.
+        fig.subplots_adjust(hspace=0.5, wspace=0.35, top=0.93, bottom=0.06, left=0.09, right=0.97)
         result = axes
     return _finish(fig, result, show, save)
