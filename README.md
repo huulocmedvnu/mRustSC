@@ -166,6 +166,11 @@ script asserts that with an AST check on itself before it runs. Execute it with:
 PYTHONPATH=$PWD/python .venv/bin/python docs/tutorials/pbmc3k_clustering.py
 ```
 
+The same content is available as a notebook,
+[docs/tutorials/pbmc3k_clustering.ipynb](docs/tutorials/pbmc3k_clustering.ipynb) — every
+cell is top-level, so *Run All* on a kernel with `scrust` installed runs the whole
+tutorial. It is built from the `.py` with `jupytext --to notebook`.
+
 ## Documentation
 
 - [docs/API.md](docs/API.md) — every function, what it writes, and how it differs
