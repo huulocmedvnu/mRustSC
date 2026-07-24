@@ -41,12 +41,13 @@ def dpt(
     min_group_size: float = 0.01,
     device: str = "auto",
 ) -> None:
-    """Diffusion pseudotime from `uns["iroot"]`, as `scanpy.tl.dpt`."""
-    if n_branchings > 0:
-        raise NotImplementedError(
-            "branch detection is not implemented; use scrust.tl.paga for branches "
-            f"(min_group_size={min_group_size} applies to branchings only)"
-        )
+    """Diffusion pseudotime from `uns["iroot"]`, as `scanpy.tl.dpt`.
+
+    With `n_branchings > 0`, also detects branchings and writes `obs["dpt_groups"]`, a
+    categorical partition, using a native port of scanpy's Haghverdi 2016 algorithm
+    (`scrust.tl._dpt_branching`). Branch labels are arbitrary, so parity with scanpy is an
+    adjusted Rand index, pinned in `tests/test_dpt_branching_audit.py`.
+    """
     if "X_diffmap" not in adata.obsm:
         diffmap(adata, n_comps=_DIFFMAP_COMPONENTS, device=device)
     if "iroot" not in adata.uns:
@@ -58,6 +59,22 @@ def dpt(
         n_dcs,
     )
     adata.obs["dpt_pseudotime"] = np.asarray(pseudotime, dtype=_VALUE_DTYPE)
+
+    if n_branchings > 0:
+        import pandas as pd
+
+        from scrust.tl._dpt_branching import dpt_groups as _dpt_groups
+
+        labels = _dpt_groups(
+            adata,
+            n_branchings=n_branchings,
+            min_group_size=min_group_size,
+            n_dcs=n_dcs,
+        )
+        categories = [str(label) for label in sorted(set(labels.tolist()))]
+        adata.obs["dpt_groups"] = pd.Categorical(
+            labels.astype(str), categories=categories
+        )
 
 
 def paga(
