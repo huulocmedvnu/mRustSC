@@ -206,6 +206,124 @@ def open_backed(path: str | os.PathLike[str]) -> BackedMatrix:
     return backed
 
 
+def _stream_write(path: Path, block_size: int, transform: Any) -> None:
+    """Transform `X`'s stored values in row blocks, writing each block back to the file.
+
+    `transform(indptr_local, indices, values, n_cols) -> values` returns a block's new
+    values, same length and sparsity pattern (`normalize_total` and `log1p` both preserve
+    it). Peak memory is one block of the `data` and `indices` arrays, never the matrix.
+    """
+    import h5py
+
+    with h5py.File(path, "r+") as handle:
+        group = handle["X"]
+        if not isinstance(group, h5py.Group):
+            raise TypeError(f"{path.name} stores X densely; backed streaming needs a CSR X")
+        indptr = group["indptr"][:]
+        n_obs = int(len(indptr) - 1)
+        n_cols = int(group.attrs["shape"][1])
+        data, indices = group["data"], group["indices"]
+        for start in range(0, n_obs, block_size):
+            stop = min(start + block_size, n_obs)
+            first, last = int(indptr[start]), int(indptr[stop])
+            if last == first:
+                continue
+            local = (indptr[start : stop + 1] - indptr[start]).astype(np.uint32)
+            values = data[first:last].astype(_VALUE_DTYPE)
+            columns = indices[first:last].astype(np.uint32)
+            data[first:last] = transform(local, columns, values, n_cols).astype(data.dtype)
+
+
+def _streamed_cell_totals(path: Path, block_size: int) -> np.ndarray:
+    """Per-cell total counts, read in row blocks so the matrix is never held whole."""
+    import h5py
+
+    with h5py.File(path, "r") as handle:
+        group = handle["X"]
+        indptr = group["indptr"][:]
+        n_obs = int(len(indptr) - 1)
+        data = group["data"]
+        totals = np.zeros(n_obs, dtype=_VALUE_DTYPE)
+        for start in range(0, n_obs, block_size):
+            stop = min(start + block_size, n_obs)
+            first, last = int(indptr[start]), int(indptr[stop])
+            if last == first:
+                continue
+            values = data[first:last].astype(_VALUE_DTYPE)
+            local = (indptr[start : stop + 1] - indptr[start]).astype(np.int64)
+            summed = np.add.reduceat(values, local[:-1])
+            totals[start:stop] = np.where(np.diff(local) > 0, summed, 0.0)
+        return totals
+
+
+def _median_matching_core(totals: np.ndarray) -> float | None:
+    """The median `crates/scrust-core/src/preprocess/normalize.rs::median` computes: the
+    mean of the two middle values on an even count, in `f32`."""
+    if totals.size == 0:
+        return None
+    ordered = np.sort(totals)
+    middle = ordered.size // 2
+    if ordered.size % 2 == 0:
+        return float(np.float32(0.5) * (ordered[middle - 1] + ordered[middle]))
+    return float(ordered[middle])
+
+
+def normalize_total_backed(adata: anndata.AnnData, target_sum: float | None) -> None:
+    """`pp.normalize_total` for a backed AnnData: stream row blocks and rewrite `X` on disk.
+
+    With `target_sum` given, each block is scaled by the same core routine the in-memory
+    path uses, so the result is bit-for-bit identical to the in-memory one — normalisation
+    is per-row, so a block sees the same rows. With `target_sum=None` the global median is
+    computed from streamed per-cell totals first (agreeing to `f32`).
+    """
+    from scrust._shared import _default_device, _extension
+
+    path = Path(adata.filename)
+    block_size = _block_size_for_backed(adata)
+    if target_sum is None:
+        target = _median_matching_core(_streamed_cell_totals(path, block_size))
+        if not target or target <= 0.0:
+            return  # no counts to scale
+    else:
+        target = float(target_sum)
+    extension, device = _extension(), _default_device()
+
+    def transform(indptr: np.ndarray, columns: np.ndarray, values: np.ndarray, n_cols: int):
+        parts = extension.normalize_total(indptr, columns, values, n_cols, target, device)
+        return np.asarray(parts[2], dtype=_VALUE_DTYPE)
+
+    adata.file.close()
+    _stream_write(path, block_size, transform)
+    adata.file.open(str(path), "r")
+
+
+def log1p_backed(adata: anndata.AnnData) -> None:
+    """`pp.log1p` for a backed AnnData: stream row blocks and rewrite `X` on disk in place.
+
+    log1p is element-wise, so a block's result is bit-for-bit the in-memory result.
+    """
+    from scrust._shared import _extension
+
+    path = Path(adata.filename)
+    block_size = _block_size_for_backed(adata)
+    extension = _extension()
+
+    def transform(indptr: np.ndarray, columns: np.ndarray, values: np.ndarray, n_cols: int):
+        parts = extension.log1p(indptr, columns, values, n_cols)
+        return np.asarray(parts[2], dtype=_VALUE_DTYPE)
+
+    adata.file.close()
+    _stream_write(path, block_size, transform)
+    adata.file.open(str(path), "r")
+
+
+def _block_size_for_backed(adata: anndata.AnnData) -> int:
+    """Rows per streamed block: `settings.chunk_size` when set, else derived from shape."""
+    if settings.chunk_size > 0:
+        return settings.chunk_size
+    return block_size_for(int(adata.shape[1]))
+
+
 def _is_sparse_dataset(matrix: Any) -> bool:
     """True for anndata's on-disk sparse `X`, false for an h5py dense dataset."""
     return hasattr(matrix, "group")

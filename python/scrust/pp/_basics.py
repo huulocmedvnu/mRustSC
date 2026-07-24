@@ -87,6 +87,11 @@ def normalize_total(
     inplace: bool = True,
 ) -> sp.csr_matrix | None:
     """Normalise every cell to `target_sum` counts, or to the median count if `None`."""
+    if getattr(adata, "isbacked", False):
+        from scrust._backed import normalize_total_backed
+
+        normalize_total_backed(adata, target_sum)  # streams X on disk, one block in RAM
+        return None
     parts = _extension().normalize_total(*_csr_args(adata.X), target_sum, _default_device())
     normalized = _csr_from_parts(parts, adata.shape)
     if not inplace:
@@ -97,6 +102,12 @@ def normalize_total(
 
 def log1p(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
     """Apply `log(1 + x)` to the count matrix."""
+    if getattr(adata, "isbacked", False):
+        from scrust._backed import log1p_backed
+
+        log1p_backed(adata)  # streams X on disk, one block in RAM
+        adata.uns["log1p"] = {"base": None}
+        return None
     logged = _csr_from_parts(_extension().log1p(*_csr_args(adata.X)), adata.shape)
     if not inplace:
         return logged
