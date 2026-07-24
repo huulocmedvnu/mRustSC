@@ -5,6 +5,11 @@
 //! the inner loops that candle cannot express live in `scrust-gpu` as hand
 //! written Metal kernels.
 
+// Linking `blas-src` (Accelerate) is what makes ndarray's BLAS backend resolve its symbols;
+// the `extern crate` is required even though nothing names it directly.
+#[cfg(feature = "accelerate")]
+extern crate blas_src;
+
 pub mod autocorrelation;
 pub mod batch;
 pub mod chunked;

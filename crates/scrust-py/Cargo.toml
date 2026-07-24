@@ -18,3 +18,8 @@ candle-core.workspace = true
 ndarray.workspace = true
 numpy = "0.23"
 pyo3 = { version = "0.23", features = ["extension-module"] }
+
+[features]
+# `maturin develop --features accelerate` builds the extension with Apple Accelerate BLAS
+# behind the dense linear algebra; the default wheel stays pure-Rust and portable.
+accelerate = ["scrust-core/accelerate", "scrust-gpu/accelerate"]

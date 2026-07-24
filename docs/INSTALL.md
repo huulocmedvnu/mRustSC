@@ -53,6 +53,25 @@ VIRTUAL_ENV=.venv .venv/bin/maturin build --release   # writes target/wheels/*.w
 Always build `--release`. A debug build of the numerics is slow enough to look
 broken.
 
+### Optional: Apple Accelerate BLAS (macOS ARM64)
+
+On Apple silicon you can route the dense linear algebra — PCA, Harmony, neighbour
+distances, diffusion — through Apple's Accelerate (vecLib) BLAS/LAPACK instead of
+the pure-Rust `matrixmultiply` backend:
+
+```bash
+VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --features accelerate
+```
+
+It is opt-in on purpose: the default build stays 100% pure-Rust and portable to
+Linux/CI, and the sparse CSR paths (`normalize_total`, `log1p`) never touch BLAS
+either way, so enabling it cannot change their memory profile. The gain is modest
+and CPU-path only — measured ~7-8% on Harmony and ~4-9% on the full
+PCA→Neighbors→UMAP→Harmony pipeline on an M3 Pro — because at single-cell sizes
+these routines are not purely matmul-bound, and the default `device="auto"` path
+runs on Metal rather than CPU BLAS. Enable it when you run the dense pipeline on
+CPU and want that margin.
+
 ## Verifying the install
 
 ```bash

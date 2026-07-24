@@ -8,3 +8,8 @@ scrust-core.workspace = true
 candle-core.workspace = true
 metal.workspace = true
 ndarray.workspace = true
+blas-src = { workspace = true, optional = true }
+
+[features]
+# Apple Accelerate BLAS for the dense CPU-reference paths; propagates to scrust-core.
+accelerate = ["dep:blas-src", "ndarray/blas", "candle-core/accelerate", "scrust-core/accelerate"]

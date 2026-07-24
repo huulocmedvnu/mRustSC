@@ -31,6 +31,10 @@
 //! break the `umap-learn` cross-checks in `tests/test_umap_audit.py`. Whoever revisits
 //! it should start with `docs/API_CONTRACT.md`, where the reproducibility promise lives.
 
+// Force-link Accelerate for ndarray's BLAS backend when the feature is on.
+#[cfg(feature = "accelerate")]
+extern crate blas_src;
+
 pub mod context;
 pub mod kernels;
 

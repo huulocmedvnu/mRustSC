@@ -9,3 +9,11 @@ ndarray.workspace = true
 rand.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
+blas-src = { workspace = true, optional = true }
+
+[features]
+# Route dense linear algebra (ndarray `.dot()` and candle's CPU backend) through Apple
+# Accelerate's BLAS/LAPACK on macOS ARM64. Off by default: the pure-Rust build uses
+# `matrixmultiply` and candle's own kernels, and stays Linux/CI-portable. Sparse CSR paths
+# (normalize_total, log1p) never touch BLAS regardless.
+accelerate = ["dep:blas-src", "ndarray/blas", "candle-core/accelerate"]
