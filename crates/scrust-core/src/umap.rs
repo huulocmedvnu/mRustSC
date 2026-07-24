@@ -52,9 +52,15 @@ const INIT_RANGE: f32 = 10.0;
 ///
 /// `scrust-gpu` holds a fused Metal kernel written to replace [`optimize_layout`],
 /// but nothing calls it: it is not wired into this function or into the bindings, so
-/// a caller on Metal still gets the loop below. Wiring it in is a behavioural change
-/// rather than an optimisation -- the kernel updates simultaneously where this sweeps
-/// sequentially -- and its own documentation measures what that costs.
+/// a caller on Metal still gets the loop below.
+///
+/// That is a standing decision, not a gap to close on sight. The kernel is Hogwild --
+/// it accepts racing writes and so does not reproduce bit for bit even against itself
+/// -- and because this function ignores `device` today, wiring it in would make UMAP
+/// results depend on whether the caller's machine has a GPU, which nobody asks for by
+/// passing `device="auto"`. It would also break the cross-checks in
+/// `tests/test_umap_audit.py`, which hold this loop to a transcription of umap-learn's
+/// sequential sweep within `2e-3`. See `scrust_gpu`'s crate docs for the full argument.
 pub fn umap(
     connectivities: &CsrMatrix,
     params: &UmapParams,
