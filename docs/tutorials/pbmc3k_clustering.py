@@ -23,6 +23,23 @@
 # `scrust` installed executes the whole tutorial with *Run All*.
 
 # %% [markdown]
+# ## Step 0 — Repository path setup
+#
+# Put the repo's `python/` directory on `sys.path` so `import scrust` works no matter which
+# directory the script or notebook is launched from. This runs before any scrust import.
+
+# %%
+import sys
+from pathlib import Path
+
+# Automatically append repo root to sys.path so 'scrust' is importable.
+repo_root = (
+    Path(__file__).resolve().parents[2] if "__file__" in globals() else Path.cwd().parents[1]
+)
+if str(repo_root / "python") not in sys.path:
+    sys.path.insert(0, str(repo_root / "python"))
+
+# %% [markdown]
 # ## Step 1 — Imports and Metal GPU availability
 #
 # `scrust` mirrors scanpy's module layout (`pp`, `tl`), so the calls read the same; the
@@ -30,30 +47,20 @@
 # did, `device="auto"` puts every device-aware step on the GPU without the caller choosing.
 
 # %%
-from __future__ import annotations
+import ast  # noqa: E402  (imports follow the sys.path setup above)
 
-import ast
-from pathlib import Path
+import matplotlib.pyplot as plt  # noqa: E402
+import scanpy as sc  # noqa: E402  loading + plotting ONLY — never sc.pp.* / sc.tl.*
 
-import matplotlib.pyplot as plt
-import scanpy as sc  # loading + plotting ONLY — never sc.pp.* / sc.tl.*
-
-import scrust as sr  # every computational step
+import scrust as sr  # noqa: E402  every computational step
 
 plt.switch_backend("Agg")  # headless: render figures to files, never open a window
 
-# Resolve the repo root whether this runs as a script (`__file__` exists) or inside a
-# notebook kernel (it does not), by walking up to the directory holding pyproject.toml.
-try:
-    _HERE = Path(__file__).resolve().parent
-except NameError:
-    _HERE = Path.cwd()
-REPO_ROOT = next((p for p in (_HERE, *_HERE.parents) if (p / "pyproject.toml").exists()), _HERE)
-FIGURE_DIR = REPO_ROOT / "docs" / "tutorials" / "figures"
+FIGURE_DIR = repo_root / "docs" / "tutorials" / "figures"
 FIGURE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Reuse the dataset the test suite already cached, so this runs offline.
-sc.settings.datasetdir = REPO_ROOT / ".cache" / "scanpy"
+sc.settings.datasetdir = repo_root / ".cache" / "scanpy"
 sc.settings.figdir = FIGURE_DIR
 sc.settings.verbosity = 1
 
@@ -210,3 +217,23 @@ plt.savefig(FIGURE_DIR / "rank_genes_groups.png", dpi=120, bbox_inches="tight")
 plt.close()
 
 print(f"figures written to {FIGURE_DIR}")
+
+# %% [markdown]
+# ## Results gallery
+#
+# Display the figures written above inline. Under a notebook kernel this embeds the images
+# in the executed output; a plain script run detects it is not interactive and skips it.
+
+# %%
+try:
+    from IPython import get_ipython
+
+    _interactive = get_ipython() is not None
+except ImportError:
+    _interactive = False
+
+if _interactive:
+    from IPython.display import Image, display
+
+    for _name in ("pca_variance_ratio.png", "umap_leiden.png", "rank_genes_groups.png"):
+        display(Image(filename=str(FIGURE_DIR / _name)))
