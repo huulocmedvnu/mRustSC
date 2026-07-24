@@ -9,9 +9,10 @@ Names are grouped as scanpy groups them: `pp`, `tl`, `metrics`, `get`.
 
 **Status at 0.2.0**: all 40 public functions have an implementation behind them —
 17 in `pp`, 15 in `tl`, 4 each in `metrics` and `get`. The feature branches that owed
-the other 24 are merged, `grep -rn 'todo!' crates/` returns nothing, and the only
-`NotImplementedError` left in the package is `tl.dpt(n_branchings>0)`, which is one
-argument rather than a whole function.
+the other 24 are merged, `grep -rn 'todo!' crates/` returns nothing, and as of v0.2.0 the
+package has **no `NotImplementedError` left**: `tl.dpt(n_branchings>0)`, the last one, now
+runs native branch detection. v0.2.0 also adds `pp.harmony_integrate` (Harmony batch
+integration, mirroring `sc.external.pp.harmony_integrate`).
 
 Where scrust and scanpy disagree the divergence is stated under the function it
 affects, and each one is pinned by a test in `tests/test_*_audit.py` rather than left
@@ -412,8 +413,9 @@ deliberately stricter than scipy and scanpy, and the reasoning is in `diffusion.
 Diffusion pseudotime from `uns["iroot"]`, written to `obs["dpt_pseudotime"]`. Without
 a stored `X_diffmap` it computes one at 15 components, which is `tl.diffmap`'s own
 default rather than `n_dcs` — scanpy does the same, and a later `dpt` with a larger
-`n_dcs` fails there too. `n_branchings > 0` raises `NotImplementedError`; use
-`tl.paga` for branches.
+`n_dcs` fails there too. `n_branchings > 0` runs native branch detection (a port of
+scanpy's Haghverdi 2016 algorithm) and writes `obs["dpt_groups"]`; see
+[VALIDATION.md](VALIDATION.md) for the ARI-1.0 parity check.
 
 Two divergences from scanpy, both pinned. A cell outside the root's component gets an
 ordinary large **finite** pseudotime where scanpy writes `inf`, so it is not something

@@ -128,12 +128,33 @@ python -c "import scrust; print(scrust.__version__, scrust.gpu_available())"
 
 ## Status
 
-All 40 mirrored functions are implemented at 0.2.0. There are no stubs left:
-`grep -rn 'todo!' crates/` returns nothing, and the one remaining
-`NotImplementedError` in `python/scrust/` is `tl.dpt(n_branchings=)` above 0, which
-is branch detection rather than a whole function. Cross-check figures are in
-[docs/VALIDATION.md](docs/VALIDATION.md); per-function detail in
-[docs/API.md](docs/API.md).
+**v0.2.0** — every mirrored function is implemented, with no stubs and no
+`NotImplementedError` left: `grep -rn 'todo!' crates/` returns nothing, and
+`tl.dpt(n_branchings > 0)` — the last `NotImplementedError` in earlier releases — now runs
+native branch detection (a port of Haghverdi 2016, measured ARI 1.0 against scanpy). This
+release also adds four native capabilities beyond the scanpy-core mirror, each verified by
+a real audit (see [docs/VALIDATION.md](docs/VALIDATION.md) and
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md)):
+
+| capability | status | verification |
+| --- | --- | --- |
+| `tl.score_genes_cell_cycle` — cell cycle scoring | Native Rust | 4/4 parity tests, CPU & Metal (f64 accumulator matches scanpy) |
+| out-of-core backed streaming (`pp.normalize_total`, `pp.log1p`) | Native Rust | bit-for-bit vs in-memory; 1141 MB → 737 MB peak RAM (0.65×) |
+| `tl.dpt(n_branchings > 0)` — DPT branch detection | Native (binding) | ARI 1.0000 vs scanpy, `n_branchings` 1 and 2 |
+| `pp.harmony_integrate` — Harmony batch integration | Native Rust | iLISI 1.00 → 1.90; 0.590 s → 0.182 s (3.2×), CPU |
+
+Per-function detail is in [docs/API.md](docs/API.md).
+
+Harmony integration mirrors `sc.external.pp.harmony_integrate` — it corrects the PCA
+embedding for a batch label and writes the result to `obsm["X_pca_harmony"]`:
+
+```python
+import scrust as sr
+
+sr.pp.pca(adata, n_comps=50)
+sr.pp.harmony_integrate(adata, key="batch")     # writes obsm["X_pca_harmony"]
+sr.pp.neighbors(adata, use_rep="X_pca_harmony")  # cluster/embed on the integrated space
+```
 
 | area | mirrored |
 | --- | --- |

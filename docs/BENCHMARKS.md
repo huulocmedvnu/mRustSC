@@ -336,10 +336,53 @@ abandoned 50 000-cell sweep.** It compares two ways of reading a file inside scr
 it measures bytes rather than seconds against a reference, and it completed in under
 a second. No operation timing at 50 000 cells is reported anywhere on this page.
 
-Two caveats. `scrust._backed` is private and no `pp` function consumes it yet, so
-this is a facility you drive yourself today. And the win is bounded by what you do
-with each block: densifying a block is still `rows x n_vars x 4` bytes, which is
-what the block sizing is derived from.
+One caveat. The win is bounded by what you do with each block: densifying a block is
+still `rows x n_vars x 4` bytes, which is what the block sizing is derived from.
+
+### Out-of-core `pp.normalize_total` and `pp.log1p` (v0.2.0)
+
+As of v0.2.0 `scrust._backed` is wired into `pp.normalize_total` and `pp.log1p`: when
+`adata.isbacked`, they stream `X` in row blocks and rewrite it on disk in place, so peak
+memory is one block rather than the whole matrix. `benches/backed_transform.py` measures
+the peak resident memory of the two paths — read the file into memory and transform it
+there, versus stream it — applying counts-per-10k normalisation then `log1p`.
+
+| mode | peak MB |
+| --- | ---: |
+| whole file in memory, then transform | 1141 |
+| streamed on disk (`isbacked=True`) | **737** |
+
+Measured on a synthetic 40 000 x 6 000 matrix at 8% density: **404 MB less peak RAM
+(0.65× of the in-memory peak)**, with **bit-for-bit identical** output (the two paths
+produce the same matrix; the checksums agree). Each block is transformed by the same
+`scrust-core` routine the in-memory path uses, so normalisation stays per-row exact and
+`log1p` element-wise exact.
+
+## Harmony batch integration (v0.2.0)
+
+`sr.pp.harmony_integrate` is a native Rust/candle implementation of Harmony (Korsunsky et
+al. 2019). It is iterative and k-means seeded, so it is not bit-for-bit with `harmonypy` (a
+compiled C++ backend); correctness is batch mixing, measured by iLISI, and the timing is
+reported against `harmonypy` as a reference. Measured on PBMC 3k (2 638 cells, 50 PCs, two
+batches with a shift injected into the embedding):
+
+| | time | iLISI |
+| --- | ---: | ---: |
+| before correction | — | 1.00 |
+| scrust harmony (CPU) | **0.182 s** | **1.90** |
+| `harmonypy` 2.0.0 (C++) | 0.064 s | — |
+
+scrust raises iLISI from 1.00 (batches separated) to 1.90, near the maximum of 2 for two
+batches, and its objective converges. The CPU path is **0.182 s, a 3.2× improvement** over
+the 0.590 s of the first working version — from an adaptive ndarray/candle matmul,
+rayon-parallel M-step and E-step reductions, and harmonypy's convergence tolerances.
+
+It does **not** reach harmonypy's 0.064 s, and this is stated rather than glossed: harmonypy
+uses a hand-tuned Accelerate BLAS, and the remaining gap is small-matrix matmul that a
+pure-Rust build without a BLAS backend cannot close. A profiled attempt at an `(N, K)`
+contiguous layout and a batch-parallel E-step was measured, found either neutral or
+correctness-breaking (iLISI collapsed to 1.00), and reverted; 0.182 s is the honest floor
+that keeps iLISI ≥ 1.85.
 
 ## What could not be benchmarked
 
@@ -350,13 +393,14 @@ remaining public name — `pp.calculate_qc_metrics`, `pp.regress_out`, `pp.comba
 once on a small input so that its outcome is measured rather than asserted.
 
 **These are no longer stubs.** An earlier version of this page said all 24 raise
-`NotImplementedError` naming the branch that owed them; that was true while the
-feature branches were in flight and is not true now. Every name in `PROBES` is exported
-and implemented; the only `NotImplementedError` left anywhere in `python/scrust/` is
-`tl.dpt(n_branchings > 0)`, which refuses branch detection specifically. What is still
-missing is *timings*: none of these 24 appears in the tables above, because `PROBES`
-calls them once and does not time them. Benchmarking them means adding them to `OPS`
-and re-running the sweep. See [API.md](API.md) for the current state of each.
+`NotImplementedError` naming the branch that owed them; that was true while the feature
+branches were in flight and is not true now. Every name in `PROBES` is exported and
+implemented, and as of v0.2.0 there is **no `NotImplementedError` left anywhere in
+`python/scrust/`** — `tl.dpt(n_branchings > 0)`, the last one, now runs native branch
+detection. What is still missing is *timings*: none of these 24 appears in the tables
+above, because `PROBES` calls them once and does not time them. Benchmarking them means
+adding them to `OPS` and re-running the sweep. See [API.md](API.md) for the current state
+of each.
 
 **The hand-written Metal kernels.** `crates/scrust-gpu` contains four kernel modules —
 `spmm` (CSR SpMM, transposed SpMM, column moments, row scaling), `knn`, `umap_sgd` and

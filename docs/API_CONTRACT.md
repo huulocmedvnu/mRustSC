@@ -6,10 +6,11 @@ tolerance, what the two devices guarantee about each other, and where scrust
 deliberately does something scanpy does not.
 
 The parallel-branch round this document was written to coordinate is over. Every
-branch in it is merged: `grep -rn 'todo!' crates/` returns nothing, and the only
-`NotImplementedError` left in `python/` is `tl.dpt(n_branchings=)` above 0
-(`python/scrust/tl/_trajectory.py:46`) — branch detection, which is genuinely not
-implemented, not a placeholder. The ownership table that assigned files to
+branch in it is merged: `grep -rn 'todo!' crates/` returns nothing, and as of v0.2.0
+there is **no `NotImplementedError` left in `python/`** — `tl.dpt(n_branchings > 0)`,
+the last one, now runs native branch detection (a port of scanpy's Haghverdi 2016
+algorithm, ARI 1.0 against scanpy; see `docs/VALIDATION.md`). The ownership table that
+assigned files to
 branches has been deleted; `docs/ARCHITECTURE.md` describes the layout as it now
 stands.
 

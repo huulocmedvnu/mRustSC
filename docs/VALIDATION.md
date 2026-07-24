@@ -9,7 +9,7 @@ Three kinds of test run against this crate, and they answer different questions.
   (2 638 cells) under the `reference` marker — and ask whether the *results* agree.
   The form of agreement is chosen per algorithm and fixed in
   [API_CONTRACT.md](API_CONTRACT.md#scanpy-is-the-reference).
-* **Audits** (`tests/test_*_audit.py`, 16 files, 314 collected tests) take one module
+* **Audits** (`tests/test_*_audit.py`, 21 files as of v0.2.0) take one module
   at a time and go after the places the reference tests cannot fail: term-by-term
   identities against the reference implementation's own code, boundaries, degenerate
   inputs, and deliberate divergences pinned with the size of the gap. These are new,
@@ -162,8 +162,13 @@ than collected.)
 | `diffusion` | `test_diffusion_audit.py` | scanpy `tl.diffmap`, `tl.dpt` | 12 |
 | `paga` | `test_paga_audit.py` | scanpy `tl.paga(model="v1.2")` | 17 |
 | `layout` | `test_layout_audit.py` | scanpy `tl.dendrogram`, `scipy.cluster.hierarchy`, `scipy.stats.gaussian_kde` | 18 |
+| cell cycle | `test_cell_cycle_audit.py` | scanpy `tl.score_genes_cell_cycle` (scores + phase rule) | 5 |
+| `dpt` branching | `test_dpt_branching_audit.py` | scanpy `tl.dpt(n_branchings>0)`, adjusted Rand index | 4 |
+| `harmony` | `test_harmony_audit.py` | `harmonypy 2.0.0` (iLISI, objective convergence) | 3 |
 
-314 tests over 16 files. Wherever the reference can be *driven* on the same input it
+The v0.2.0 audits (cell cycle, dpt branching, harmony) and the backed-streaming parity in
+`test_backed_streaming.py` bring the audit suite to 21 files. Wherever the reference can be
+*driven* on the same input it
 is driven rather than transcribed; the exceptions (umap-learn's SGD inner loop,
 scikit-learn's t-SNE gradient, scanpy's `transitions_sym` spectrum) transcribe the
 reference and then check the transcription against the installed package in a test of
@@ -314,6 +319,46 @@ scanpy or scipy equivalent to compare against, so their audits pin invariants in
 block-size invariance for `chunked`, and round-trip and validation behaviour for
 `sparse`, against `scipy.sparse.csr_matrix` where the two overlap.
 
-Of the Python API itself, the only entry point that still raises `NotImplementedError`
-is `tl.dpt(n_branchings > 0)` — branch detection. See [API.md](API.md) for the current
-implemented/not-implemented split.
+As of v0.2.0 **no entry point in `python/scrust/` raises `NotImplementedError`** —
+`tl.dpt(n_branchings > 0)`, the last one, now runs native branch detection (below). See
+[API.md](API.md) for the current implemented/not-implemented split.
+
+## DPT branch detection — adjusted Rand index against scanpy
+
+`tl.dpt(n_branchings > 0)` used to raise `NotImplementedError`; v0.2.0 runs a native port
+of scanpy's Haghverdi 2016 branch detection (`scrust.tl._dpt_branching`) and writes
+`obs["dpt_groups"]`. Branch labels are arbitrary, so parity is the adjusted Rand index of
+the two partitions, per the clustering rule in [API_CONTRACT.md](API_CONTRACT.md). To test
+the *branching* alone, `tests/test_dpt_branching_audit.py` feeds scrust's port and scanpy's
+`dpt` the **same** diffusion map, so any difference is the branching logic, not the diffmap:
+
+| dataset | `n_branchings` | ARI vs scanpy | group sizes |
+| --- | --- | --- | --- |
+| PBMC 3k | 1 | **1.0000** | identical (e.g. 153 / 2275 / 266 / 6) |
+| PBMC 3k | 2 | **1.0000** | identical |
+
+The partition is identical, not merely similar — the group sizes match as multisets.
+End-to-end, with scrust computing its own diffmap, the ARI is also 1.0000, because scrust's
+diffmap agrees with scanpy's closely enough that the branch cut lands in the same place.
+Passes on cpu and Metal.
+
+## Harmony batch integration — integration metrics, not bit-for-bit
+
+`pp.harmony_integrate` is iterative and k-means seeded, so it does not reproduce
+`harmonypy` (a compiled C++ backend) to the bit. Correctness for a batch-integration method
+is instead batch mixing and convergence, measured in `tests/test_harmony_audit.py` on
+PBMC 3k with a batch shift injected into the PCA embedding:
+
+* **iLISI** (integration Local Inverse Simpson's Index) — the effective number of batches
+  in each cell's neighbourhood, 1 (separated) to 2 (mixed for two batches). scrust raises it
+  from **1.00 before correction to 1.90 after**; the test asserts iLISI ≥ 1.85.
+* **Objective convergence** — the harmony objective decreases and its final relative step
+  is within the harmony tolerance (~1%); the test asserts this.
+* **Reference** — `harmonypy 2.0.0` is run on the same data as a black box; scrust is
+  asserted to mix batches at least as well (iLISI), and the cosine correlation with
+  harmonypy is recorded (0.88), not asserted, since the two seed and converge differently.
+
+Passes on cpu and Metal. Cell-cycle scoring is validated separately by
+`tests/test_cell_cycle_audit.py` (S/G2M scores element-wise against scanpy, its exact
+three-way phase rule, 4/4 on cpu and Metal); backed streaming by
+`tests/test_backed_streaming.py` (bit-for-bit against the in-memory path).
