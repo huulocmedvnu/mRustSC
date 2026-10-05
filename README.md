@@ -69,27 +69,30 @@ enforces strict tolerance bounds between both backends.
 
 ## Benchmarks
 
-Measured at 499, 2,638, and 10,000 cells. Speedup relative to Scanpy (values above 1.00x
-mean scrust is faster):
+Measured on an Apple M3 Pro (18 GB) after the Apple silicon optimisation pass, PBMC 3k bootstrapped to
+10 000 and 50 000 cells. Speedup relative to Scanpy (values above 1.00x mean scrust is faster); full
+before/after table and method in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
-| Operation | 499 cells | 2,638 cells | 10,000 cells |
-| --- | ---: | ---: | ---: |
-| `tl.paga` | 23.00x | 55.67x | 90.40x |
-| `tl.rank_genes_groups` | 10.15x | 28.72x | 41.95x |
-| `tl.umap` | 3.41x | 2.96x | 4.84x |
-| `pp.neighbors` | 0.64x | 1.15x | 5.80x |
-| `pp.pca` | 0.36x | 1.36x | 1.63x |
-| `pp.log1p` | 0.43x | 0.44x | 0.45x |
-| `pp.scale` | 0.17x | 0.35x | 0.42x |
-| `pp.normalize_total` | 0.09x | 0.17x | 0.30x |
-| `tl.tsne` | 1.42x | 0.25x | 0.06x |
+| Operation | 10,000 cells | 50,000 cells |
+| --- | ---: | ---: |
+| `tl.rank_genes_groups` | 43.3x | 59.7x |
+| `pp.neighbors` | 20.0x | 4.5x |
+| `pp.scale` | 5.5x | 17.8x |
+| `pp.pca` | 5.7x | 6.7x |
+| `tl.leiden` | 134x | 29x |
+| `tl.umap(parallel=True)` | about 28x | 6x faster than sequential |
+| `tl.umap` (default, deterministic) | 5.0x | not measured |
+| `pp.log1p` | 3.1x | 2.1x |
+| `pp.normalize_total` | 1.9x | 1.3x |
+| `pp.highly_variable_genes` | 1.0x | 1.1x |
+| `tl.tsne` | see below | refuses > 20,000 cells |
 
 ### Performance Insights
 
 - **The Wins:** Dense batched tensor operations and per-gene statistics show massive
   speedups.
-- **The Losses:** Cheap elementwise operations are bandwidth-bound and too small to
-  offset the Python/Rust FFI boundary crossing overhead.
+- **Elementwise steps:** `normalize_total`, `log1p` and `scale` now run zero-copy on numpy's
+  buffers across all performance and efficiency cores, so they no longer lose to the FFI overhead.
 - **`tl.tsne` Limitations:** Uses exact `O(N^2)` distance formulation — optimal for GPU
   tensor cores on smaller datasets, whereas Scanpy uses Barnes-Hut `O(N log N)`. It scales
   poorly beyond 10,000 cells (17x slower) and raises a `ValueError` above 20,000 cells to
@@ -100,10 +103,10 @@ For peak memory consumption and complete benchmarks, see
 
 ## Custom Metal Kernels
 
-The `pp.neighbors` row incorporates hand-written Metal kernels. `crates/scrust-py` links
-against `crates/scrust-gpu` to route k-NN graph queries to custom Metal kernels, achieving
-~2-2.5x speedups over candle while maintaining bit-for-bit agreement with the CPU oracle
-(`tests/test_device_parity.py`, 4/4 pass).
+The `pp.neighbors` row runs a hand-written, tiled Metal k-NN kernel: 64 queries per threadgroup,
+candidate tiles in threadgroup memory, and a shader specialised per `(n_dims, k)` so each query row
+and its top-k list stay in registers. It returns the same neighbours as the CPU oracle
+(`tests/test_device_parity.py`, and a brute-force test with duplicated points).
 
 Three additional kernels (`spmm`, `tsne_gradient`, `umap_sgd`) are implemented and tested:
 `umap_sgd` intentionally remains unwired (uses Hogwild asynchronous updates) to ensure
@@ -122,7 +125,8 @@ python3 -m venv .venv
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
-Prerequisites: Rust toolchain and Xcode Metal compiler.
+Prerequisites: a Rust toolchain. The Metal shaders are compiled at run time by the system Metal
+framework, so the Xcode Metal toolchain is not needed. Apple Accelerate BLAS is linked by default.
 
 Without a GPU, operations gracefully fall back to the CPU path. For platform details and
 build instructions, see [docs/INSTALL.md](docs/INSTALL.md).

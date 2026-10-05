@@ -80,7 +80,10 @@ pub fn harmony_integrate(
     }
     if n_batches < 2 {
         // Nothing to integrate; hand the embedding back unchanged.
-        return Ok(HarmonyResult { corrected: z_pca.clone(), objective: Vec::new() });
+        return Ok(HarmonyResult {
+            corrected: z_pca.clone(),
+            objective: Vec::new(),
+        });
     }
     let k = params.n_clusters.max(1);
     let bp1 = n_batches + 1;
@@ -110,7 +113,7 @@ pub fn harmony_integrate(
     normalise_columns_inplace(&mut y);
     let mut dist = distance_matrix(&y, &z_cos, device)?; // (K, N) = 2(1 - YᵀZ)
     let mut r = softmax_over_clusters(&dist, params.sigma); // (K, N)
-    // E = outer(R.sum(1), Pr_b); O = R @ phiᵀ   both (K, B)
+                                                            // E = outer(R.sum(1), Pr_b); O = R @ phiᵀ   both (K, B)
     let mut e_mat = outer(&r.sum_axis(Axis(1)), &pr_b);
     let mut o_mat = r.dot(&phi.t());
 
@@ -157,7 +160,10 @@ pub fn harmony_integrate(
         }
     }
 
-    Ok(HarmonyResult { corrected: z_corr.t().to_owned(), objective })
+    Ok(HarmonyResult {
+        corrected: z_corr.t().to_owned(),
+        objective,
+    })
 }
 
 /// The M-step correction contributed by one cluster: `Wᵀ (Φ_moe ∘ R_k)`, a `(d, N)` array.
@@ -306,8 +312,11 @@ fn kmeans_objective(
         .zip(dist_flat.par_iter())
         .map(|(&a, &b)| a * b)
         .sum();
-    let entropy: f32 =
-        r_flat.par_iter().map(|&v| if v > 0.0 { -v * v.ln() } else { 0.0 }).sum::<f32>() * sigma;
+    let entropy: f32 = r_flat
+        .par_iter()
+        .map(|&v| if v > 0.0 { -v * v.ln() } else { 0.0 })
+        .sum::<f32>()
+        * sigma;
     // cross entropy: sum over cells of sigma * R[:,cell] . ( theta * log((O+1)/(E+1)) )[:, batch]
     let mut log_ratio = Array2::<f32>::zeros(e.raw_dim());
     for k in 0..e.nrows() {
@@ -318,7 +327,12 @@ fn kmeans_objective(
     let projected = log_ratio.dot(phi); // (K, N)
     let cross: f32 = r_flat
         .par_iter()
-        .zip(projected.as_slice().expect("projected is contiguous").par_iter())
+        .zip(
+            projected
+                .as_slice()
+                .expect("projected is contiguous")
+                .par_iter(),
+        )
         .map(|(&a, &b)| a * b)
         .sum::<f32>()
         * sigma;
@@ -340,7 +354,10 @@ fn matmul(a: ArrayView2<f32>, b: ArrayView2<f32>, device: &Device) -> Result<Arr
     let (m, ka) = a.dim();
     let (kb, n) = b.dim();
     if ka != kb {
-        return Err(Error::shape(format!("({m}, {ka}) x ({kb}, {n})"), "a matmul"));
+        return Err(Error::shape(
+            format!("({m}, {ka}) x ({kb}, {n})"),
+            "a matmul",
+        ));
     }
     if !device.is_metal() || m * n < GPU_MATMUL_THRESHOLD {
         // `.dot()` of a transposed view can come back non-standard; force C-contiguous so
@@ -353,7 +370,8 @@ fn matmul(a: ArrayView2<f32>, b: ArrayView2<f32>, device: &Device) -> Result<Arr
     let tb = Tensor::from_slice(b.as_slice().unwrap(), (kb, n), device)?;
     let tc = ta.matmul(&tb)?.contiguous()?;
     let data = tc.flatten_all()?.to_vec1::<f32>()?;
-    Array2::from_shape_vec((m, n), data).map_err(|_| Error::shape("a matmul result", "wrong length"))
+    Array2::from_shape_vec((m, n), data)
+        .map_err(|_| Error::shape("a matmul result", "wrong length"))
 }
 
 fn outer(a: &Array1<f32>, b: &Array1<f32>) -> Array2<f32> {
@@ -392,7 +410,11 @@ fn invert(a: &Array2<f32>) -> Result<Array2<f32>> {
             }
         }
         if m[[pivot, col]].abs() < 1e-12 {
-            return Err(Error::parameter("harmony ridge", "a solvable system", col as f32));
+            return Err(Error::parameter(
+                "harmony ridge",
+                "a solvable system",
+                col as f32,
+            ));
         }
         if pivot != col {
             swap_rows(&mut m, col, pivot);
@@ -499,7 +521,9 @@ struct SplitMix64 {
 
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        Self { state: seed.wrapping_add(0x9e37_79b9_7f4a_7c15) }
+        Self {
+            state: seed.wrapping_add(0x9e37_79b9_7f4a_7c15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9e37_79b9_7f4a_7c15);

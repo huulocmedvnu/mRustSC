@@ -97,7 +97,79 @@ pub fn pca(
 
     let stats = ColumnStats::of(matrix, zero_center);
     let centred = CentredMatrix::new(matrix, &stats, zero_center, device)?;
+    fit(
+        &centred,
+        &stats,
+        n_cells,
+        n_genes,
+        n_components,
+        zero_center,
+        seed,
+        device,
+    )
+}
 
+/// `pca` for a dense, row-major `(n_rows, n_cols)` matrix (e.g. after `pp.scale`).
+///
+/// The data goes to the device once and every product of the range finder reuses it;
+/// no sparse detour.
+pub fn pca_dense(
+    data: &[f32],
+    n_rows: usize,
+    n_cols: usize,
+    n_components: usize,
+    zero_center: bool,
+    seed: u64,
+    device: &Device,
+) -> Result<PcaResult> {
+    if data.len() != n_rows * n_cols {
+        return Err(Error::shape(
+            format!("{} values", n_rows * n_cols),
+            format!("{} values", data.len()),
+        ));
+    }
+    let max_components = n_rows.min(n_cols);
+    if n_components == 0 {
+        return Err(Error::parameter("n_components", "at least 1", n_components));
+    }
+    if n_components > max_components {
+        return Err(Error::parameter(
+            "n_components",
+            "at most min(n_cells, n_genes)",
+            n_components,
+        ));
+    }
+    if n_rows < 2 {
+        return Err(Error::parameter("n_cells", "at least 2", n_rows));
+    }
+    let stats = ColumnStats::of_dense(data, n_rows, n_cols, zero_center);
+    let dense = Tensor::from_slice(data, (n_rows, n_cols), device)?;
+    let centred = CentredMatrix::from_dense(dense, n_rows, &stats, zero_center, device)?;
+    fit(
+        &centred,
+        &stats,
+        n_rows,
+        n_cols,
+        n_components,
+        zero_center,
+        seed,
+        device,
+    )
+}
+
+/// Randomised SVD of the centred matrix; shared by the sparse and dense entries.
+#[allow(clippy::too_many_arguments)]
+fn fit(
+    centred: &CentredMatrix<'_>,
+    stats: &ColumnStats,
+    n_cells: usize,
+    n_genes: usize,
+    n_components: usize,
+    zero_center: bool,
+    seed: u64,
+    device: &Device,
+) -> Result<PcaResult> {
+    let max_components = n_cells.min(n_genes);
     let sketch_width = (n_components + OVERSAMPLING).min(max_components);
     let omega = gaussian_matrix(n_genes, sketch_width, seed, device)?;
     let mut range = orthonormalize(&centred.times(&omega)?)?;
@@ -225,6 +297,52 @@ struct ColumnStats {
 }
 
 impl ColumnStats {
+    /// The same statistics from a dense row-major matrix, accumulated in `f64` per
+    /// row block across all cores.
+    fn of_dense(data: &[f32], n_rows: usize, n_cols: usize, zero_center: bool) -> Self {
+        use rayon::prelude::*;
+        let (sums, squares) = data
+            .par_chunks(n_cols * 256)
+            .map(|block| {
+                let mut sums = vec![0.0f64; n_cols];
+                let mut squares = vec![0.0f64; n_cols];
+                for row in block.chunks_exact(n_cols) {
+                    for (g, &v) in row.iter().enumerate() {
+                        let v = v as f64;
+                        sums[g] += v;
+                        squares[g] += v * v;
+                    }
+                }
+                (sums, squares)
+            })
+            .reduce(
+                || (vec![0.0f64; n_cols], vec![0.0f64; n_cols]),
+                |(mut a, mut b), (c, d)| {
+                    a.iter_mut().zip(&c).for_each(|(x, y)| *x += y);
+                    b.iter_mut().zip(&d).for_each(|(x, y)| *x += y);
+                    (a, b)
+                },
+            );
+        Self::from_sums(&sums, &squares, n_rows as f64, zero_center)
+    }
+
+    fn from_sums(sums: &[f64], squares: &[f64], n_cells: f64, zero_center: bool) -> Self {
+        let mean = sums
+            .iter()
+            .map(|&sum| (sum / n_cells) as f32)
+            .collect::<Vec<_>>();
+        let ddof = if zero_center { 1.0 } else { 0.0 };
+        let total_variance = sums
+            .iter()
+            .zip(squares)
+            .map(|(&sum, &square)| (square - sum * sum / n_cells).max(0.0) / (n_cells - ddof))
+            .sum();
+        Self {
+            mean,
+            total_variance,
+        }
+    }
+
     fn of(matrix: &CsrMatrix, zero_center: bool) -> Self {
         let n_genes = matrix.n_cols();
         let n_cells = matrix.n_rows() as f64;
@@ -258,10 +376,41 @@ impl ColumnStats {
 /// The sparse matrix with its per-gene mean subtracted, exposed only through the
 /// two products the range finder needs.
 struct CentredMatrix<'a> {
-    matrix: &'a CsrMatrix,
+    matrix: Option<&'a CsrMatrix>,
+    /// The whole matrix on the device, when it fits the dense budget: densified once
+    /// and reused by every product, instead of re-densified block by block each time.
+    dense: Option<Tensor>,
+    n_rows: usize,
     /// Per-gene mean as `(1, n_genes)`, or `None` when centring is off.
     mean: Option<Tensor>,
     device: &'a Device,
+}
+
+/// Largest dense copy (bytes) PCA keeps on the device; `SCRUST_PCA_DENSE_MB` overrides.
+fn dense_budget_bytes() -> usize {
+    std::env::var("SCRUST_PCA_DENSE_MB")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4096)
+        * 1024
+        * 1024
+}
+
+/// Densify a CSR matrix row by row across all cores.
+fn densify_parallel(matrix: &CsrMatrix) -> Vec<f32> {
+    use rayon::prelude::*;
+    let n_cols = matrix.n_cols();
+    let (indptr, indices, values) = (matrix.indptr(), matrix.indices(), matrix.values());
+    let mut dense = vec![0.0f32; matrix.n_rows() * n_cols];
+    dense
+        .par_chunks_mut(n_cols)
+        .enumerate()
+        .for_each(|(row, dest)| {
+            for k in indptr[row] as usize..indptr[row + 1] as usize {
+                dest[indices[k] as usize] = values[k];
+            }
+        });
+    dense
 }
 
 impl<'a> CentredMatrix<'a> {
@@ -280,8 +429,43 @@ impl<'a> CentredMatrix<'a> {
         } else {
             None
         };
+        let fits = matrix.n_rows() * matrix.n_cols() * 4 <= dense_budget_bytes();
+        let dense = if fits {
+            let data = densify_parallel(matrix);
+            Some(Tensor::from_vec(
+                data,
+                (matrix.n_rows(), matrix.n_cols()),
+                device,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
-            matrix,
+            matrix: Some(matrix),
+            dense,
+            n_rows: matrix.n_rows(),
+            mean,
+            device,
+        })
+    }
+
+    fn from_dense(
+        dense: Tensor,
+        n_rows: usize,
+        stats: &ColumnStats,
+        zero_center: bool,
+        device: &'a Device,
+    ) -> Result<Self> {
+        let n_cols = stats.mean.len();
+        let mean = if zero_center {
+            Some(Tensor::from_vec(stats.mean.clone(), (1, n_cols), device)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            matrix: None,
+            dense: Some(dense),
+            n_rows,
             mean,
             device,
         })
@@ -289,13 +473,18 @@ impl<'a> CentredMatrix<'a> {
 
     /// `X_centred @ rhs`, with `rhs` of shape `(n_genes, width)`.
     fn times(&self, rhs: &Tensor) -> Result<Tensor> {
-        let mut blocks = Vec::new();
-        for start in (0..self.matrix.n_rows()).step_by(ROW_BLOCK) {
-            let end = (start + ROW_BLOCK).min(self.matrix.n_rows());
-            let dense = self.matrix.to_tensor_rows(start, end, self.device)?;
-            blocks.push(dense.matmul(rhs)?);
-        }
-        let product = Tensor::cat(&blocks, 0)?;
+        let product = if let Some(dense) = &self.dense {
+            dense.matmul(rhs)?
+        } else {
+            let matrix = self.matrix.expect("sparse source when no dense copy");
+            let mut blocks = Vec::new();
+            for start in (0..self.n_rows).step_by(ROW_BLOCK) {
+                let end = (start + ROW_BLOCK).min(self.n_rows);
+                let dense = matrix.to_tensor_rows(start, end, self.device)?;
+                blocks.push(dense.matmul(rhs)?);
+            }
+            Tensor::cat(&blocks, 0)?
+        };
         match &self.mean {
             // X_centred @ rhs == X @ rhs - ones @ (mean^T @ rhs): centring is a
             // rank-one correction on the sketch, so the dense centred matrix —
@@ -307,19 +496,25 @@ impl<'a> CentredMatrix<'a> {
 
     /// `X_centred^T @ lhs`, with `lhs` of shape `(n_cells, width)`.
     fn transpose_times(&self, lhs: &Tensor) -> Result<Tensor> {
-        let mut accumulated: Option<Tensor> = None;
-        for start in (0..self.matrix.n_rows()).step_by(ROW_BLOCK) {
-            let end = (start + ROW_BLOCK).min(self.matrix.n_rows());
-            let dense = self.matrix.to_tensor_rows(start, end, self.device)?;
-            let rows = lhs.narrow(0, start, end - start)?.contiguous()?;
-            let part = dense.t()?.contiguous()?.matmul(&rows)?;
-            accumulated = Some(match accumulated {
-                Some(total) => total.add(&part)?,
-                None => part,
-            });
-        }
-        let product =
-            accumulated.ok_or_else(|| Error::shape("at least one cell", "an empty matrix"))?;
+        let product = if let Some(dense) = &self.dense {
+            // X^T @ L == (L^T @ X)^T: transposing the thin (n_cells, width) factor is
+            // cheap, transposing X is not.
+            lhs.t()?.contiguous()?.matmul(dense)?.t()?.contiguous()?
+        } else {
+            let matrix = self.matrix.expect("sparse source when no dense copy");
+            let mut accumulated: Option<Tensor> = None;
+            for start in (0..self.n_rows).step_by(ROW_BLOCK) {
+                let end = (start + ROW_BLOCK).min(self.n_rows);
+                let dense = matrix.to_tensor_rows(start, end, self.device)?;
+                let rows = lhs.narrow(0, start, end - start)?.contiguous()?;
+                let part = dense.t()?.contiguous()?.matmul(&rows)?;
+                accumulated = Some(match accumulated {
+                    Some(total) => total.add(&part)?,
+                    None => part,
+                });
+            }
+            accumulated.ok_or_else(|| Error::shape("at least one cell", "an empty matrix"))?
+        };
         match &self.mean {
             // The mirror of the correction above: mean (n_genes, 1) times the
             // column sums of `lhs` (1, width).

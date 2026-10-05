@@ -95,7 +95,11 @@ fn harmony_integrate<'py>(
         theta,
         sigma,
         lambda,
-        n_clusters: if n_clusters == 0 { defaults.n_clusters } else { n_clusters },
+        n_clusters: if n_clusters == 0 {
+            defaults.n_clusters
+        } else {
+            n_clusters
+        },
         max_iter_harmony,
         max_iter_kmeans,
         epsilon_cluster: defaults.epsilon_cluster,
@@ -104,7 +108,9 @@ fn harmony_integrate<'py>(
         seed,
     };
     let result = py
-        .allow_threads(|| harmony::harmony_integrate(&embedding, &batch, n_batches, &params, &device))
+        .allow_threads(|| {
+            harmony::harmony_integrate(&embedding, &batch, n_batches, &params, &device)
+        })
         .map_err(to_py_error)?;
     Ok((result.corrected.into_pyarray(py), result.objective))
 }

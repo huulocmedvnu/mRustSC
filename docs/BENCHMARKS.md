@@ -25,6 +25,81 @@ row as a GPU number, and [The two devices are not
 interchangeable](#the-two-devices-are-not-interchangeable) before assuming the two
 produce the same values.
 
+## Apple silicon optimisation pass (branch `perf/apple-silicon`, 2026-10-05)
+
+Measured on an Apple M3 Pro (5 performance + 6 efficiency cores, 18 GB unified memory), scanpy 1.12.4,
+the same `benches/benchmark.py`, PBMC 3k bootstrapped to 10 000 and 50 000 cells. "Before" is `main`
+at `48a66ff`; "after" is this branch. Times in seconds; speedup is scanpy / scrust. Rows marked * are best of
+3 runs (single runs of these sub-50 ms steps are dominated by first-call page faults); the rest are single runs.
+
+| step | cells | scanpy | scrust before | scrust after | speedup before | speedup after |
+|---|---:|---:|---:|---:|---:|---:|
+| `pp.normalize_total`* | 10 000 | 0.008 | 0.122 | 0.004 | 0.21x | 1.87x |
+| `pp.normalize_total`* | 50 000 | 0.043 | 0.393 | 0.033 | 0.49x | 1.28x |
+| `pp.log1p`* | 10 000 | 0.016 | 0.041 | 0.005 | 0.40x | 3.06x |
+| `pp.log1p`* | 50 000 | 0.083 | 0.243 | 0.039 | 0.40x | 2.14x |
+| `pp.scale` | 10 000 | 0.050 | 0.214 | 0.009 | 0.28x | 5.51x |
+| `pp.scale` | 50 000 | 0.292 | 1.116 | 0.016 | 0.29x | 17.83x |
+| `pp.pca` | 10 000 | 1.380 | 1.127 | 0.243 | 1.25x | 5.69x |
+| `pp.pca` | 50 000 | 7.649 | 4.843 | 1.136 | 1.70x | 6.74x |
+| `pp.neighbors` | 10 000 | 0.734 | 0.147 | 0.037 | 4.93x | 19.98x |
+| `pp.neighbors` | 50 000 | 1.913 | 2.911 | 0.430 | 0.58x | 4.45x |
+| `tl.rank_genes_groups` | 50 000 | 24.08 | 0.375 | 0.404 | 61x | 60x |
+
+What changed:
+
+- **Zero-copy, multi-core elementwise steps.** `normalize_total` and `log1p` used to copy the CSR arrays
+  about eight times across the Python boundary and then run on one core. They now work on numpy's own
+  buffers (one memcpy to keep `adata.X`'s originals intact) with rayon across all performance and
+  efficiency cores. Each row is still summed sequentially, so the results are bit-identical.
+- **Fused `scale`.** One pass per row from CSR straight into the dense result numpy allocated, instead of
+  densify, upload, three GPU ops, download and copy. The step is memory-bound; the GPU round trip only cost.
+- **Tiled k-NN kernel.** The old kernel ran one threadgroup per query and re-read every candidate row from
+  device memory for every query (about 500 GB of traffic at 50 000 cells). The new kernel serves 64 queries
+  per threadgroup, streams candidates through threadgroup memory and is specialised per `(n_dims, k)` so the
+  query row and the top-k list sit in registers. Distances, zero-snapping and the (distance, index) tie
+  break are unchanged; a new test checks identical neighbours against the brute-force reference with
+  duplicated points and ragged tiles. The old kernel remains for `k > 64` or more than 128 dimensions.
+- **PCA densifies once.** The range finder re-densified the sparse matrix block by block for every product
+  (about 16 times per call). The matrix is now densified once in parallel and kept on the device when it
+  fits `SCRUST_PCA_DENSE_MB` (default 4096); a dense `X` (after `pp.scale`) goes straight to the device
+  through the new `pca_dense` entry instead of a dense -> CSR -> dense detour.
+- **Apple Accelerate** BLAS/LAPACK is on by default in the wheel (about 15-20% on the CPU PCA path).
+
+Correctness: `pytest -m "not slow"` gives 835 passed, 1 xfailed (the documented ill-conditioned PCA case),
+3 failed; the 3 failures exist on `main` too and come from scanpy 1.12.4 changing its sparse median rule in
+`normalize_total` (the audits were written against 1.12.2). With `SCRUST_TEST_DEVICE=auto` the device-parity,
+PCA and neighbour audits pass on the Metal GPU (31 passed). `cargo test --workspace` passes except the
+Hogwild `umap_sgd` structure test, which is flaky under parallel test load on `main` as well and passes when
+run alone.
+
+### Second pass: UMAP, Leiden, neighbour memory (same branch, same machine)
+
+| step | cells | scanpy | scrust | speedup | added memory scanpy / scrust |
+|---|---:|---:|---:|---:|---|
+| `tl.leiden` | 10 000 | 3.886 | 0.029 | 134x | 45 / 1 MB |
+| `tl.leiden` | 50 000 | 2.615 | 0.089 | 29x | 209 / 46 MB |
+| `tl.umap` (default, sequential) | 10 000 | 9.984 | 2.016 | 4.95x | 10 / 7 MB |
+| `tl.umap(parallel=True)` | 10 000 | 9.984 | 0.36 | about 28x | - |
+| `tl.umap(parallel=True)` | 50 000 | not run | 1.98 (sequential 12.3) | - | - |
+| `pp.neighbors` (best of 3) | 50 000 | 1.661 | 0.410 | 4.05x | 88-144 / 107-123 MB |
+
+- **Leiden** was already native and fast; it was only a probe in the benchmark and is now timed.
+- **UMAP.** The default layout stays the sequential sweep that the audits hold to umap-learn, and it is
+  bit-identical to `main`: the 2-D distance is specialised and the negative-sample index uses a 32-bit
+  remainder, both of which give the same numbers. A tried one-`powf` rewrite of the attraction moved the
+  layout by an ulp, the sweep is chaotic enough for that to change the result, and it dropped the PBMC
+  reference score below its floor, so it was reverted for the default path. **`parallel=True`** is new: the
+  epochs run lock-free across all cores (Hogwild SGD, umap-learn's `parallel=True`), about 6x faster than
+  the sequential path; its layout keeps the same share of each cell's 15 PCA neighbours (0.248 against 0.247
+  sequential and 0.255 for scanpy on 10 000 cells) but is not reproducible run to run, so it is opt-in.
+- **Neighbour memory.** The earlier "scrust uses more memory" reading came from comparing absolute resident
+  sizes of two processes on an 18 GB machine, where macOS compression moves them by gigabytes. Measured as
+  the memory a call adds (physical footprint, which the benchmark now reports in its `+MB` columns), the two
+  are level. The k-NN step itself was trimmed from about 34 to 16 MB at 50 000 cells: it borrows numpy's
+  buffer instead of copying it and writes the centred coordinates straight into the GPU-shared Metal buffer.
+  Repeated calls do not grow the footprint (15 calls: flat at +9 MB), so there is no leak.
+
 ## How it was measured
 
 - Each library runs in its **own subprocess**, so a peak-memory reading belongs to

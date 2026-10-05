@@ -83,6 +83,26 @@ pub fn umap(
         .map_err(|error| Error::shape("an (n_cells, n_components) layout", error.to_string()))
 }
 
+/// UMAP with the layout optimised by all cores at once ("Hogwild" SGD, umap-learn's
+/// `parallel=True`). Edges are split into blocks that run concurrently and update the
+/// shared layout without locks; each block draws its negative samples from its own
+/// generator. Much faster on large graphs, but **not reproducible run to run** and not
+/// held to the sequential transcription: an opt-in, never the default.
+pub fn umap_parallel(connectivities: &CsrMatrix, params: &UmapParams) -> Result<Array2<f32>> {
+    validate(connectivities, params)?;
+    let n_cells = connectivities.n_rows();
+    let (a, b) = fit_ab_params(params.min_dist, params.spread)?;
+    let graph = EdgeList::from_graph(connectivities, params.n_epochs);
+    if graph.head.is_empty() {
+        return Err(Error::shape("a graph with at least one edge", "no edges"));
+    }
+    let mut embedding = random_layout(n_cells, params.n_components, params.seed);
+    rescale_to_init_range(&mut embedding, params.n_components);
+    optimize_layout_parallel(&mut embedding, &graph, n_cells, params, a, b);
+    Array2::from_shape_vec((n_cells, params.n_components), embedding)
+        .map_err(|error| Error::shape("an (n_cells, n_components) layout", error.to_string()))
+}
+
 fn validate(connectivities: &CsrMatrix, params: &UmapParams) -> Result<()> {
     if params.n_components == 0 {
         return Err(Error::parameter("n_components", "at least 1", 0));
@@ -400,6 +420,7 @@ fn optimize_layout(
 ) {
     let dim = params.n_components;
     let negative_rate = params.negative_sample_rate;
+    let n_cells_u32 = u32::try_from(n_cells).expect("fewer than 2^32 cells");
 
     let mut rngs: Vec<TauRng> = (0..n_cells)
         .map(|vertex| {
@@ -439,7 +460,9 @@ fn optimize_layout(
                 ((now - next_negative_sample[edge]) / epochs_per_negative_sample[edge]) as usize;
             let rng = &mut rngs[graph.head[edge] as usize];
             for _ in 0..n_negative {
-                let sampled = (rng.next_u32() as usize % n_cells) * dim;
+                // 32-bit remainder: same value as the 64-bit one (both operands fit in
+                // u32), and a fraction of the cost on the hottest line of the layout.
+                let sampled = (rng.next_u32() % n_cells_u32) as usize * dim;
                 if sampled != current {
                     apply_repulsion(embedding, current, sampled, dim, a, b, alpha);
                 }
@@ -450,7 +473,113 @@ fn optimize_layout(
     }
 }
 
+fn optimize_layout_parallel(
+    embedding: &mut [f32],
+    graph: &EdgeList,
+    n_cells: usize,
+    params: &UmapParams,
+    a: f32,
+    b: f32,
+) {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
+
+    let dim = params.n_components;
+    let negative_rate = params.negative_sample_rate;
+    let n_cells_u32 = u32::try_from(n_cells).expect("fewer than 2^32 cells");
+    // SAFETY: `AtomicU32` has the size and alignment of `u32`, hence of `f32`, and the
+    // exclusive borrow of `embedding` outlives every use of this view.
+    let layout: &[AtomicU32] = unsafe {
+        std::slice::from_raw_parts(embedding.as_mut_ptr() as *const AtomicU32, embedding.len())
+    };
+    let load = |i: usize| f32::from_bits(layout[i].load(Relaxed));
+    let store = |i: usize, v: f32| layout[i].store(v.to_bits(), Relaxed);
+    let distance = |l: usize, r: usize| {
+        (0..dim)
+            .map(|d| {
+                let x = load(l + d) - load(r + d);
+                x * x
+            })
+            .sum::<f32>()
+    };
+
+    let epochs_per_negative: Vec<f64> = graph
+        .epochs_per_sample
+        .iter()
+        .map(|&interval| interval / negative_rate.max(1) as f64)
+        .collect();
+    let mut next_negative = epochs_per_negative.clone();
+    let mut next_sample = graph.epochs_per_sample.clone();
+    let n_edges = graph.head.len();
+    let chunk = (n_edges / (rayon::current_num_threads() * 8)).max(2048);
+
+    let mut alpha = params.learning_rate;
+    for epoch in 0..params.n_epochs {
+        let now = epoch as f64;
+        next_sample
+            .par_chunks_mut(chunk)
+            .zip(next_negative.par_chunks_mut(chunk))
+            .enumerate()
+            .for_each(|(block, (next, next_neg))| {
+                let start = block * chunk;
+                let mut rng = TauRng::new(
+                    params.seed
+                        ^ ((epoch as u64) << 32)
+                        ^ (block as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                );
+                for j in 0..next.len() {
+                    if next[j] > now {
+                        continue;
+                    }
+                    let edge = start + j;
+                    let current = graph.head[edge] as usize * dim;
+                    let other = graph.tail[edge] as usize * dim;
+                    let dist = distance(current, other);
+                    let coefficient = if dist > 0.0 {
+                        let pow_b = dist.powf(b);
+                        -2.0 * a * b * (pow_b / dist) / (a * pow_b + 1.0)
+                    } else {
+                        0.0
+                    };
+                    for d in 0..dim {
+                        let (c, o) = (load(current + d), load(other + d));
+                        let g = clip(coefficient * (c - o)) * alpha;
+                        store(current + d, c + g);
+                        store(other + d, o - g);
+                    }
+                    next[j] += graph.epochs_per_sample[edge];
+                    if negative_rate == 0 {
+                        continue;
+                    }
+                    let n_negative = ((now - next_neg[j]) / epochs_per_negative[edge]) as usize;
+                    for _ in 0..n_negative {
+                        let sampled = (rng.next_u32() % n_cells_u32) as usize * dim;
+                        if sampled == current {
+                            continue;
+                        }
+                        let dist = distance(current, sampled);
+                        if dist <= 0.0 {
+                            continue;
+                        }
+                        let coefficient = 2.0 * REPULSION_STRENGTH * b
+                            / ((REPULSION_EPSILON + dist) * (a * dist.powf(b) + 1.0));
+                        for d in 0..dim {
+                            let c = load(current + d);
+                            store(
+                                current + d,
+                                c + clip(coefficient * (c - load(sampled + d))) * alpha,
+                            );
+                        }
+                    }
+                    next_neg[j] += n_negative as f64 * epochs_per_negative[edge];
+                }
+            });
+        alpha = params.learning_rate * (1.0 - epoch as f32 / params.n_epochs as f32);
+    }
+}
+
 /// Pull the two endpoints of a firing edge together, moving both.
+#[inline(always)]
 fn apply_attraction(
     embedding: &mut [f32],
     current: usize,
@@ -462,6 +591,9 @@ fn apply_attraction(
 ) {
     let distance = squared_distance(embedding, current, other, dim);
     let coefficient = if distance > 0.0 {
+        // Kept as two `powf` calls on purpose: `d^b / d` is cheaper but differs by an ulp,
+        // and the sequential layout is chaotic enough that an ulp moves the result. The
+        // default path stays numerically what it was; the parallel path uses one call.
         -2.0 * a * b * distance.powf(b - 1.0) / (a * distance.powf(b) + 1.0)
     } else {
         0.0
@@ -474,6 +606,7 @@ fn apply_attraction(
 }
 
 /// Push a negative sample away, moving only the head vertex.
+#[inline(always)]
 fn apply_repulsion(
     embedding: &mut [f32],
     current: usize,
@@ -495,7 +628,14 @@ fn apply_repulsion(
     }
 }
 
+#[inline(always)]
 fn squared_distance(embedding: &[f32], left: usize, right: usize, dim: usize) -> f32 {
+    if dim == 2 {
+        // The default layout: no loop, no iterator, two bounds checks.
+        let dx = embedding[left] - embedding[right];
+        let dy = embedding[left + 1] - embedding[right + 1];
+        return dx * dx + dy * dy;
+    }
     (0..dim)
         .map(|d| {
             let difference = embedding[left + d] - embedding[right + d];
@@ -1251,5 +1391,13 @@ mod tests {
 
         let no_edges = CsrMatrix::from_dense(&[0.0; 9], 3, 3).unwrap();
         assert!(umap(&no_edges, &params(0), &cpu()).is_err());
+    }
+
+    #[test]
+    fn parallel_layout_separates_two_clusters() {
+        let graph = two_clusters(60);
+        let layout = umap_parallel(&graph, &params(3)).unwrap();
+        let (within, between) = separation(&layout, 60);
+        assert!(between > 2.0 * within, "within {within}, between {between}");
     }
 }

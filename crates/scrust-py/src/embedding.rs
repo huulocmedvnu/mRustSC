@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use candle_core::Device;
 use ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2};
+use numpy::{IntoPyArray, PyArray2, PyArrayMethods};
 use pyo3::prelude::*;
 use scrust_core::neighbors::{self, KnnGraph};
 use scrust_core::tsne::{self as core_tsne, TsneParams};
@@ -39,7 +39,11 @@ thread_local! {
 /// changes the answer a caller gets. A kernel *computation* error is propagated rather
 /// than swallowed — silently falling back on it would hide a real defect. Both paths
 /// return the same `KnnGraph`, so the caller above cannot tell which ran.
-fn knn_dispatch(embedding: &Array2<f32>, k: usize, device: &Device) -> scrust_core::Result<KnnGraph> {
+fn knn_dispatch(
+    embedding: &Array2<f32>,
+    k: usize,
+    device: &Device,
+) -> scrust_core::Result<KnnGraph> {
     if device.is_metal() {
         let kernel_result = METAL_CONTEXT.with(|slot| {
             let mut slot = slot.borrow_mut();
@@ -65,8 +69,39 @@ fn knn<'py>(
     k: usize,
     device: &str,
 ) -> PyResult<PyKnn<'py>> {
-    let embedding = array2_from_py::<f32>(embedding, "embedding")?;
     let device = device_from_py(device)?;
+    // Zero-copy fast path: borrow numpy's C-contiguous f32 buffer and hand the view to the
+    // tiled Metal kernel, which writes the centred copy straight into GPU-shared memory.
+    if device.is_metal() {
+        if let Ok(array) = embedding.downcast::<numpy::PyArray2<f32>>() {
+            if let Ok(readonly) = array.try_readonly() {
+                let view = readonly.as_array();
+                let (_, n_dims) = view.dim();
+                if view.is_standard_layout()
+                    && k <= scrust_gpu::kernels::knn::TILED_MAX_K
+                    && n_dims <= scrust_gpu::kernels::knn::TILED_MAX_DIMS
+                {
+                    let result = py.allow_threads(|| {
+                        METAL_CONTEXT.with(|slot| {
+                            let mut slot = slot.borrow_mut();
+                            let context = slot.get_or_insert_with(|| MetalContext::new().ok());
+                            context.as_ref().map(|context| {
+                                scrust_gpu::kernels::knn::knn_metal_tiled_view(context, view, k)
+                            })
+                        })
+                    });
+                    if let Some(result) = result {
+                        let graph = result.map_err(to_py_error)?;
+                        return Ok((
+                            graph.indices.into_pyarray(py),
+                            graph.distances.into_pyarray(py),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    let embedding = array2_from_py::<f32>(embedding, "embedding")?;
     let graph = py
         .allow_threads(|| knn_dispatch(&embedding, k, &device))
         .map_err(to_py_error)?;
