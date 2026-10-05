@@ -58,6 +58,9 @@ pub fn knn_metal(context: &MetalContext, embedding: &Array2<f32>, k: usize) -> R
         ));
     }
 
+    if k <= TILED_MAX_K && n_dims <= TILED_MAX_DIMS {
+        return knn_metal_tiled(context, embedding, k);
+    }
     let pipeline = context.pipeline(KERNEL_NAME, KNN_SOURCE)?;
     let threads = threads_per_query(
         pipeline.max_total_threads_per_threadgroup() as usize,
@@ -111,6 +114,110 @@ pub fn knn_metal(context: &MetalContext, embedding: &Array2<f32>, k: usize) -> R
         indices: Array2::from_shape_vec((n_cells, k), indices).map_err(|_| shape())?,
         distances: Array2::from_shape_vec((n_cells, k), distances).map_err(|_| shape())?,
     })
+}
+
+/// Largest `k` the tiled kernel keeps in per-thread registers.
+pub const TILED_MAX_K: usize = 64;
+/// Largest embedding width whose query and candidate tiles fit threadgroup memory.
+pub const TILED_MAX_DIMS: usize = 128;
+const TILED_KERNEL_NAME: &str = "knn_tiled";
+
+/// Exact k nearest neighbours with query and candidate tiling.
+///
+/// Each threadgroup serves `T` query cells, one per thread, and streams the candidates
+/// through threadgroup memory `T` rows at a time, so every candidate row is read from
+/// device memory once per `T` queries instead of once per query. That turns the
+/// search from bandwidth-bound into compute-bound on Apple silicon. Distances, the
+/// zero-snapping threshold and the (distance, index) tie break are those of
+/// `knn_select`, and each thread sees every candidate, so the result is identical.
+pub fn knn_metal_tiled(
+    context: &MetalContext,
+    embedding: &Array2<f32>,
+    k: usize,
+) -> Result<KnnGraph> {
+    let (n_cells, n_dims) = embedding.dim();
+    if k == 0 || k > TILED_MAX_K {
+        return Err(Error::parameter(
+            "k",
+            "between 1 and 64 for the tiled kernel",
+            k,
+        ));
+    }
+    if n_dims == 0 || n_dims > TILED_MAX_DIMS {
+        return Err(Error::parameter("embedding", "1 to 128 dimensions", n_dims));
+    }
+    if n_cells < k + 1 {
+        return Err(Error::parameter("k", "smaller than the cell count", k));
+    }
+    // Specialise the shader for this (n_dims, k): with both known at compile time the
+    // query row and the top-k list live in registers. One pipeline per shape, cached.
+    let name: &'static str = specialised_name(n_dims, k);
+    let source = KNN_TILED_SOURCE
+        .replace("__NDIMS__", &n_dims.to_string())
+        .replace("__K__", &k.to_string())
+        .replace("knn_tiled(", &format!("{name}("));
+    let pipeline = context.pipeline(name, &source)?;
+    let memory = context.device().max_threadgroup_memory_length() as usize;
+    // The candidate tile (rows x dims) plus one norm per row must fit.
+    let mut tile = 64usize;
+    while tile > 8 && tile * (n_dims + 1) * 4 > memory {
+        tile /= 2;
+    }
+    let tile = tile.min(pipeline.max_total_threads_per_threadgroup() as usize);
+
+    let (centred, norm_sq) = centre_and_norms(embedding);
+    let input = context.buffer(&centred);
+    let norms = context.buffer(&norm_sq);
+    let out_indices = context.empty_buffer::<u32>(n_cells * k);
+    let out_distances = context.empty_buffer::<f32>(n_cells * k);
+
+    let command = context.queue().new_command_buffer();
+    let encoder = command.new_compute_command_encoder();
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(&input), 0);
+    encoder.set_buffer(1, Some(&out_indices), 0);
+    encoder.set_buffer(2, Some(&out_distances), 0);
+    encoder.set_buffer(6, Some(&norms), 0);
+    set_u32(encoder, 3, n_cells as u32);
+    set_u32(encoder, 4, n_dims as u32);
+    set_u32(encoder, 5, k as u32);
+    encoder.set_threadgroup_memory_length(0, (tile * n_dims * 4) as u64);
+    encoder.set_threadgroup_memory_length(1, (tile * 4) as u64);
+    let groups = n_cells.div_ceil(tile);
+    encoder.dispatch_thread_groups(
+        MTLSize::new(groups as u64, 1, 1),
+        MTLSize::new(tile as u64, 1, 1),
+    );
+    encoder.end_encoding();
+    command.commit();
+    command.wait_until_completed();
+    if command.status() != MTLCommandBufferStatus::Completed {
+        return Err(Error::Kernel {
+            name: TILED_KERNEL_NAME,
+            message: format!("dispatch ended in state {:?}", command.status()),
+        });
+    }
+    let indices = unsafe { MetalContext::read::<u32>(&out_indices, n_cells * k) };
+    let distances = unsafe { MetalContext::read::<f32>(&out_distances, n_cells * k) };
+    let shape = || Error::shape(format!("({n_cells}, {k})"), "a buffer of another size");
+    Ok(KnnGraph {
+        indices: Array2::from_shape_vec((n_cells, k), indices).map_err(|_| shape())?,
+        distances: Array2::from_shape_vec((n_cells, k), distances).map_err(|_| shape())?,
+    })
+}
+
+/// A stable, leaked kernel name per (n_dims, k), so the pipeline cache can key on it.
+fn specialised_name(n_dims: usize, k: usize) -> &'static str {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashMap<(usize, usize), &'static str>>> = OnceLock::new();
+    let mut names = NAMES
+        .get_or_init(Default::default)
+        .lock()
+        .expect("name cache poisoned");
+    names
+        .entry((n_dims, k))
+        .or_insert_with(|| Box::leak(format!("knn_tiled_d{n_dims}_k{k}").into_boxed_str()))
 }
 
 /// Threads per query cell: as wide as the hardware and the top-k lists allow.
@@ -266,6 +373,90 @@ kernel void knn_select(device const float* embedding [[buffer(0)]],
     for (uint slot = lane; slot < k; slot += lane_count) {
         out_cells[(ulong)query * k + slot] = list_cells[slot];
         out_distances[(ulong)query * k + slot] = sqrt(list_distances[slot]);
+    }
+}
+"#;
+
+const KNN_TILED_SOURCE: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+
+constant float F32_EPSILON = 1.1920928955078125e-07f;
+#define NDIMS __NDIMS__
+#define KK __K__
+
+inline bool closer(float lhs_distance, uint lhs_cell, float rhs_distance, uint rhs_cell) {
+    return lhs_distance < rhs_distance
+        || (lhs_distance == rhs_distance && lhs_cell < rhs_cell);
+}
+
+kernel void knn_tiled(device const float* embedding [[buffer(0)]],
+                      device uint* out_cells [[buffer(1)]],
+                      device float* out_distances [[buffer(2)]],
+                      device const float* norm_sq [[buffer(6)]],
+                      constant uint& n_cells [[buffer(3)]],
+                      constant uint& n_dims_unused [[buffer(4)]],
+                      constant uint& k_unused [[buffer(5)]],
+                      threadgroup float* candidates [[threadgroup(0)]],
+                      threadgroup float* cand_norms [[threadgroup(1)]],
+                      uint group [[threadgroup_position_in_grid]],
+                      uint lane [[thread_position_in_threadgroup]],
+                      uint tile [[threads_per_threadgroup]]) {
+    uint query = group * tile + lane;
+    bool active = query < n_cells;
+
+    float qv[NDIMS];
+    for (uint d = 0; d < NDIMS; d++) {
+        qv[d] = active ? embedding[(ulong)query * NDIMS + d] : 0.0f;
+    }
+    float best_d[KK];
+    uint best_c[KK];
+    for (uint s = 0; s < KK; s++) { best_d[s] = INFINITY; best_c[s] = 0xFFFFFFFFu; }
+    float worst_d = INFINITY;
+    uint worst_c = 0xFFFFFFFFu;
+    float own_norm = active ? norm_sq[query] : 0.0f;
+    const float scale = (float(NDIMS) + 2.0f) * F32_EPSILON;
+
+    for (uint base = 0; base < n_cells; base += tile) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = lane; i < tile * NDIMS; i += tile) {
+            uint row = base + i / NDIMS;
+            candidates[i] = row < n_cells ? embedding[(ulong)row * NDIMS + i % NDIMS] : 0.0f;
+        }
+        {
+            uint row = base + lane;
+            cand_norms[lane] = row < n_cells ? norm_sq[row] : 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (!active) { continue; }
+        uint limit = min(tile, n_cells - base);
+        for (uint c = 0; c < limit; c++) {
+            uint cell = base + c;
+            threadgroup const float* row = candidates + c * NDIMS;
+            float squared = 0.0f;
+            for (uint d = 0; d < NDIMS; d++) {
+                float delta = qv[d] - row[d];
+                squared = fma(delta, delta, squared);
+            }
+            if (squared < scale * (own_norm + cand_norms[c])) { squared = 0.0f; }
+            if (cell == query || !closer(squared, cell, worst_d, worst_c)) { continue; }
+            uint slot = KK - 1;
+            while (slot > 0 && closer(squared, cell, best_d[slot - 1], best_c[slot - 1])) {
+                best_d[slot] = best_d[slot - 1];
+                best_c[slot] = best_c[slot - 1];
+                slot--;
+            }
+            best_d[slot] = squared;
+            best_c[slot] = cell;
+            worst_d = best_d[KK - 1];
+            worst_c = best_c[KK - 1];
+        }
+    }
+    if (active) {
+        for (uint s = 0; s < KK; s++) {
+            out_cells[(ulong)query * KK + s] = best_c[s];
+            out_distances[(ulong)query * KK + s] = sqrt(best_d[s]);
+        }
     }
 }
 "#;
@@ -442,5 +633,36 @@ mod tests {
             "20000 x 50, k = 15: gpu {gpu_elapsed:?}, cpu {cpu_elapsed:?}, speedup {:.1}x",
             cpu_elapsed.as_secs_f64() / gpu_elapsed.as_secs_f64()
         );
+    }
+
+    #[test]
+    fn tiled_kernel_matches_the_brute_force_reference_with_duplicates_and_ragged_tiles() {
+        let Ok(context) = MetalContext::new() else {
+            return; // no GPU on this machine
+        };
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(11);
+        // 1 037 cells is not a multiple of any tile; every 7th cell duplicates another.
+        for (n_cells, n_dims, k) in [(1037usize, 50usize, 15usize), (300, 128, 64), (97, 3, 1)] {
+            let mut data: Vec<f32> = (0..n_cells * n_dims)
+                .map(|_| rng.gen_range(-2.0..2.0))
+                .collect();
+            for row in (7..n_cells).step_by(7) {
+                let src = (row / 2) * n_dims;
+                let (a, b) = data.split_at_mut(row * n_dims);
+                b[..n_dims].copy_from_slice(&a[src..src + n_dims]);
+            }
+            let embedding = Array2::from_shape_vec((n_cells, n_dims), data).unwrap();
+            let got = knn_metal_tiled(&context, &embedding, k).unwrap();
+            let want = cpu_knn(&embedding, k);
+            assert_eq!(
+                got.indices, want.indices,
+                "indices differ at n={n_cells} d={n_dims} k={k}"
+            );
+            let worst = (&got.distances - &want.distances)
+                .iter()
+                .fold(0f32, |m, v| m.max(v.abs()));
+            assert!(worst <= 1e-5, "distance gap {worst}");
+        }
     }
 }

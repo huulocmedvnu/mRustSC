@@ -42,6 +42,23 @@ __all__ = [
 # the core's "f32 throughout" rule, 32-bit offsets match its index type.
 
 
+def _fast_csr_copy(matrix) -> sp.csr_matrix | None:
+    """A float32 CSR copy of `matrix` for the zero-copy kernels, or `None` to fall back.
+
+    One memcpy per array (or one cast when the values are not float32); the index
+    arrays keep scipy's own dtype, which the kernels read directly. The input is never
+    modified, so a layer that shares `adata.X` keeps its counts.
+    """
+    if not (sp.issparse(matrix) and matrix.format == "csr"):
+        return None  # csr_matrix or csr_array; anything else takes the general path
+    if matrix.indices.dtype not in (np.int32, np.int64, np.uint32):
+        return None
+    out = matrix.astype(_VALUE_DTYPE, copy=True)
+    if not (out.data.flags.c_contiguous and out.indptr.flags.c_contiguous):
+        return None
+    return out
+
+
 def filter_cells(
     adata: AnnData,
     *,
@@ -92,8 +109,14 @@ def normalize_total(
 
         normalize_total_backed(adata, target_sum)  # streams X on disk, one block in RAM
         return None
-    parts = _extension().normalize_total(*_csr_args(adata.X), target_sum, _default_device())
-    normalized = _csr_from_parts(parts, adata.shape)
+    ext = _extension()
+    normalized = _fast_csr_copy(adata.X) if hasattr(ext, "normalize_total_inplace") else None
+    if normalized is not None:
+        # Zero-copy, multi-core kernel straight on the copy's numpy buffers.
+        ext.normalize_total_inplace(normalized.indptr, normalized.data, target_sum)
+    else:
+        parts = _extension().normalize_total(*_csr_args(adata.X), target_sum, _default_device())
+        normalized = _csr_from_parts(parts, adata.shape)
     if not inplace:
         return normalized
     adata.X = normalized
@@ -108,7 +131,12 @@ def log1p(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
         log1p_backed(adata)  # streams X on disk, one block in RAM
         adata.uns["log1p"] = {"base": None}
         return None
-    logged = _csr_from_parts(_extension().log1p(*_csr_args(adata.X)), adata.shape)
+    ext = _extension()
+    logged = _fast_csr_copy(adata.X) if hasattr(ext, "log1p_inplace") else None
+    if logged is not None:
+        ext.log1p_inplace(logged.data)
+    else:
+        logged = _csr_from_parts(_extension().log1p(*_csr_args(adata.X)), adata.shape)
     if not inplace:
         return logged
     adata.X = logged
@@ -153,10 +181,28 @@ def scale(
     inplace: bool = True,
 ) -> np.ndarray | None:
     """Scale genes to unit variance, optionally centring and clipping at `max_value`."""
-    scaled = np.asarray(
-        _extension().scale(*_csr_args(adata.X), zero_center, max_value, _default_device()),
-        dtype=_VALUE_DTYPE,
-    )
+    x, ext = adata.X, _extension()
+    if (
+        hasattr(ext, "scale_dense")
+        and sp.issparse(x)
+        and x.format == "csr"
+        and x.indices.dtype in (np.int32, np.int64, np.uint32)
+    ):
+        data = x.data if x.data.dtype == _VALUE_DTYPE else x.data.astype(_VALUE_DTYPE)
+        # One fused multi-core pass from CSR into the dense result; no device round trip.
+        scaled = ext.scale_dense(
+            np.ascontiguousarray(x.indptr),
+            np.ascontiguousarray(x.indices),
+            np.ascontiguousarray(data),
+            x.shape[1],
+            zero_center,
+            max_value,
+        )
+    else:
+        scaled = np.asarray(
+            _extension().scale(*_csr_args(x), zero_center, max_value, _default_device()),
+            dtype=_VALUE_DTYPE,
+        )
     if not inplace:
         return scaled
     adata.X = scaled
@@ -172,7 +218,13 @@ def pca(
     device: str = "auto",
 ) -> None:
     """Principal component analysis by randomised SVD."""
-    result = _extension().pca(*_csr_args(adata.X), n_comps, zero_center, random_state, device)
+    ext, x = _extension(), adata.X
+    if isinstance(x, np.ndarray) and x.ndim == 2 and hasattr(ext, "pca_dense"):
+        # Dense X (e.g. after pp.scale): straight to the device, no CSR round trip.
+        dense = np.ascontiguousarray(x, dtype=_VALUE_DTYPE)
+        result = ext.pca_dense(dense, n_comps, zero_center, random_state, device)
+    else:
+        result = ext.pca(*_csr_args(x), n_comps, zero_center, random_state, device)
     adata.obsm["X_pca"] = np.asarray(result["embedding"], dtype=_VALUE_DTYPE)
     # The core returns components as (n_components, n_genes); scanpy stores the transpose.
     adata.varm["PCs"] = np.asarray(result["components"], dtype=_VALUE_DTYPE).T.copy()

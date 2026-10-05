@@ -12,6 +12,7 @@ mod convert;
 mod de;
 mod diffusion;
 mod embedding;
+mod fast;
 mod layout;
 mod metrics;
 mod paga;
@@ -44,6 +45,7 @@ fn _scrust(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(gpu_available, module)?)?;
     cluster::register(module)?;
     preprocess::register(module)?;
+    fast::register(module)?;
     embedding::register(module)?;
     de::register(module)?;
     diffusion::register(module)?;

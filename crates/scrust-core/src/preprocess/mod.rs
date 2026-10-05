@@ -2,5 +2,6 @@
 
 pub mod filter;
 pub mod hvg;
+pub mod inplace;
 pub mod normalize;
 pub mod scale;

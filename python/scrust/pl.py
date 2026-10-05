@@ -219,13 +219,23 @@ def umap(
             for i, level in enumerate(levels):
                 mask = codes == i
                 ax.scatter(
-                    x[mask], y[mask], s=point_size, color=colours[i],
-                    alpha=alpha, linewidths=0, label=str(level),
+                    x[mask],
+                    y[mask],
+                    s=point_size,
+                    color=colours[i],
+                    alpha=alpha,
+                    linewidths=0,
+                    label=str(level),
                 )
             ncol = 1 if len(levels) <= 14 else 2
             legend = ax.legend(
-                loc="upper left", bbox_to_anchor=(1.05, 1.0), title=color,
-                markerscale=2.0, ncol=ncol, handletextpad=0.3, borderaxespad=0.0,
+                loc="upper left",
+                bbox_to_anchor=(1.05, 1.0),
+                title=color,
+                markerscale=2.0,
+                ncol=ncol,
+                handletextpad=0.3,
+                borderaxespad=0.0,
             )
             legend.get_title().set_fontweight("bold")
             legend_artist = legend

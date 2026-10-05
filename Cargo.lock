@@ -1248,6 +1248,7 @@ dependencies = [
  "candle-core",
  "metal",
  "ndarray",
+ "rand 0.8.7",
  "scrust-core",
 ]
 

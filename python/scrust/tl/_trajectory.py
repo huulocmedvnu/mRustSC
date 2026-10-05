@@ -72,9 +72,7 @@ def dpt(
             n_dcs=n_dcs,
         )
         categories = [str(label) for label in sorted(set(labels.tolist()))]
-        adata.obs["dpt_groups"] = pd.Categorical(
-            labels.astype(str), categories=categories
-        )
+        adata.obs["dpt_groups"] = pd.Categorical(labels.astype(str), categories=categories)
 
 
 def paga(

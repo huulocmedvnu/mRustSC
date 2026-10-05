@@ -46,7 +46,10 @@ Issues = "https://github.com/huulocmedvnu/mRustSC/issues"
 module-name = "scrust._scrust"
 python-source = "python"
 manifest-path = "crates/scrust-py/Cargo.toml"
-features = ["pyo3/extension-module"]
+# Apple Accelerate (vecLib BLAS/LAPACK) on by default: scrust targets Apple silicon,
+# and the CI runner is macOS too. Build without it with `maturin develop --no-default-features`
+# is not available for this list, so drop "accelerate" here for a pure-Rust wheel.
+features = ["pyo3/extension-module", "accelerate"]
 # The typing marker is data, not a module, so it needs naming explicitly.
 include = [{ path = "python/scrust/py.typed", format = "wheel" }]
 
