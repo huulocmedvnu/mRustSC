@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 
 use metal::{MTLCommandBufferStatus, MTLSize};
-use ndarray::Array2;
+use ndarray::{Array2, ArrayView2};
 use scrust_core::error::{Error, Result};
 use scrust_core::neighbors::KnnGraph;
 
@@ -135,6 +135,17 @@ pub fn knn_metal_tiled(
     embedding: &Array2<f32>,
     k: usize,
 ) -> Result<KnnGraph> {
+    knn_metal_tiled_view(context, embedding.view(), k)
+}
+
+/// [`knn_metal_tiled`] on a borrowed view (e.g. numpy's own buffer): no owned copy of
+/// the embedding is made. The centred coordinates are written straight into the shared
+/// Metal buffer the GPU reads, which unified memory makes a plain CPU write.
+pub fn knn_metal_tiled_view(
+    context: &MetalContext,
+    embedding: ArrayView2<'_, f32>,
+    k: usize,
+) -> Result<KnnGraph> {
     let (n_cells, n_dims) = embedding.dim();
     if k == 0 || k > TILED_MAX_K {
         return Err(Error::parameter(
@@ -165,8 +176,11 @@ pub fn knn_metal_tiled(
     }
     let tile = tile.min(pipeline.max_total_threads_per_threadgroup() as usize);
 
-    let (centred, norm_sq) = centre_and_norms(embedding);
-    let input = context.buffer(&centred);
+    let input = context.empty_buffer::<f32>(n_cells * n_dims);
+    // SAFETY: a fresh shared buffer of exactly n_cells * n_dims f32, written before use.
+    let dest =
+        unsafe { std::slice::from_raw_parts_mut(input.contents() as *mut f32, n_cells * n_dims) };
+    let norm_sq = centre_into(embedding, dest);
     let norms = context.buffer(&norm_sq);
     let out_indices = context.empty_buffer::<u32>(n_cells * k);
     let out_distances = context.empty_buffer::<f32>(n_cells * k);
@@ -239,6 +253,36 @@ fn threads_per_query(pipeline_limit: usize, threadgroup_memory: usize, k: usize)
 /// distance itself is translation-invariant, but the expansion's *resolution* is
 /// not -- centring makes it the radius of the cloud rather than the distance to the
 /// origin, which is what keeps the snapping floor from swallowing a real neighbour.
+/// [`centre_and_norms`] writing the centred rows into `dest` (row-major) and returning
+/// only the norms; identical arithmetic, so the snapping threshold is unchanged.
+fn centre_into(embedding: ArrayView2<'_, f32>, dest: &mut [f32]) -> Vec<f32> {
+    let (n_cells, n_dims) = embedding.dim();
+    let mut means = vec![0.0f64; n_dims];
+    for row in embedding.rows() {
+        for (mean, &value) in means.iter_mut().zip(row) {
+            *mean += value as f64;
+        }
+    }
+    for mean in means.iter_mut() {
+        *mean /= n_cells as f64;
+    }
+    let mut norm_sq = Vec::with_capacity(n_cells);
+    for (row, out) in embedding
+        .rows()
+        .into_iter()
+        .zip(dest.chunks_exact_mut(n_dims))
+    {
+        let mut norm = 0.0f32;
+        for ((&value, &mean), slot) in row.iter().zip(means.iter()).zip(out.iter_mut()) {
+            let coord = (value as f64 - mean) as f32;
+            *slot = coord;
+            norm = coord.mul_add(coord, norm);
+        }
+        norm_sq.push(norm);
+    }
+    norm_sq
+}
+
 fn centre_and_norms(embedding: &Array2<f32>) -> (Vec<f32>, Vec<f32>) {
     let (n_cells, n_dims) = embedding.dim();
     let mut means = vec![0.0f64; n_dims];

@@ -73,6 +73,33 @@ PCA and neighbour audits pass on the Metal GPU (31 passed). `cargo test --worksp
 Hogwild `umap_sgd` structure test, which is flaky under parallel test load on `main` as well and passes when
 run alone.
 
+### Second pass: UMAP, Leiden, neighbour memory (same branch, same machine)
+
+| step | cells | scanpy | scrust | speedup | added memory scanpy / scrust |
+|---|---:|---:|---:|---:|---|
+| `tl.leiden` | 10 000 | 3.886 | 0.029 | 134x | 45 / 1 MB |
+| `tl.leiden` | 50 000 | 2.615 | 0.089 | 29x | 209 / 46 MB |
+| `tl.umap` (default, sequential) | 10 000 | 9.984 | 2.016 | 4.95x | 10 / 7 MB |
+| `tl.umap(parallel=True)` | 10 000 | 9.984 | 0.36 | about 28x | - |
+| `tl.umap(parallel=True)` | 50 000 | not run | 1.98 (sequential 12.3) | - | - |
+| `pp.neighbors` (best of 3) | 50 000 | 1.661 | 0.410 | 4.05x | 88-144 / 107-123 MB |
+
+- **Leiden** was already native and fast; it was only a probe in the benchmark and is now timed.
+- **UMAP.** The default layout stays the sequential sweep that the audits hold to umap-learn, and it is
+  bit-identical to `main`: the 2-D distance is specialised and the negative-sample index uses a 32-bit
+  remainder, both of which give the same numbers. A tried one-`powf` rewrite of the attraction moved the
+  layout by an ulp, the sweep is chaotic enough for that to change the result, and it dropped the PBMC
+  reference score below its floor, so it was reverted for the default path. **`parallel=True`** is new: the
+  epochs run lock-free across all cores (Hogwild SGD, umap-learn's `parallel=True`), about 6x faster than
+  the sequential path; its layout keeps the same share of each cell's 15 PCA neighbours (0.248 against 0.247
+  sequential and 0.255 for scanpy on 10 000 cells) but is not reproducible run to run, so it is opt-in.
+- **Neighbour memory.** The earlier "scrust uses more memory" reading came from comparing absolute resident
+  sizes of two processes on an 18 GB machine, where macOS compression moves them by gigabytes. Measured as
+  the memory a call adds (physical footprint, which the benchmark now reports in its `+MB` columns), the two
+  are level. The k-NN step itself was trimmed from about 34 to 16 MB at 50 000 cells: it borrows numpy's
+  buffer instead of copying it and writes the centred coordinates straight into the GPU-shared Metal buffer.
+  Repeated calls do not grow the footprint (15 calls: flat at +9 MB), so there is no leak.
+
 ## How it was measured
 
 - Each library runs in its **own subprocess**, so a peak-memory reading belongs to

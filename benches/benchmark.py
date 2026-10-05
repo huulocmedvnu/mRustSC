@@ -104,6 +104,7 @@ OPS = (
     Op("pp.pca", "scaled", kwargs={"n_comps": N_COMPS, "random_state": 0}),
     Op("pp.neighbors", "embedded", kwargs={"n_neighbors": N_NEIGHBORS, "use_rep": "X_pca"}),
     Op("tl.umap", "neighbored", kwargs={"random_state": 0}),
+    Op("tl.leiden", "neighbored", kwargs={"random_state": 0}),
     Op(
         "tl.tsne",
         "embedded",
@@ -137,7 +138,6 @@ PROBES = (
     Op("pp.subsample", "counts", args=(0.5,)),
     Op("pp.sample", "counts", args=(0.5,)),
     Op("pp.downsample_counts", "counts", kwargs={"counts_per_cell": 100}),
-    Op("tl.leiden", "neighbored"),
     Op("tl.louvain", "neighbored"),
     Op("tl.diffmap", "neighbored"),
     Op("tl.dpt", "neighbored"),
@@ -303,6 +303,42 @@ def _rss_reader() -> Any:
     return read
 
 
+class _TaskVmInfo(ctypes.Structure):
+    # task_vm_info_data_t up to phys_footprint: 18 64-bit words precede it.
+    _fields_ = [
+        ("head", ctypes.c_uint64 * 18),
+        ("phys_footprint", ctypes.c_uint64),
+        ("tail", ctypes.c_uint64 * 40),
+    ]
+
+
+_TASK_VM_INFO = 22
+
+
+def _footprint_reader() -> Any:
+    """Physical footprint in bytes (Activity Monitor's "Memory"), or None.
+
+    Unlike resident size it counts compressed pages, so it does not drop when macOS
+    compresses a large idle matrix; with several GB per process on a small machine the
+    resident size swings by gigabytes between two identical processes.
+    """
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        task = libc.mach_task_self()
+        info = _TaskVmInfo()
+        count = ctypes.c_uint(ctypes.sizeof(info) // ctypes.sizeof(ctypes.c_uint))
+        if libc.task_info(task, _TASK_VM_INFO, ctypes.byref(info), ctypes.byref(count)):
+            return None
+    except OSError:
+        return None
+
+    def read() -> int:
+        libc.task_info(task, _TASK_VM_INFO, ctypes.byref(info), ctypes.byref(count))
+        return int(info.phys_footprint)
+
+    return read
+
+
 class PeakRss:
     """Sample resident size while a block runs and report the highest reading.
 
@@ -313,7 +349,8 @@ class PeakRss:
     INTERVAL = 0.005
 
     def __init__(self) -> None:
-        self._read = _rss_reader()
+        self._read = _footprint_reader() or _rss_reader()
+        self.start_bytes: int | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.peak_bytes: int | None = None
@@ -325,7 +362,7 @@ class PeakRss:
     def __enter__(self) -> PeakRss:
         if self._read is None:
             return self
-        self.peak_bytes = self._read()
+        self.peak_bytes = self.start_bytes = self._read()
         self._thread = threading.Thread(target=self._sample, daemon=True)
         self._thread.start()
         return self
@@ -360,6 +397,7 @@ def _time_call(function: Any, stage: AnnData, op: Op, repeats: int) -> dict[str,
 
     best: float | None = None
     peak_bytes = 0
+    extra_bytes = 0
     spent = 0.0
     for _ in range(repeats):
         adata = stage.copy()
@@ -373,10 +411,16 @@ def _time_call(function: Any, stage: AnnData, op: Op, repeats: int) -> dict[str,
         del adata
         best = elapsed if best is None else min(best, elapsed)
         peak_bytes = max(peak_bytes, peak.peak_bytes or 0)
+        if peak.peak_bytes is not None and peak.start_bytes is not None:
+            extra_bytes = max(extra_bytes, peak.peak_bytes - peak.start_bytes)
         spent += elapsed
         if spent >= REPEAT_BUDGET:
             break
-    return {"seconds": best, "peak_mb": peak_bytes / 1e6 if peak_bytes else None}
+    return {
+        "seconds": best,
+        "peak_mb": peak_bytes / 1e6 if peak_bytes else None,
+        "extra_mb": extra_bytes / 1e6 if peak_bytes else None,
+    }
 
 
 def _probe(library: Any, stages: dict[str, AnnData], op: Op) -> dict[str, Any]:
@@ -516,9 +560,9 @@ def _seconds(record: dict[str, Any] | None) -> str:
 
 
 def _memory(record: dict[str, Any] | None) -> str:
-    if record is None or record["peak_mb"] is None:
+    if record is None or record.get("extra_mb") is None:
         return "-"
-    return f"{record['peak_mb']:.0f}"
+    return f"{record['extra_mb']:.0f}"
 
 
 def _baseline_line(pairs: tuple[tuple[str, float | None], ...]) -> str:
@@ -537,7 +581,7 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
     header = (
         f"{'algorithm':<24}{'cells':>7}{'genes':>7}"
         f"{'scanpy s':>10}{'scrust s':>10}{'speedup':>9}"
-        f"{'scanpy MB':>11}{'scrust MB':>11}"
+        f"{'scanpy +MB':>11}{'scrust +MB':>11}"
     )
     unavailable: list[str] = []
     probes: dict[str, str] = {}
@@ -582,8 +626,10 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
 
     print(
         "\nspeedup is scanpy seconds / scrust seconds; above 1.00x scrust is faster."
-        "\npeak MB is the highest resident size of the worker process while the call ran,"
-        "\nsampled every 5 ms; it includes the input matrix the call was handed."
+        "\n+MB is the memory the call added: peak physical footprint (Activity Monitor's"
+        "\nmeasure, compressed pages included) minus the footprint when the call started,"
+        "\nsampled every 5 ms. Absolute process sizes are not compared: on a machine with"
+        "\nlittle free memory they swing by gigabytes between two identical processes."
         f"\neach timing is the best of up to {repeats} runs, and an operation stops"
         f" repeating after {REPEAT_BUDGET:.0f} s."
     )

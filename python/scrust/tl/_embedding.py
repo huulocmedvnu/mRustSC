@@ -51,13 +51,35 @@ def umap(
     n_epochs: int | None = None,
     random_state: int = 0,
     device: str = "auto",
+    parallel: bool = False,
 ) -> None:
-    """Lay the neighbour graph out with UMAP, writing `obsm["X_umap"]`."""
+    """Lay the neighbour graph out with UMAP, writing `obsm["X_umap"]`.
+
+    `parallel=True` runs the layout optimisation on every core at once (lock-free
+    "Hogwild" SGD, as umap-learn's `parallel=True`). It is several times faster on large
+    graphs but the layout is no longer reproducible from `random_state` alone, so the
+    default stays sequential and deterministic.
+    """
     graph = _neighbor_graph(adata)
-    embedding = _extension().umap(
+    extension = _extension()
+    epochs = _DEFAULT_EPOCHS if n_epochs is None else n_epochs
+    if parallel and hasattr(extension, "umap_parallel"):
+        embedding = extension.umap_parallel(
+            *_csr_args(graph),
+            n_components,
+            epochs,
+            min_dist,
+            spread,
+            _UMAP_LEARNING_RATE,
+            _UMAP_NEGATIVE_SAMPLE_RATE,
+            random_state,
+        )
+        adata.obsm["X_umap"] = np.asarray(embedding, dtype=_VALUE_DTYPE)
+        return
+    embedding = extension.umap(
         *_csr_args(graph),
         n_components,
-        _DEFAULT_EPOCHS if n_epochs is None else n_epochs,
+        epochs,
         min_dist,
         spread,
         _UMAP_LEARNING_RATE,

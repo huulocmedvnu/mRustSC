@@ -200,10 +200,46 @@ fn pca_dense<'py>(
     Ok(result)
 }
 
+/// UMAP with the opt-in multi-core Hogwild optimiser (`tl.umap(..., parallel=True)`).
+#[pyfunction]
+#[pyo3(signature = (indptr, indices, values, n_cols, n_components, n_epochs, min_dist, spread,
+                    learning_rate, negative_sample_rate, seed))]
+#[allow(clippy::too_many_arguments)]
+fn umap_parallel<'py>(
+    py: Python<'py>,
+    indptr: &Bound<'py, PyAny>,
+    indices: &Bound<'py, PyAny>,
+    values: &Bound<'py, PyAny>,
+    n_cols: usize,
+    n_components: usize,
+    n_epochs: usize,
+    min_dist: f32,
+    spread: f32,
+    learning_rate: f32,
+    negative_sample_rate: usize,
+    seed: u64,
+) -> PyResult<Bound<'py, PyArray2<f32>>> {
+    let graph = crate::convert::csr_from_py(indptr, indices, values, n_cols)?;
+    let params = scrust_core::umap::UmapParams {
+        n_components,
+        n_epochs,
+        min_dist,
+        spread,
+        learning_rate,
+        negative_sample_rate,
+        seed,
+    };
+    let layout = py
+        .allow_threads(|| scrust_core::umap::umap_parallel(&graph, &params))
+        .map_err(to_py_error)?;
+    Ok(layout.into_pyarray(py))
+}
+
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(normalize_total_inplace, module)?)?;
     module.add_function(wrap_pyfunction!(log1p_inplace, module)?)?;
     module.add_function(wrap_pyfunction!(scale_dense, module)?)?;
     module.add_function(wrap_pyfunction!(pca_dense, module)?)?;
+    module.add_function(wrap_pyfunction!(umap_parallel, module)?)?;
     Ok(())
 }

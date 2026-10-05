@@ -79,7 +79,9 @@ before/after table and method in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 | `pp.neighbors` | 20.0x | 4.5x |
 | `pp.scale` | 5.5x | 17.8x |
 | `pp.pca` | 5.7x | 6.7x |
-| `tl.umap` | 4.8x | not measured |
+| `tl.leiden` | 134x | 29x |
+| `tl.umap(parallel=True)` | about 28x | 6x faster than sequential |
+| `tl.umap` (default, deterministic) | 5.0x | not measured |
 | `pp.log1p` | 3.1x | 2.1x |
 | `pp.normalize_total` | 1.9x | 1.3x |
 | `pp.highly_variable_genes` | 1.0x | 1.1x |
