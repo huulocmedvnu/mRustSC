@@ -274,77 +274,69 @@ def f2_bytes():
 
 
 def f3_streaming():
-    """The four passes of `pp.preprocess_backed` next to what an in-memory pipeline holds."""
+    """Out-of-core head: (a) data flow of the four passes, (b) peak memory against the in-memory pipeline."""
     fig = go.Figure()
-    blank_axes(fig, 120, 56)
+    blank_axes(fig, 120, 70)
     c = COLORS
-    box(
-        fig,
-        2,
-        20,
-        14,
-        36,
-        "<b>counts.h5ad</b><br>1 001 288 x 45 676<br>586 M values<br>4.8 GB on SSD",
-        c[7],
-        size=11,
-    )
+    grey = "#444"
+
+    def label(x, y, text, size=12, anchor="left", color="#222", bold=False):
+        fig.add_annotation(x=x, y=y, text=f"<b>{text}</b>" if bold else text, showarrow=False,
+                           xanchor=anchor, font=dict(size=size, color=color))
+
+    # ---- (a) data flow
+    label(1, 68.5, "(a) Data flow of the out-of-core head (wall time per pass, GPU enabled)", 13, bold=True)
+    box(fig, 1, 44, 17, 60,
+        "<b>Input</b><br>Count matrix on SSD<br>1 001 288 cells ×<br>45 676 genes<br>CSR, 4.8 GB", c[7], size=11)
     passes = [
-        (
-            "pass 1",
-            "row block (22 920 cells)<br>drop cells < 200 genes<br>normalise, log1p in place<br>per-gene presence, Σx, Σx²",  # noqa: E501
-            "HVG: 2 000 genes<br>from the sums",
-            3.6,
-        ),
-        (
-            "pass 2",
-            "same transform<br>keep the 2 000 columns<br>Σx, Σx² of the log data",
-            "mean, sd per gene",
-            5.3,
-        ),
-        (
-            "pass 3",
-            "scale against mean, sd<br>into a dense block<br>Bᵀ B on the GPU → scatter (2000²)",
-            "top-50 eigenvectors<br>by subspace iteration",
-            15.4,
-        ),
-        ("pass 4", "scale again<br>block @ loadings on the GPU", "X_pca rows (953 436 x 50)", 7.5),
+        ("Pass 1", "3.6 s", "Cell filter, normalisation,<br>log transform.<br>Per-gene sums accumulated",
+         "2 000 highly<br>variable genes"),
+        ("Pass 2", "5.3 s", "Mean and standard<br>deviation of the<br>selected genes",
+         "Scaling parameters"),
+        ("Pass 3", "15.4 s", "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
+         "50 principal axes<br>(subspace iteration)"),
+        ("Pass 4", "7.5 s", "Scaling and projection<br>of each block<br>onto the axes",
+         "PCA embedding<br>953 436 × 50"),
     ]
-    x = 18
-    for name, inside, out, secs in passes:
-        box(fig, x, 22, x + 22, 36, f"<b>{name}</b> {secs:.1f} s<br>{inside}", c[1], size=10)
-        box(fig, x, 10, x + 22, 18, out, c[2], size=10)
-        arrow(fig, x + 11, 22, x + 11, 18)
-        arrow(fig, 14, 28, x, 28) if x == 18 else arrow(fig, x - 3, 29, x, 29)
+    x = 21
+    for name, secs, inside, out in passes:
+        box(fig, x, 48, x + 22, 60, f"<b>{name}</b> ({secs})<br>{inside}", c[1], size=11)
+        box(fig, x, 37, x + 22, 43.5, f"<b>Output:</b> {out}", c[2], size=11)
+        arrow(fig, x + 11, 48, x + 11, 43.5, color=grey)
+        arrow(fig, (17 if x == 21 else x - 3), 54, x, 54, color=grey)
         x += 25
-    fig.add_annotation(
-        x=68,
-        y=40,
-        text="each pass streams the file once; peak memory = one block (≈ 0.6 GB) + the embedding (190 MB)",  # noqa: E501
-        showarrow=False,
-        font=dict(size=12),
-    )
-    # what scanpy would hold
-    box(
-        fig,
-        18,
-        44,
-        118,
-        54,
-        "<b>in-memory pipeline</b>: CSR counts 4.7 GB → normalised copy 4.7 GB → dense scaled f32 7.6 GB (+ f64 working copies during scale: measured +21.9 GB) → PCA",  # noqa: E501
-        c[3],
-        size=11,
-    )
-    fig.add_annotation(
-        x=68,
-        y=55.5,
-        text="does not fit 18 GB: on this laptop scanpy's scale step swapped and PCA never finished",  # noqa: E501
-        showarrow=False,
-        font=dict(size=11, color="#a33"),
-    )
-    fig.update_layout(
-        title="F3. A million cells in four passes: the out-of-core head on an 18 GB laptop (times measured, Metal)"  # noqa: E501
-    )
-    save(fig, "F3_streaming", 1300, 620)
+    label(21, 33, "Each pass reads the file once in row blocks of 22 920 cells.", 11, color=grey)
+
+    # ---- (b) peak memory
+    label(1, 27.5, "(b) Peak memory of the preprocessing and PCA stages", 13, bold=True)
+    x0, x1, gmax = 30, 118, 40.0
+    sx = lambda gb: x0 + (x1 - x0) * gb / gmax
+    # axis
+    for gb in range(0, 41, 10):
+        fig.add_shape(type="line", x0=sx(gb), y0=5, x1=sx(gb), y1=5.8, line=dict(color="#222", width=1))
+        label(sx(gb), 3.5, f"{gb}", 10, anchor="center")
+    fig.add_shape(type="line", x0=x0, y0=5.8, x1=x1, y1=5.8, line=dict(color="#222", width=1))
+    label((x0 + x1) / 2, 1.2, "GB", 10, anchor="center")
+    # in-memory pipeline: stacked segments
+    segs = [("count matrix", 4.7, c[7]), ("normalised copy", 4.7, c[0]),
+            ("dense scaled matrix", 7.6, c[3]), ("working copies during scaling", 21.9, c[1])]
+    label(1, 21, "In-memory pipeline<br>(scanpy)", 11)
+    acc = 0.0
+    for name, gb, col in segs:
+        fig.add_shape(type="rect", x0=sx(acc), y0=18.5, x1=sx(acc + gb), y1=23.5,
+                      fillcolor=col, opacity=0.5, line=dict(color="white", width=1))
+        label((sx(acc) + sx(acc + gb)) / 2, 21, f"{name}<br>{gb} GB", 9, anchor="center")
+        acc += gb
+    # out-of-core head
+    label(1, 12, "Out-of-core head<br>(Metalcyte)", 11)
+    fig.add_shape(type="rect", x0=sx(0), y0=9.5, x1=sx(1.1), y1=14.5,
+                  fillcolor=c[2], opacity=0.6, line=dict(color="white", width=1))
+    label(sx(1.1) + 1, 12, "one row block and the embedding, 1.1 GB", 10)
+    # available memory
+    fig.add_shape(type="line", x0=sx(18), y0=7, x1=sx(18), y1=26, line=dict(color="#a33", width=1.5, dash="dash"))
+    label(sx(18), 26.5, "available memory, 18 GB", 10, anchor="center", color="#a33")
+    fig.update_layout(title="F3. The out-of-core head: data flow and peak memory")
+    save(fig, "F3_streaming", 1300, 760)
 
 
 # ----------------------------------------------------------------------------- F4..F7 (measured)
