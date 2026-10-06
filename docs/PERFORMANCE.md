@@ -139,21 +139,21 @@ sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad
 The 117 308-cell pipeline again, with one feature switched off at a time (`benches/ablation.py`).
 Seconds for the whole pipeline and for the steps that move; the run-to-run noise is about 2 s.
 
-| configuration | what is off | whole | PCA | neighbours | UMAP |
-|---|---|---:|---:|---:|---:|
-| everything on | nothing | 23 | 1.4 | 2.1 | 5.0 |
-| no GPU | Metal | 29 | 3.1 | 4.9 | 5.0 |
-| no Accelerate | Apple's BLAS on the AMX units | 20 | 0.9 | 2.1 | 4.8 |
-| performance cores only | the 6 efficiency cores | 23 | 0.9 | 2.1 | 7.5 |
-| one core | every core but one | 50 | 1.0 | 2.1 | 33.4 |
-| no zero-copy | the in-place numpy borrows | 25 | 4.8 | 2.0 | 4.7 |
-| sequential UMAP | the lock-free optimiser | 47 | 0.9 | 2.1 | 31.3 |
+| configuration | what is off | whole | PCA | neighbours | UMAP | markers |
+|---|---|---:|---:|---:|---:|---:|
+| everything on | nothing | 12.9 | 1.0 | 2.0 | 4.9 | 0.5 |
+| no GPU | Metal | 16.3 | 2.3 | 4.6 | 4.8 | 0.5 |
+| no Accelerate | Apple's BLAS on the AMX units | 13.0 | 1.0 | 2.1 | 4.6 | 0.5 |
+| performance cores only | the 6 efficiency cores | 15.4 | 0.9 | 2.0 | 7.7 | 0.6 |
+| one core | every core but one | 44.8 | 1.0 | 2.1 | 34.6 | 1.8 |
+| no zero-copy | the in-place numpy borrows | 23.2 | 6.5 | 2.1 | 4.9 | 0.9 |
+| sequential UMAP | the lock-free optimiser | 40.4 | 0.9 | 2.2 | 32.5 | 0.6 |
 
-- The GPU is worth 2.5 times on the neighbour search and 2 times on PCA, and nothing elsewhere at
+- The GPU is worth 2.3 times on the neighbour search and 2.4 times on PCA, and nothing elsewhere at
   this size.
-- All eleven cores are worth 6.6 times on the UMAP optimiser, and the efficiency cores carry a
+- All eleven cores are worth 7.0 times on the UMAP optimiser, and the efficiency cores carry a
   third of that work.
-- The zero-copy borrows of numpy's buffers are worth a quarter of the run, most of it in PCA.
+- The zero-copy borrows of numpy's buffers are worth 10 s of a 13 s run, most of it in PCA.
 - Accelerate shows nothing at 2 000 genes. The matrix products are too small for the AMX units to
   make a difference.
 
@@ -165,5 +165,5 @@ Seconds for the whole pipeline and for the steps that move; the run-to-run noise
   GPU's matrix units is in the tree, opt-in, and is not yet faster.
 - The t-SNE implementation is exact and refuses more than 20 000 cells. The batch-correction steps
   cap their dense working set at 8 GiB.
-- The GPU path is macOS only. The continuous-integration runners have no usable GPU, so the GPU
-  tests run locally.
+- Metalcyte is built and tested on macOS on Apple silicon only. The continuous-integration runners
+  have no usable GPU, so the GPU tests run locally.

@@ -172,7 +172,7 @@ not from a collection.)
 | `cluster` | `test_cluster_audit.py` | leidenalg 0.12.0 / libleidenalg, Traag et al. 2019, scanpy `_leiden.py` | 11 |
 | `preprocess` | `test_preprocess_audit.py` | scanpy `normalize_total`, `log1p`, `highly_variable_genes` | 20 |
 | `de` + `scale` + `hvg` boundaries | `test_de_audit.py` | scanpy, `scipy.stats` | 56 |
-| `de/wilcoxon` | `test_wilcoxon_audit.py` | scanpy `rank_genes_groups(method="wilcoxon")`; scipy in the far tail | 21 |
+| `de/wilcoxon` | `test_wilcoxon_audit.py` | scanpy `rank_genes_groups(method="wilcoxon")`, scipy in the far tail | 21 |
 | `de/parametric` | `test_parametric_audit.py` | scanpy t-test, t-test_overestim_var, logreg | 12 |
 | `de/hypothesis`, `de/glm`, `de/dispersion` | `test_destats_audit.py` | `scipy.special`, statsmodels 0.14.6 | 12 |
 | `qc` + `filter` | `test_qc_audit.py` | scanpy `calculate_qc_metrics`, `filter_cells`, `filter_genes` | 24 |

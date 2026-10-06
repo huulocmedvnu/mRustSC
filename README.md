@@ -65,8 +65,8 @@ VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 .venv/bin/python -c "import metalcyte as mc; print(mc.__version__, mc.gpu_available())"
 ```
 
-The CPU path also builds on Linux, without the GPU. [docs/INSTALL.md](docs/INSTALL.md) has the
-details and the optional extras.
+Metalcyte is built and tested on macOS on Apple silicon; other platforms are untested.
+[docs/INSTALL.md](docs/INSTALL.md) has the details and the optional extras.
 
 ## What it does
 
@@ -117,9 +117,9 @@ and 27x at 250 000, 19x and 3.4x against scanpy tuned; scanpy's defaults did not
 in 40 minutes and scanpy tuned does not fit a million.
 
 **Which part of the chip buys what.** Switching features off one at a time on the 117k atlas
-(`benches/ablation.py`): the GPU is worth 2.5x on the neighbour search and 2x on PCA, all eleven
-cores are worth 6.6x on the UMAP optimiser with the efficiency cores carrying a third of it, the
-zero-copy numpy borrows are worth a quarter of the run, and Accelerate shows nothing at 2 000 genes.
+(`benches/ablation.py`): the GPU is worth 2.3x on the neighbour search and 2.4x on PCA, all eleven
+cores are worth 7x on the UMAP optimiser with the efficiency cores carrying a third of it, the
+zero-copy numpy borrows are worth 10 s of a 13 s run, and Accelerate shows nothing at 2 000 genes.
 
 ## Devices and reproducibility
 
@@ -138,8 +138,8 @@ a different order. For results that must match across machines bit for bit, run 
 - `tl.tsne` is exact and refuses more than 20 000 cells. `regress_out` and `combat` cap their dense
   working set at 8 GiB.
 - `mc.pl` has three functions; plot with scanpy on the same AnnData for the rest.
-- The GPU path is macOS only. Continuous integration runs the whole suite on the CPU; the GPU tests
-  run locally.
+- Metalcyte is built and tested on macOS on Apple silicon only. Continuous integration runs the
+  whole suite on the CPU; the GPU tests run locally.
 
 ## Documentation
 

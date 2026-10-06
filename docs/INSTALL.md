@@ -8,7 +8,7 @@ wheels yet, so the package is built from source with maturin inside a virtualenv
 
 Needed:
 
-- a Rust toolchain (`rustup`, stable; the workspace pins `rust-version = 1.85`),
+- a Rust toolchain (`rustup`, stable, and the workspace pins `rust-version = 1.85`),
 - on macOS, the Xcode command line tools, which supply the SDK the extension links
   Metal against,
 - Python 3.11 or newer.
@@ -50,7 +50,7 @@ it, and `pyproject.toml` lists it under `[tool.maturin] features`, so the
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --features accelerate
 ```
 
-For a pure-Rust build, for example on Linux, remove `"accelerate"` from the
+For a pure-Rust BLAS build, remove `"accelerate"` from the
 `features` list in `pyproject.toml`. The sparse CSR paths (`normalize_total`,
 `log1p`) never touch BLAS either way, so the feature cannot change their memory
 profile. The gain is on the CPU path only: measured ~7-8% on Harmony and ~4-9% on
@@ -75,7 +75,7 @@ python -c "import metalcyte; print(metalcyte.__version__); print(metalcyte.gpu_a
   cancels to exactly zero distance on the CPU and to 9.8e-4 on Metal, and
   squared distances below the expansion's resolution are snapped to zero so the
   two devices agree. Expect agreement to tolerance, not to the last bit. A
-  machine without a usable GPU, such as a hosted CI runner, reports `False`.
+  machine without a usable GPU reports `False`.
 
 `settings.device` defaults to `"auto"`, which resolves to Metal wherever one
 exists, so on a machine where `gpu_available()` is `True` a caller who names no
@@ -149,8 +149,8 @@ annotations of the installed package with no stub package needed.
 The GPU path is Metal, so it exists only on Apple hardware.
 
 - **Apple silicon macOS**: supported. GPU path active.
-- **Linux**: the CPU path builds, without the GPU. Build with the `accelerate`
-  feature removed from `pyproject.toml`, as described above.
+- **Linux**: untested. The crates link Apple's Metal and Accelerate frameworks unconditionally, so
+  a Linux build would need those dependencies made optional first.
 - **Intel macOS**: a source build should compile, since Metal exists there too,
   but it is neither tested nor benchmarked. Treat it as unsupported.
 - **Windows**: not tested.

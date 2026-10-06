@@ -48,6 +48,27 @@
       }
     },
     {
+      "config": "no_accelerate",
+      "env": {},
+      "args": [],
+      "total_seconds": 12.951160040916875,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.120760666904971,
+        "pp.filter_cells": 0.5155730000697076,
+        "pp.filter_genes": 0.7929273331537843,
+        "pp.normalize_total": 0.19399800011888146,
+        "pp.log1p": 0.20414029201492667,
+        "pp.highly_variable_genes": 0.37548737484030426,
+        "subset": 0.8430607498157769,
+        "pp.scale": 0.029577292036265135,
+        "pp.pca": 1.0191477499902248,
+        "pp.neighbors": 2.098287040833384,
+        "tl.umap": 4.609713833080605,
+        "tl.leiden": 0.6484058750793338,
+        "tl.rank_genes_groups": 0.5000808329787105
+      }
+    },
+    {
       "config": "p_cores_only",
       "env": {
         "RAYON_NUM_THREADS": "5"
@@ -115,10 +136,6 @@
         "tl.leiden": 0.9497342079412192,
         "tl.rank_genes_groups": 0.9405937921255827
       }
-    },
-    {
-      "config": "no_accelerate",
-      "skipped": "/Users/mac/Downloads/mRustSC_work/silicell/.venv-noaccel/bin/python not found"
     },
     {
       "config": "sequential_umap",
