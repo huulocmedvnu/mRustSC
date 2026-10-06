@@ -689,7 +689,7 @@ mod tests {
                 ATOL,
                 "tie corrected z",
             );
-            let p = corrected.p_values[[0, gene]] as f64;
+            let p = corrected.p_values[[0, gene]];
             worst_p = worst_p.max((p - SCIPY_P_TIE[gene]).abs() / SCIPY_P_TIE[gene]);
             assert_close(
                 corrected.p_values[[0, gene]] as f32,
@@ -831,7 +831,7 @@ mod tests {
         // Adjusted p-values span twenty orders of magnitude, so they are
         // checked purely relatively: an absolute floor would say nothing.
         for (gene, &expected) in PADJ_REST_G1.iter().enumerate() {
-            let actual = plain.adjusted_p_values[[1, gene]] as f64;
+            let actual = plain.adjusted_p_values[[1, gene]];
             assert!(
                 (actual - expected).abs() <= 1e-4 * expected,
                 "adjusted p-value of gene {gene}: got {actual}, expected {expected}"
