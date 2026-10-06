@@ -7,8 +7,9 @@ creating the singleton at the bottom of this module.
 
 from __future__ import annotations
 
+import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING
 
@@ -75,8 +76,13 @@ class Settings:
     verbosity: Verbosity = Verbosity.warning
     """How much progress reporting `log` lets through."""
 
-    device: str = "auto"
-    """Device an algorithm runs on when its caller does not name one."""
+    device: str = field(default_factory=lambda: os.environ.get("SCRUST_DEVICE", "auto"))
+    """Device an algorithm runs on when its caller does not name one.
+
+    Starts from `SCRUST_DEVICE` when that is set (`cpu` keeps a whole session off the GPU,
+    which is what the continuous-integration runners need: their virtual Metal device
+    allocates but miscomputes and aborts), else `auto`.
+    """
 
     max_memory_gb: float = 4.0
     """Budget the chunked paths size a row block against."""

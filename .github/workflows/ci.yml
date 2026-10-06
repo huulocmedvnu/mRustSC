@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   PYTHON_VERSION: "3.12"
+  # The hosted macOS runners expose a virtual Metal device that allocates but miscomputes
+  # and aborts the process in kernel compilation, so the whole suite runs on the CPU here.
+  # GPU coverage is local only; see docs/API_CONTRACT.md "Devices".
+  SCRUST_DEVICE: cpu
 
 jobs:
   # macos-14 is Apple silicon, so the Metal code compiles. GitHub's hosted macOS

@@ -245,6 +245,13 @@ def core(monkeypatch: pytest.MonkeyPatch) -> FakeCore:
     return fake
 
 
+# The device every call passes when its caller names none: `settings.device`, which
+# `SCRUST_DEVICE` may pin (the CI runners set it to `cpu`).
+from scrust.settings import settings as _settings  # noqa: E402
+
+_DEVICE = _settings.device
+
+
 def _counts() -> np.ndarray:
     return np.arange(N_OBS * N_VARS, dtype=np.float32).reshape(N_OBS, N_VARS)
 
@@ -335,7 +342,7 @@ def test_normalize_total_writes_x_with_contract_defaults(core: FakeCore) -> None
     assert pp.normalize_total(adata) is None
     assert sp.issparse(adata.X)
     assert adata.X.shape == (N_OBS, N_VARS)
-    assert core.args_of("normalize_total")[4:] == (None, "auto")
+    assert core.args_of("normalize_total")[4:] == (None, _DEVICE)
 
 
 def test_normalize_total_not_inplace_leaves_x_alone(core: FakeCore) -> None:
@@ -370,7 +377,7 @@ def test_highly_variable_genes_writes_the_three_var_columns(core: FakeCore) -> N
     assert adata.var["highly_variable"].dtype == bool
     assert adata.var["means"].to_numpy().dtype == np.float32
     assert adata.var["dispersions_norm"].to_numpy().dtype == np.float32
-    assert core.args_of("highly_variable_genes")[4:] == (2000, "seurat", "auto")
+    assert core.args_of("highly_variable_genes")[4:] == (2000, "seurat", _DEVICE)
 
 
 def test_highly_variable_genes_not_inplace_returns_a_frame(core: FakeCore) -> None:
@@ -379,7 +386,7 @@ def test_highly_variable_genes_not_inplace_returns_a_frame(core: FakeCore) -> No
     assert list(table.columns) == ["highly_variable", "means", "dispersions_norm"]
     assert list(table.index) == list(adata.var_names)
     assert "highly_variable" not in adata.var
-    assert core.args_of("highly_variable_genes")[4:] == (3, "cell_ranger", "auto")
+    assert core.args_of("highly_variable_genes")[4:] == (3, "cell_ranger", _DEVICE)
 
 
 # --- scaling -----------------------------------------------------------------
@@ -391,7 +398,7 @@ def test_scale_writes_a_dense_f32_x(core: FakeCore) -> None:
     assert isinstance(adata.X, np.ndarray)
     assert adata.X.dtype == np.float32
     assert adata.X.shape == (N_OBS, N_VARS)
-    assert core.args_of("scale")[4:] == (True, None, "auto")
+    assert core.args_of("scale")[4:] == (True, None, _DEVICE)
 
 
 def test_scale_not_inplace_returns_the_array(core: FakeCore) -> None:
@@ -399,7 +406,7 @@ def test_scale_not_inplace_returns_the_array(core: FakeCore) -> None:
     scaled = pp.scale(adata, zero_center=False, max_value=10.0, inplace=False)
     assert scaled.dtype == np.float32
     assert sp.issparse(adata.X)
-    assert core.args_of("scale")[4:] == (False, 10.0, "auto")
+    assert core.args_of("scale")[4:] == (False, 10.0, _DEVICE)
 
 
 # --- pca ---------------------------------------------------------------------
@@ -418,7 +425,7 @@ def test_pca_writes_every_contract_slot(core: FakeCore) -> None:
 
 def test_pca_forwards_contract_defaults_and_maps_random_state_to_seed(core: FakeCore) -> None:
     pp.pca(_adata())
-    assert core.args_of("pca")[4:] == (50, True, 0, "auto")
+    assert core.args_of("pca")[4:] == (50, True, 0, _DEVICE)
 
 
 def test_pca_passes_device_through(core: FakeCore) -> None:
@@ -509,7 +516,7 @@ def test_tsne_slices_the_pca_to_n_pcs(core: FakeCore) -> None:
     embedding, *params = core.args_of("tsne")
     assert embedding.shape == (N_OBS, 4)
     # learning_rate defaults to scikit-learn's "auto" rule, which floors at 50.
-    assert params == [2, 30.0, 12.0, 50.0, 1000, 0, "auto"]
+    assert params == [2, 30.0, 12.0, 50.0, 1000, 0, _DEVICE]
     assert adata.obsm["X_tsne"].shape == (N_OBS, 2)
     assert adata.obsm["X_tsne"].dtype == np.float32
 
@@ -568,7 +575,10 @@ def test_rank_genes_groups_encodes_labels_and_rest_reference(core: FakeCore) -> 
     assert labels.dtype == np.uint32
     assert list(labels) == [0, 1, 0, 2, 1, 0]
     # "rest" is the core's None; the unsigned boundary has no room for a sentinel.
-    assert (n_groups, reference, tie_correct, device) == (3, None, False, "auto")
+    # The device is whatever `settings.device` resolves to (`SCRUST_DEVICE` may pin it).
+    from scrust.settings import settings
+
+    assert (n_groups, reference, tie_correct, device) == (3, None, False, settings.device)
 
 
 def test_rank_genes_groups_named_reference_is_labelled_but_not_reported(core: FakeCore) -> None:
