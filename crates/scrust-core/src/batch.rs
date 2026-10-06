@@ -592,8 +592,8 @@ mod tests {
         Array2::from_shape_fn((n_rows, n_cols), |_| standard_normal(&mut rng))
     }
 
-    fn gpu() -> Device {
-        DeviceKind::Gpu.resolve().unwrap()
+    fn gpu() -> Option<Device> {
+        DeviceKind::Gpu.resolve().ok()
     }
 
     fn max_deviation(left: &Array2<f32>, right: &Array2<f32>) -> f32 {
@@ -828,15 +828,18 @@ mod tests {
         if !gpu_available() {
             return;
         }
+        let Some(gpu) = gpu() else {
+            return; // no GPU on this machine
+        };
         let covariates = normal_matrix(200, 2, 14);
         let expression = normal_matrix(200, 50, 15);
         let on_cpu = regress_out(&expression, &covariates, &Device::Cpu).unwrap();
-        let on_gpu = regress_out(&expression, &covariates, &gpu()).unwrap();
+        let on_gpu = regress_out(&expression, &covariates, &gpu).unwrap();
         assert!(max_deviation(&on_cpu, &on_gpu) < 1e-4);
 
         let (expression, batch) = planted_batch_effect(100, 40);
         let on_cpu = combat(&expression, &batch, 2, None, &Device::Cpu).unwrap();
-        let on_gpu = combat(&expression, &batch, 2, None, &gpu()).unwrap();
+        let on_gpu = combat(&expression, &batch, 2, None, &gpu).unwrap();
         assert!(max_deviation(&on_cpu, &on_gpu) < 1e-3);
     }
 }

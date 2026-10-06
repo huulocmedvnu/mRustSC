@@ -450,8 +450,8 @@ mod tests {
         .unwrap()
     }
 
-    fn gpu() -> Device {
-        DeviceKind::Gpu.resolve().unwrap()
+    fn gpu() -> Option<Device> {
+        DeviceKind::Gpu.resolve().ok()
     }
 
     /// A standard normal deviate by Box-Muller, from a seeded generator so that
@@ -808,8 +808,11 @@ mod tests {
         let design = two_group_design(6);
         let size_factors = linear_space(0.8, 1.2, design.nrows());
 
+        let Some(gpu) = gpu() else {
+            return; // no GPU on this machine
+        };
         let on_cpu = fit(&counts, &design, &size_factors, 0.2, &Device::Cpu);
-        let on_gpu = fit(&counts, &design, &size_factors, 0.2, &gpu());
+        let on_gpu = fit(&counts, &design, &size_factors, 0.2, &gpu);
 
         let deviation = on_cpu
             .coefficients
@@ -831,8 +834,8 @@ mod tests {
         let design = two_group_design(6);
         let size_factors = vec![1.0; design.nrows()];
         let mut devices = vec![("cpu", Device::Cpu)];
-        if gpu_available() {
-            devices.push(("gpu", gpu()));
+        if let Some(gpu) = gpu() {
+            devices.push(("gpu", gpu));
         }
         for (name, device) in devices {
             let warm = fit(&counts, &design, &size_factors, 0.2, &device);

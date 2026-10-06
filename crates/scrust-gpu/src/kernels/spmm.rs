@@ -852,7 +852,7 @@ mod tests {
         let Ok(context) = MetalContext::new() else {
             return;
         };
-        let Ok(device) = Device::new_metal(0) else {
+        let Some(device) = scrust_core::device::metal_device() else {
             return;
         };
         let (n_cells, n_genes, k) = (50_000usize, 20_000usize, 50usize);

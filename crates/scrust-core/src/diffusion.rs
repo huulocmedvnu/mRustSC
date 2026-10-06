@@ -726,7 +726,9 @@ mod tests {
         if !crate::gpu_available() {
             return;
         }
-        let device = crate::DeviceKind::Gpu.resolve().unwrap();
+        let Ok(device) = crate::DeviceKind::Gpu.resolve() else {
+            return; // no GPU on this machine
+        };
         let graph = path_graph(64);
         let cpu = diffmap(&graph, 6, &Device::Cpu).unwrap();
         let gpu = diffmap(&graph, 6, &device).unwrap();

@@ -1190,7 +1190,9 @@ mod tests {
         if !crate::gpu_available() {
             return;
         }
-        let device = crate::DeviceKind::Gpu.resolve().unwrap();
+        let Ok(device) = crate::DeviceKind::Gpu.resolve() else {
+            return; // no GPU on this machine
+        };
         let matrix = scanpy_fixture();
         let cpu = pca(&matrix, 5, true, 0, &Device::Cpu).unwrap();
         let gpu = pca(&matrix, 5, true, 0, &device).unwrap();

@@ -15,3 +15,11 @@
 == scrust_metal at 25,000 cells
    ok, 3.0 s
 == scanpy at 50,000 cells
+   ok, 122.8 s
+== scanpy_tuned at 50,000 cells
+   ok, 44.7 s
+== scrust_cpu at 50,000 cells
+   ok, 7.4 s
+== scrust_metal at 50,000 cells
+   ok, 7.5 s
+== scanpy at 100,000 cells

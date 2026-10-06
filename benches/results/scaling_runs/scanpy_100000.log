@@ -1,0 +1,17 @@
+scanpy (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          1.326 s  +       2 MB  (100000, 45676)
+  pp.filter_cells                  0.338 s  +     893 MB  (95178, 45676)
+  pp.filter_genes                  0.598 s  +     783 MB  (95178, 29552)
+  pp.normalize_total               1.479 s  +     400 MB  (95178, 29552)
+  pp.log1p                         0.129 s  +       0 MB  (95178, 29552)
+  pp.highly_variable_genes         1.227 s  +     832 MB  (95178, 29552)
+  subset                           0.257 s  +    1301 MB  (95178, 2000)
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: UserWarning: zero-centering a sparse array/matrix densifies it.
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         0.420 s  +    2142 MB  (95178, 2000)
+  pp.pca                          12.092 s  +    4454 MB  (95178, 2000)
+  pp.neighbors                    18.640 s  +       8 MB  (95178, 2000)
+  tl.umap                         48.895 s  +     230 MB  (95178, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:135: FutureWarning: The `igraph` implementation of leiden clustering is *orders of magnitude faster*. Set the flavor argument to (and install if needed) 'igraph' to use it.
+In the future, the default backend for leiden will be igraph instead of leidenalg. To achieve the future defaults please pass: `flavor='igraph'` and `n_iterations=2`. `directed` must also be `False` to work with igraph’s implementation.
+  ("tl.leiden", lambda a: lib.tl.leiden(a, **leiden_kwargs)),

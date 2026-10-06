@@ -29,15 +29,32 @@ impl DeviceKind {
     pub fn resolve(self) -> Result<Device> {
         match self {
             DeviceKind::Cpu => Ok(Device::Cpu),
-            DeviceKind::Gpu => Device::new_metal(0).map_err(|_| Error::NoGpu),
-            DeviceKind::Auto => Ok(Device::new_metal(0).unwrap_or(Device::Cpu)),
+            DeviceKind::Gpu => metal_device().ok_or(Error::NoGpu),
+            DeviceKind::Auto => Ok(metal_device().unwrap_or(Device::Cpu)),
         }
     }
 }
 
+/// The first Metal device, or `None` when the machine has no usable GPU.
+///
+/// candle's `Device::new_metal(0)` does not return an error on a machine without a
+/// Metal device: it indexes an empty device list and panics
+/// (`swap_remove index (is 0) should be < len (is 0)`), which is what GitHub's hosted
+/// macOS runners do. The panic is caught here so that `auto` really does fall back to
+/// the CPU and every GPU test can skip itself instead of failing the suite.
+pub fn metal_device() -> Option<Device> {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let device = std::panic::catch_unwind(|| Device::new_metal(0).ok())
+        .ok()
+        .flatten();
+    std::panic::set_hook(previous);
+    device
+}
+
 /// True when this machine can run the Metal backend.
 pub fn gpu_available() -> bool {
-    Device::new_metal(0).is_ok()
+    metal_device().is_some()
 }
 
 #[cfg(test)]
