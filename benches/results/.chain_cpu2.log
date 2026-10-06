@@ -1,0 +1,31 @@
+== 1M scrust cpu (parallel search)
+scrust on embryo_1m_counts.h5ad
+      pass1_moments            4.74 s
+      hvg                      0.00 s
+      pass2_hv_moments         5.85 s
+      pass3_scatter_eigh      23.09 s
+      pass4_project            8.23 s
+  pp.preprocess_backed             42.59 s  +     770 MB
+  pp.neighbors                    306.95 s  +     495 MB
+  tl.umap                          47.84 s  +    1119 MB
+  tl.leiden                        11.21 s  +    1311 MB
+  total                           408.59 s   (44 Leiden clusters)
+== 117k scrust cpu (parallel search)
+scrust (cpu) on bone_marrow_117k_counts.h5ad
+  pp.calculate_qc_metrics          1.372 s  +    1870 MB  (117308, 25574)
+  pp.filter_cells                  1.065 s  +    2489 MB  (115868, 25574)
+  pp.filter_genes                  1.231 s  +    2468 MB  (115868, 25574)
+  pp.normalize_total               0.200 s  +    1238 MB  (115868, 25574)
+  pp.log1p                         0.195 s  +    1237 MB  (115868, 25574)
+  pp.highly_variable_genes         0.347 s  +    1862 MB  (115868, 25574)
+  subset                           0.941 s  +    3759 MB  (115868, 2000)
+  pp.scale                         0.103 s  +     878 MB  (115868, 2000)
+  pp.pca                           3.076 s  +     957 MB  (115868, 2000)
+  pp.neighbors                     4.872 s  +      75 MB  (115868, 2000)
+  tl.umap                          4.946 s  +      71 MB  (115868, 2000)
+  tl.leiden                        0.728 s  +     102 MB  (115868, 2000)
+  tl.rank_genes_groups            10.092 s  +    6237 MB  (115868, 2000)
+  out[name] = __import__(name).__version__
+  out[name] = __import__(name).__version__
+  total                           29.168 s   (37 Leiden clusters)
+CHAIN2_DONE

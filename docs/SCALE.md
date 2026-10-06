@@ -80,20 +80,20 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117
 
 | step | scanpy | scanpy (tuned) | scrust CPU, parallel UMAP | scrust Metal | scrust Metal, `umap(parallel=True)` |
 |---|---:|---:|---:|---:|---:|
-| `pp.calculate_qc_metrics` | 1.46 | 1.40 | 1.22 | 0.97 | 0.86 |
-| `pp.filter_cells` | 0.69 | 0.69 | 0.85 | 2.07 | 0.64 |
-| `pp.filter_genes` | 1.10 | 1.12 | 1.09 | 1.09 | 1.01 |
-| `pp.normalize_total` | 1.18 | 1.25 | 0.14 | 0.14 | 0.12 |
-| `pp.log1p` | 0.34 | 0.35 | 0.15 | 0.15 | 0.12 |
-| `pp.highly_variable_genes` | 1.34 | 1.37 | 0.31 | 0.30 | 0.25 |
-| `subset` | 0.68 | 0.59 | 0.76 | 0.73 | 0.55 |
-| `pp.scale` | 1.00 | 0.53 | 0.04 | 0.03 | 0.02 |
-| `pp.pca` | 13.61 | 3.70 | 2.54 | 0.96 | 1.10 |
-| `pp.neighbors` | 17.85 | 18.20 | 78.98 | 2.13 | 1.97 |
-| `tl.umap` | 46.82 | 46.13 | 4.66 | 30.42 | 4.80 |
-| `tl.leiden` | 135.40 | 2.49 | 0.64 | 0.64 | 0.66 |
-| `tl.rank_genes_groups` | 11.83 | 8.29 | 7.52 | 7.33 | 7.61 |
-| **whole pipeline** | **233.3** | **86.1** | **98.9** | **47.0** | **19.7** |
+| `pp.calculate_qc_metrics` | 1.46 | 1.40 | 1.37 | 0.97 | 0.86 |
+| `pp.filter_cells` | 0.69 | 0.69 | 1.07 | 2.07 | 0.64 |
+| `pp.filter_genes` | 1.10 | 1.12 | 1.23 | 1.09 | 1.01 |
+| `pp.normalize_total` | 1.18 | 1.25 | 0.20 | 0.14 | 0.12 |
+| `pp.log1p` | 0.34 | 0.35 | 0.19 | 0.15 | 0.12 |
+| `pp.highly_variable_genes` | 1.34 | 1.37 | 0.35 | 0.30 | 0.25 |
+| `subset` | 0.68 | 0.59 | 0.94 | 0.73 | 0.55 |
+| `pp.scale` | 1.00 | 0.53 | 0.10 | 0.03 | 0.02 |
+| `pp.pca` | 13.61 | 3.70 | 3.08 | 0.96 | 1.10 |
+| `pp.neighbors` | 17.85 | 18.20 | 4.87 | 2.13 | 1.97 |
+| `tl.umap` | 46.82 | 46.13 | 4.95 | 30.42 | 4.80 |
+| `tl.leiden` | 135.40 | 2.49 | 0.73 | 0.64 | 0.66 |
+| `tl.rank_genes_groups` | 11.83 | 8.29 | 10.09 | 7.33 | 7.61 |
+| **whole pipeline** | **233.3** | **86.1** | **29.2** | **47.0** | **19.7** |
 
 - **Against scanpy's defaults the pipeline is 5x faster on the same laptop, 11x with the
   parallel UMAP; against scanpy tuned (`covariance_eigh` PCA, `igraph` Leiden with two
@@ -102,13 +102,13 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117
   (9.7x with the Hogwild optimiser; umap-learn's own parallel path did not engage through
   scanpy, 46 s either way), PCA (4x) and Leiden (3.9x against `igraph`, 210x against the
   default `leidenalg` run to convergence).
-- **The GPU is the neighbour search.** With `settings.device="cpu"` honoured (a bug fixed on this
-  branch: sixteen functions used to ignore it), the brute-force k-NN takes 79 s on the CPU through
-  Accelerate and 2.0 s on Metal, a 40x gap on the one step that is quadratic in cells; PCA is 2.5x
-  faster on Metal. Everything else is the same on either device, so on this atlas the whole
-  pipeline is 99 s CPU-only against 20 s with the GPU. The scrust CPU column still beats scanpy's
-  defaults (233 s) and is level with scanpy tuned (86 s); the GPU is what pulls it to 4x under
-  the tuned figure.
+- **The GPU is the neighbour search, and the CPU column is now a fair one.** With
+  `settings.device="cpu"` honoured (a bug fixed on this branch: sixteen functions used to ignore
+  it) and the CPU search rewritten to use every core (query blocks across threads, Accelerate
+  products per thread, fused top-k), the brute-force k-NN is 4.9 s on the CPU against 2.0 s on
+  Metal, and PCA 3.1 s against 1.1 s; everything else is the same on either device. The first
+  CPU measurement, before that rewrite, had the search at 79 s on effectively one core. Whole
+  pipeline: 29 s CPU-only, 20 s with the GPU, against 233 s for scanpy's defaults and 86 s tuned.
 - **The elementwise head is at parity or a little ahead**, as at 100 000 cells. `filter_cells`
   is slower in scrust (it copies the matrix once more than scanpy); it is 2 s of a 47 s run.
 - **The rank-sum test is 1.3x to 1.6x here**, not the 73x of section 1: 2 000 genes by 37
@@ -160,31 +160,25 @@ Seconds per step and the memory each step added (physical footprint):
 
 | step | scrust Metal | scrust CPU | +MB (Metal) |
 |---|---:|---:|---:|
-| pass 1: QC, normalise, log1p, HVG sums | 3.6 | 3.4 | |
-| pass 2: moments of the variable genes | 5.3 | 4.7 | |
-| pass 3: scaled scatter on the device, eigenvectors | 15.4 | 20.0 | |
-| pass 4: projection to 50 PCs | 7.5 | 6.4 | |
-| `pp.preprocess_backed` (all four passes) | 32.3 | 35.1 | 1058 |
-| `pp.neighbors` | 123.4 | 5294.2 | 486 |
-| `tl.umap` | 44.6 | 45.5 | 1163 |
-| `tl.leiden` | 9.5 | 11.0 | 1245 |
-| **whole run** | **210** | **5386** | |
+| pass 1: QC, normalise, log1p, HVG sums | 3.6 | 4.7 | |
+| pass 2: moments of the variable genes | 5.3 | 5.9 | |
+| pass 3: scaled scatter on the device, eigenvectors | 15.4 | 23.1 | |
+| pass 4: projection to 50 PCs | 7.5 | 8.2 | |
+| `pp.preprocess_backed` (all four passes) | 32.3 | 42.6 | 1058 |
+| `pp.neighbors` | 123.4 | 307.0 | 486 |
+| `tl.umap` | 44.6 | 47.8 | 1163 |
+| `tl.leiden` | 9.5 | 11.2 | 1245 |
+| **whole run** | **210** | **409** | |
 
 - **A million cells, start to Leiden, in 3.5 minutes on a laptop, never holding more than 1.4 GB
   beyond the baseline.** The head of the pipeline, four passes over 4.8 GB of counts, is 32 s;
   the counts stream off the SSD faster than the arithmetic can use them.
 - **The exact neighbour search is the long pole and the GPU's whole case.** On Metal it is
-  120 s, 57% of the run; on the CPU, as the search is written today, it is 5294 s, an hour
-  and a half, and the whole run 90 minutes against 3.5. Brute force is quadratic in cells,
-  and at 10⁶ cells that is 9 x 10¹¹ distance evaluations: the one step where the 14-core GPU is
-  what makes the laptop usable at all.
-- **The CPU figure is a lower bound on the CPU, not a fair one.** The CPU search computes its
-  distance tiles through candle on effectively one core (the process sat at 105 to 130% CPU
-  through the 88 minutes) and only the top-k selection runs across cores. A query-block-parallel
-  CPU search with per-thread Accelerate products is the planned rewrite
-  (`docs/PLAN_APPLE_SILICON.md`, 2.1) and should bring the CPU to roughly 10 minutes; the GPU
-  kernel is at 15% of the chip's peak and will move with the same rewrite. The pair to publish is
-  the pair after that rewrite.
+  120 s, 57% of the run; on the CPU, with the search spread over every core, 307 s, and the
+  whole run 6.8 minutes against 3.5. Brute force is quadratic in cells, and at 10⁶ cells
+  that is 9 x 10¹¹ distance evaluations: the one step where the 14-core GPU is what keeps the
+  laptop at minutes. (The first CPU measurement, before the search was parallelised, was
+  5 294 s on effectively one core; it is kept in the git history as the lower bound it was.)
 - **Everything else is level between the devices**: the streamed head is 32 s against 35 s
   (the scatter products 15 s against 20 s), UMAP and Leiden are on the CPU either way.
 - **scanpy on the same file, same machine**: see `benches/results/embryo1m_scanpy.log`.
@@ -301,7 +295,7 @@ were measured on, next to this page's:
 | rapids-singlecell | NVIDIA RTX PRO 6000 (96 GB) | 1 000 000 | 28.4 s |
 | rapids-singlecell | NVIDIA DGX B200 (8 x B200) | 1 000 000 | 24.6 s |
 | rapids-singlecell (examples repo) | NVIDIA A100 40 GB | 1 300 000 | 686 s (UMAP 21 s, Leiden 1.7 s) |
-| **scrust** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; CPU-only as written today: 90 min) |
+| **scrust** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; 409 s CPU-only) |
 
 Sources: NVIDIA developer blog "Driving toward billion-cell analysis and biological
 breakthroughs with RAPIDS-singlecell" (12 June 2025) for the 1 M-cell rows;
