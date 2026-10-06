@@ -28,14 +28,22 @@ COLORS = pio.templates["plotly"].layout.colorway  # the default colorway
 FONT = dict(family="Helvetica Neue, Helvetica, Arial, sans-serif", size=13)
 
 
+PAPER = False  # `--paper`: no in-figure titles (the caption carries them), into docs/figures/paper/
+
+
 def save(fig: go.Figure, name: str, width: int, height: int) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    fig.update_layout(font=FONT, margin=dict(l=20, r=20, t=50, b=20))
+    out = OUT / "paper" if PAPER else OUT
+    out.mkdir(parents=True, exist_ok=True)
+    if PAPER:
+        fig.update_layout(title=None, margin=dict(l=20, r=20, t=20, b=20))
+    else:
+        fig.update_layout(margin=dict(l=20, r=20, t=50, b=20))
+    fig.update_layout(font=FONT)
     for ext in ("svg", "png"):
         fig.write_image(
-            OUT / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
+            out / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
         )
-    print(f"wrote docs/figures/{name}.svg/.png")
+    print(f"wrote {out.relative_to(ROOT)}/{name}.svg/.png")
 
 
 # ----------------------------------------------------------------------------- helpers
