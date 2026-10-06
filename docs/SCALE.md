@@ -299,7 +299,7 @@ streamed points do not):
 | 100,000 | 264 s | 73 s | 15 s | 16 s |
 | 250,000 | 1368 s | 177 s | 68 s | 52 s |
 | 500,000 | over 40 min | 377 s | 113 s | 75 s |
-| 1,000,000 | not run | added more than 10 GB of swap | 366 s | 207 s |
+| 1,000,000 | not attempted (500k did not finish) | added more than 10 GB of swap | 366 s | 207 s |
 
 - **The gap widens with size.** scrust Metal is 21x faster than scanpy's defaults at 10k cells and
   26x at 250k, 19x and 7x against scanpy tuned. scanpy's defaults stop at 250k (23 minutes) and did
@@ -309,7 +309,14 @@ streamed points do not):
   set is the memory ceiling of the in-memory path and is the next engineering item
   (`docs/PLAN_APPLE_SILICON.md`, 2.3). Above 250k the streamed head is the path to use, and it
   carries a million cells at 207 s on Metal and 366 s on the CPU.
-- Figure F5 draws every step; the quadratic neighbour search is the one line whose slope steepens.
+- **The neighbour panel of F5 is the honest one.** scanpy's pynndescent index is approximate and
+  near-constant in time, about 17 s from 10k to 250k cells and 24 s at 500k, while scrust's exact
+  search is quadratic: 0.05 s at 10k, 8 s at 250k, 30 s at 500k and 120 s at a million on Metal.
+  The lines cross near 400k cells. Above that size an approximate index is what scrust needs
+  (`docs/PLAN_APPLE_SILICON.md`, 2.2), and the GPU's 2.5x over the CPU search does not change
+  where the crossing sits by much.
+- Figure F5 draws every step on log-log axes; the streamed points above 250k have no separate PCA
+  or marker step, which is why those two panels end at 250k for scrust.
 
 ## 7. Against the NVIDIA-GPU alternative
 
