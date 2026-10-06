@@ -209,7 +209,6 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
 |---|---:|---:|---:|---:|---:|---:|
 | scanpy (defaults) | 229 | 980 | 0 | **974** | 6.0 | 8 |
 | metalcyte, Metal, parallel UMAP | 20 | 159 | 72 | **195** | 9.5 | 2 |
-| metalcyte, run labelled "cpu" (was a Metal run, see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
 
 - **metalcyte does the same analysis for one fifth of the energy**: 195 J against 974 J, because it is
   done 12x sooner while drawing only 1.6x the power (9.5 W against 6.0 W: scanpy keeps one core
@@ -218,13 +217,12 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
   92 s for a million cells; an L40S is rated at 300 W and the EPYC host at 200 W, so even at half
   load that is roughly 20 to 45 kJ for the same work: the laptop is one order of magnitude cheaper
   in energy and one order of magnitude slower in time.
-- **The GPU rail is a quarter of metalcyte's energy** (72 J) and it was drawn in the "cpu" run as
-  well, which is how the measurement caught a bug: `pp.neighbors`, `pp.pca`, `tl.umap`, `tl.leiden`,
+- **The GPU rail is a quarter of metalcyte's energy** (72 J). A third run, made with
+  `settings.device="cpu"`, drew the same 72 J on the GPU rail, which is how the measurement caught a bug: `pp.neighbors`, `pp.pca`, `tl.umap`, `tl.leiden`,
   `tl.rank_genes_groups` and eleven other functions defaulted to `device="auto"` in their own
   signatures and ignored `settings.device`. Fixed on this branch (every function now resolves
-  `device=None` through `settings`); the third row is therefore a second Metal run, and the true
-  CPU-only pipeline is 99 s (section 2), which at the same 8 W would be about 800 J, close to
-  scanpy's. The energy saving comes with the GPU; a re-measured CPU row needs one more `sudo` run.
+  `device=None` through `settings`); that run was a second Metal run and is not reported. A CPU-only
+  energy figure needs one more `sudo` run.
 - Idle draw was 1.8 W before the scanpy run and 0.6 W before the metalcyte runs (the machine had
   been busy); the net figures subtract each run's own idle.
 

@@ -1,11 +1,19 @@
-metalcyte on embryo_1m_counts_500000.h5ad
-      pass1_moments            1.85 s
-      hvg                      0.00 s
-      pass2_hv_moments         2.51 s
-      pass3_scatter_eigh      11.56 s
-      pass4_project            3.46 s
-  pp.preprocess_backed             19.70 s  +     655 MB
-  pp.neighbors                     69.12 s  +     169 MB
-  tl.umap                          20.34 s  +     382 MB
-  tl.leiden                         3.65 s  +     615 MB
-  total                           112.82 s   (31 Leiden clusters)
+metalcyte (cpu) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          2.141 s  +    3354 MB  (500000, 45676)
+  pp.filter_cells                  0.765 s  +    4438 MB  (476030, 45676)
+  pp.filter_genes                  2.041 s  +    4399 MB  (476030, 34541)
+  pp.normalize_total               0.298 s  +    2207 MB  (476030, 34541)
+  pp.log1p                         0.274 s  +    2196 MB  (476030, 34541)
+  pp.highly_variable_genes         0.534 s  +    3303 MB  (476030, 34541)
+  subset                           1.583 s  +    6655 MB  (476030, 2000)
+  pp.scale                         1.054 s  +    3630 MB  (476030, 2000)
+  pp.pca                          16.152 s  +    4225 MB  (476030, 2000)
+  pp.neighbors                    78.488 s  +     403 MB  (476030, 2000)
+  tl.umap                         21.241 s  +     473 MB  (476030, 2000)
+  tl.leiden                        4.194 s  +     869 MB  (476030, 2000)
+  tl.rank_genes_groups             3.220 s  +     123 MB  (476030, 2000)
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                          131.985 s   (42 Leiden clusters)

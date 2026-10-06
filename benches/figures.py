@@ -25,6 +25,39 @@ RESULTS = ROOT / "benches" / "results"
 OUT = ROOT / "docs" / "figures"
 pio.templates.default = "plotly_white"
 COLORS = pio.templates["plotly"].layout.colorway  # the default colorway
+# Plain words for the figures: readers need the step, not the function name.
+STEP_LABELS = {
+    "pp.calculate_qc_metrics": "QC metrics",
+    "pp.filter_cells": "filter cells",
+    "pp.filter_genes": "filter genes",
+    "pp.normalize_total": "normalise",
+    "pp.log1p": "log transform",
+    "pp.highly_variable_genes": "variable genes",
+    "subset": "subset to variable genes",
+    "pp.scale": "scale",
+    "pp.pca": "PCA",
+    "pp.neighbors": "neighbour graph",
+    "tl.umap": "UMAP",
+    "tl.leiden": "Leiden",
+    "tl.rank_genes_groups": "marker genes",
+    "pp.preprocess_backed": "out-of-core head",
+    "whole pipeline": "whole pipeline",
+}
+CONFIG_LABELS = {
+    "all": "everything on",
+    "no_metal": "no GPU",
+    "no_accelerate": "no Accelerate",
+    "p_cores_only": "performance cores only",
+    "one_core": "one core",
+    "no_zero_copy": "no zero-copy",
+    "sequential_umap": "sequential UMAP",
+}
+
+
+def step_label(step: str) -> str:
+    return STEP_LABELS.get(step, step)
+
+
 FONT = dict(family="Helvetica Neue, Helvetica, Arial, sans-serif", size=13)
 
 
@@ -222,7 +255,7 @@ def f2_bytes():
         font=dict(size=11, color="#444"),
     )
     fig.update_layout(
-        title="F2. Where the bytes go: pp.scale then pp.pca on the 117k atlas (box height ∝ bytes)"
+        title="F2. Where the bytes go: scaling then PCA on the 117k atlas (box height ∝ bytes)"
     )
     save(fig, "F2_bytes", 1100, 620)
 
@@ -299,7 +332,7 @@ def f3_streaming():
         font=dict(size=11, color="#a33"),
     )
     fig.update_layout(
-        title="F3. A million cells in four passes: pp.preprocess_backed on an 18 GB laptop (times measured, Metal)"  # noqa: E501
+        title="F3. A million cells in four passes: the out-of-core head on an 18 GB laptop (times measured, Metal)"  # noqa: E501
     )
     save(fig, "F3_streaming", 1300, 620)
 
@@ -322,8 +355,8 @@ def f4_ablation():
     fig = go.Figure()
     for s in steps:
         fig.add_bar(
-            name=s,
-            x=[r["config"] for r in rows],
+            name=step_label(s),
+            x=[CONFIG_LABELS.get(r["config"], r["config"]) for r in rows],
             y=[r["steps"].get(s, 0) for r in rows],
             marker_line_width=0,
         )
@@ -342,9 +375,9 @@ def f6_pipeline_117k():
     names = {
         "scanpy": "scanpy (defaults)",
         "scanpy_tuned": "scanpy (tuned)",
-        "metalcyte_cpu": "metalcyte CPU",
-        "metalcyte_metal": "metalcyte Metal",
-        "metalcyte_metal_umap_parallel": "metalcyte Metal + parallel UMAP",
+        "metalcyte_cpu": "Metalcyte CPU",
+        "metalcyte_metal": "Metalcyte Metal",
+        "metalcyte_metal_umap_parallel": "Metalcyte Metal + parallel UMAP",
     }
     runs = {k: _load(f"bm117k_{k}.json") for k in names}
     runs = {k: v for k, v in runs.items() if v}
@@ -356,7 +389,7 @@ def f6_pipeline_117k():
     for k, r in runs.items():
         fig.add_bar(
             name=names[k],
-            x=steps,
+            x=[step_label(st) for st in steps],
             y=[s["seconds"] for s in r["steps"]],
             marker_line_width=0,
         )
@@ -472,7 +505,7 @@ def _residency(path: Path):
 def f8_utilisation():
     from plotly.subplots import make_subplots
 
-    runs = [("metalcyte_metal", "metalcyte, Metal"), ("scanpy", "scanpy")]
+    runs = [("metalcyte_metal", "Metalcyte, Metal"), ("scanpy", "scanpy")]
     logs = [(RESULTS / f"energy_bm117k_{k}.powermetrics.txt", n) for k, n in runs]
     logs = [(p, n) for p, n in logs if p.exists()]
     if not logs:
@@ -535,13 +568,15 @@ def f5_scaling():
     names = {
         "scanpy": "scanpy (defaults)",
         "scanpy_tuned": "scanpy (tuned)",
-        "metalcyte_cpu": "metalcyte CPU",
-        "metalcyte_metal": "metalcyte Metal",
+        "metalcyte_cpu": "Metalcyte CPU",
+        "metalcyte_metal": "Metalcyte Metal",
     }
     from plotly.subplots import make_subplots
 
     steps = ["whole pipeline", "pp.pca", "pp.neighbors", "tl.umap", "tl.leiden"]
-    fig = make_subplots(rows=1, cols=len(steps), subplot_titles=steps, shared_yaxes=True)
+    fig = make_subplots(
+        rows=1, cols=len(steps), subplot_titles=[step_label(st) for st in steps], shared_yaxes=True
+    )
     for i, (key, label) in enumerate(names.items()):
         pts = sorted(
             (p for p in data["points"] if p["config"] == key and p["outcome"] == "ok"),

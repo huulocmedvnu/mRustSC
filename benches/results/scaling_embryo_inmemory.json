@@ -1,0 +1,54 @@
+{
+  "file": "/Users/mac/Downloads/mRustSC_work/data/embryo_1m_counts.h5ad",
+  "points": [
+    {
+      "config": "metalcyte_cpu",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 131.98490799893625,
+      "steps": {
+        "pp.calculate_qc_metrics": 2.140849750023335,
+        "pp.filter_cells": 0.7645192500203848,
+        "pp.filter_genes": 2.040809541940689,
+        "pp.normalize_total": 0.2983237497974187,
+        "pp.log1p": 0.2735237500164658,
+        "pp.highly_variable_genes": 0.5343405420426279,
+        "subset": 1.5826117501128465,
+        "pp.scale": 1.0544902081601322,
+        "pp.pca": 16.152155666146427,
+        "pp.neighbors": 78.48795254086144,
+        "tl.umap": 21.24128787498921,
+        "tl.leiden": 4.194495749892667,
+        "tl.rank_genes_groups": 3.219547624932602
+      },
+      "n_cells": 476030
+    },
+    {
+      "config": "metalcyte_metal",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 74.07004137523472,
+      "steps": {
+        "pp.calculate_qc_metrics": 2.2797997079323977,
+        "pp.filter_cells": 0.9409688340965658,
+        "pp.filter_genes": 2.0976326251402497,
+        "pp.normalize_total": 0.3127188750077039,
+        "pp.log1p": 0.26780400006100535,
+        "pp.highly_variable_genes": 0.5386222500819713,
+        "subset": 1.289468124974519,
+        "pp.scale": 0.37166616693139076,
+        "pp.pca": 5.614704791922122,
+        "pp.neighbors": 31.160858791088685,
+        "tl.umap": 21.98441654117778,
+        "tl.leiden": 3.896733958972618,
+        "tl.rank_genes_groups": 3.3146467078477144
+      },
+      "n_cells": 476030
+    },
+    {
+      "config": "metalcyte_cpu",
+      "size": 1000000,
+      "outcome": "killed: added more than 10 GB of swap"
+    }
+  ]
+}

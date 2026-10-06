@@ -112,7 +112,7 @@ the same marker genes (`benches/agreement.py`).
 | memory added per step | | under 1.5 GB | under 1.5 GB |
 
 **Scaling.** On subsamples of that atlas Metalcyte is 21x faster than scanpy's defaults at 10 000 cells
-and 26x at 250 000, 19x and 7x against scanpy tuned; scanpy's defaults did not finish 500 000 cells
+and 27x at 250 000, 19x and 3.4x against scanpy tuned; scanpy's defaults did not finish 500 000 cells
 in 40 minutes and scanpy tuned does not fit a million.
 
 **Which part of the chip buys what.** Switching features off one at a time on the 117k atlas
