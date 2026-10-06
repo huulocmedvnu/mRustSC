@@ -1,4 +1,4 @@
-"""Line-by-line audit of `scrust`'s t-SNE against `sklearn.manifold._t_sne`.
+"""Line-by-line audit of `silicell`'s t-SNE against `sklearn.manifold._t_sne`.
 
 Every test here compares against scikit-learn's *own code* rather than against a
 property: `sklearn.manifold._utils._binary_search_perplexity` is imported
@@ -20,7 +20,7 @@ exact gradient evaluation. The same identity holds at the phase boundary,
 *because* scikit-learn restarts `update` and `gains` there — which is what
 `test_the_phase_switch_restarts_momentum_and_gains` exploits.
 
-These tests call the compiled extension directly, because `scrust.tl.tsne` fixes
+These tests call the compiled extension directly, because `silicell.tl.tsne` fixes
 `n_iterations` at 1000 and `n_components` at 2.
 """
 
@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist, squareform
 
-from scrust_call import DEVICE
+from silicell_call import DEVICE
 
 sklearn_tsne = pytest.importorskip("sklearn.manifold._t_sne")
 sklearn_utils = pytest.importorskip("sklearn.manifold._utils")
@@ -54,11 +54,11 @@ GRADIENT_TOLERANCE = 1e-4
 @pytest.fixture(scope="module")
 def extension():
     """The compiled core, or a skip. Must be the build from this worktree."""
-    module = pytest.importorskip("scrust.tl._embedding")
+    module = pytest.importorskip("silicell.tl._embedding")
     try:
         return module._extension()
     except Exception as exc:
-        pytest.skip(f"the scrust extension is unavailable: {exc}")
+        pytest.skip(f"the silicell extension is unavailable: {exc}")
 
 
 def gaussian(n_samples: int, n_features: int, seed: int, offset: float = 0.0):
@@ -76,7 +76,7 @@ def sklearn_joint_probabilities(x, perplexity):
     """`_joint_probabilities`, sklearn/manifold/_t_sne.py:38-68, verbatim.
 
     Returned condensed, holding one entry per unordered pair, which is the same
-    number `scrust` stores at both `(i, j)` and `(j, i)` of its dense matrix.
+    number `silicell` stores at both `(i, j)` and `(j, i)` of its dense matrix.
     """
     distances = pairwise_distances(x, squared=True).astype(np.float32)
     conditional_p = binary_search_perplexity(distances, perplexity, 0)
@@ -104,8 +104,8 @@ def sklearn_kl_gradient(layout, joint, degrees_of_freedom, n_samples, n_componen
     return grad.ravel() * coefficient
 
 
-def scrust_binary_search_perplexity(distances, perplexity):
-    """`conditional_affinities`, crates/scrust-core/src/tsne.rs:189-247, in the
+def silicell_binary_search_perplexity(distances, perplexity):
+    """`conditional_affinities`, crates/silicell-core/src/tsne.rs:189-247, in the
     same f32 arithmetic, including the sequential accumulation of the two row
     sums (`np.cumsum` in f32 is what the Rust `for` loop does; `np.sum` is not,
     it reduces pairwise and is more accurate).
@@ -189,14 +189,14 @@ def test_perplexity_search_matches_sklearn(n_samples, n_features, perplexity, se
 
     The bar is scikit-learn's own accuracy: the search stops at an entropy
     tolerance of 1e-5, which is a relative perplexity error of 1e-5, so the
-    reference itself misses the target by `3e-4` at perplexity 30. `scrust` runs
+    reference itself misses the target by `3e-4` at perplexity 30. `silicell` runs
     the identical recurrence in f32 and must stay within an order of that.
     """
     x = gaussian(n_samples, n_features, seed)
     distances = pairwise_distances(x, squared=True).astype(np.float32)
 
     reference = np.asarray(binary_search_perplexity(distances, perplexity, 0))
-    ours = scrust_binary_search_perplexity(distances, perplexity)
+    ours = silicell_binary_search_perplexity(distances, perplexity)
 
     theirs_error = np.abs(realised_perplexity(reference) - perplexity).max()
     ours_error = np.abs(realised_perplexity(ours) - perplexity).max()
@@ -212,7 +212,7 @@ def test_perplexity_search_matches_sklearn(n_samples, n_features, perplexity, se
 
 
 def one_gradient_step(extension, x, n_components=2):
-    """The gradient `scrust` computed at its own starting point, recovered from
+    """The gradient `silicell` computed at its own starting point, recovered from
     two runs that differ by a single iteration."""
     n_samples = x.shape[0]
     args = (n_components, PERPLEXITY, EARLY_EXAGGERATION, LEARNING_RATE)
@@ -388,7 +388,7 @@ def test_accepts_every_input_scikit_learn_accepts(extension):
     (`_check_params_vs_input`, sklearn/manifold/_t_sne.py:845-850), and scanpy adds
     none of its own.
 
-    `scrust` used to refuse `n_cells < 3 * perplexity` as well, so a 60-cell
+    `silicell` used to refuse `n_cells < 3 * perplexity` as well, so a 60-cell
     subcluster at the default perplexity of 30 raised where `sc.tl.tsne` returns a
     layout. The one-third rule is advice about reading a t-SNE, not a precondition
     of the algorithm, and the comment carrying it credited scanpy, which has no

@@ -1,6 +1,6 @@
-# How scrust works
+# How silicell works
 
-A user-facing tour: what happens between your `sr.pp.pca(adata)` and the array that
+A user-facing tour: what happens between your `si.pp.pca(adata)` and the array that
 lands in `obsm["X_pca"]`, and which of the project's design choices you can actually
 feel from Python. The internal contract that branches are written against is
 [ARCHITECTURE.md](ARCHITECTURE.md); this page is the version you need in order to
@@ -9,12 +9,12 @@ use the library well.
 ## The shape of a call
 
 ```
-your script                 sr.pp.pca(adata, n_comps=50)
-python/scrust/pp/_basics.py pulls X apart into (indptr, indices, values, n_cols)
-crates/scrust-py            converts those numpy arrays into Rust types
-crates/scrust-core          runs the algorithm against candle tensors
+your script                 si.pp.pca(adata, n_comps=50)
+python/silicell/pp/_basics.py pulls X apart into (indptr, indices, values, n_cols)
+crates/silicell-py            converts those numpy arrays into Rust types
+crates/silicell-core          runs the algorithm against candle tensors
                             on Device::Metal or Device::Cpu
-python/scrust/pp/_basics.py writes obsm["X_pca"], varm["PCs"], uns["pca"]
+python/silicell/pp/_basics.py writes obsm["X_pca"], varm["PCs"], uns["pca"]
 ```
 
 Three consequences you can observe:
@@ -22,8 +22,8 @@ Three consequences you can observe:
 - **No AnnData knowledge below Python.** Rust sees three flat arrays and a column
   count. Layers, `raw`, views and masks are handled — or not handled — in Python.
 - **No defaults below Python.** Every value the core needs is passed explicitly.
-  When a scrust default differs from scanpy's, the difference is one line in
-  `python/scrust/`, and [API.md](API.md) says where.
+  When a silicell default differs from scanpy's, the difference is one line in
+  `python/silicell/`, and [API.md](API.md) says where.
 - **Matrices are cells by genes and `float32`**, with `uint32` indices. A
   `float64` matrix is converted on the way in, so results come back `float32` even
   if you handed in doubles. p-values are the exception: a rank-sum p-value underflows
@@ -33,11 +33,11 @@ Three consequences you can observe:
 
 Algorithms are written once against `candle_core::Tensor` and take a device. Asking
 for `"auto"` resolves to Metal when a Metal device initialises, and to the CPU
-otherwise (`DeviceKind::resolve`, `crates/scrust-core/src/device.rs`). `settings.device`
+otherwise (`DeviceKind::resolve`, `crates/silicell-core/src/device.rs`). `settings.device`
 is `"auto"`, so on a Mac with Metal a caller who names no device is on the GPU without
 having chosen to be. The same source runs both ways, so the CPU path is not a second
 implementation that can drift — it is the oracle the GPU path is tested against.
-`scrust.gpu_available()` tells you which one you will get.
+`silicell.gpu_available()` tells you which one you will get.
 
 Apple's unified memory is what makes this worth doing at single-cell sizes: a Metal
 buffer over a Rust slice is a view, not a copy across a PCIe bus, so an operation
@@ -47,14 +47,14 @@ Three honest qualifications:
 
 - **A GPU does not make everything faster**, which is why some paths do not use one.
   Elementwise work over a sparse matrix — `log1p`, `normalize_total`, `scale` — is
-  bandwidth-bound and small, and scrust is *slower* than scanpy on several of these.
+  bandwidth-bound and small, and silicell is *slower* than scanpy on several of these.
   The tensor-algebra wins that do reach the device are `pca` and `neighbors`; the
   largest speedups over scanpy — `rank_genes_groups` and `paga` — are plain Rust that
   never touches it. [BENCHMARKS.md](BENCHMARKS.md) has both columns.
-- **One hand-written Metal kernel is now on your call path: `knn`.** `crates/scrust-gpu`
+- **One hand-written Metal kernel is now on your call path: `knn`.** `crates/silicell-gpu`
   holds CSR SpMM, column moments, row scaling, k-NN, UMAP SGD and t-SNE gradient kernels,
-  all tested against their core counterparts. `crates/scrust-py` now depends on the crate
-  and routes a Metal caller's k-NN — the search behind `sr.pp.neighbors` — to the `knn`
+  all tested against their core counterparts. `crates/silicell-py` now depends on the crate
+  and routes a Metal caller's k-NN — the search behind `si.pp.neighbors` — to the `knn`
   kernel, which is ~2-2.5x faster than the candle path and agrees with the CPU result
   bit-for-bit (`tests/test_device_parity.py`). The other kernels (SpMM, UMAP SGD, t-SNE
   gradient) are not reachable: SpMM has no plain sparse×dense caller, and UMAP SGD is left
@@ -69,7 +69,7 @@ Three honest qualifications:
   honest about it and takes no `device` at all). The binding still resolves the name,
   so `device="gpu"` on a machine without Metal raises — it just never changes where
   that work runs. `grep -n "device: &Device"
-  crates/scrust-core/src/<module>.rs` is the check.
+  crates/silicell-core/src/<module>.rs` is the check.
 
 One optional build switch touches the CPU side of all this. The `accelerate` cargo
 feature (`maturin develop --release --features accelerate`) links Apple's Accelerate
@@ -113,7 +113,7 @@ Two things follow for you as a caller:
 - **That file skips entirely where there is no Metal device**, which includes GitHub's
   hosted macOS runners. A green CI is not evidence that the GPU path passes; the
   parity suite runs on developer hardware and a self-hosted Apple-silicon runner.
-  `SCRUST_TEST_DEVICE` (default `"cpu"`) chooses the device the rest of the audits run
+  `SILICELL_TEST_DEVICE` (default `"cpu"`) chooses the device the rest of the audits run
   against.
 
 ## A stored zero means different things in different modules
@@ -159,10 +159,10 @@ Two places where something does densify, both worth planning around:
   *slower* relative to scanpy as your data grows: 17x slower at 10 000 cells. Use
   `sc.tl.tsne` above a couple of thousand cells.
 
-For matrices that do not fit at all there is `scrust._backed`, which iterates row
+For matrices that do not fit at all there is `silicell._backed`, which iterates row
 blocks straight out of an `.h5ad` and sizes them against `settings.max_memory_gb`.
 As of v0.2.0 `pp.normalize_total` and `pp.log1p` consume it automatically when
-`adata.isbacked` (`python/scrust/pp/_basics.py`): they stream `X` in row blocks and
+`adata.isbacked` (`python/silicell/pp/_basics.py`): they stream `X` in row blocks and
 rewrite it on disk in place, so peak memory is one block rather than the whole matrix,
 and the output is bit-for-bit the in-memory result (`benches/backed_transform.py`:
 737 MB peak against 1141 MB in memory, 0.65x). The lower-level `open_backed` iterator
@@ -196,7 +196,7 @@ by `tests/test_reference.py` rather than asserted here.
 
 Randomness takes an explicit seed and the same seed gives the same bytes — on one
 device. Across devices the seed fixes the algorithm, not the last few bits of the
-arithmetic, for the reason above. Note also that this holds *within* scrust: a scrust
+arithmetic, for the reason above. Note also that this holds *within* silicell: a silicell
 UMAP with `random_state=0` will not match a
 scanpy UMAP with `random_state=0`, because they are different implementations of a
 stochastic method. That is what the preservation band exists to measure.

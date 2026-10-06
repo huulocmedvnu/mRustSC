@@ -25,7 +25,7 @@ import scanpy as sc
 from anndata import AnnData
 from numpy.testing import assert_allclose
 
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 ELEMENTWISE = {"rtol": 1e-5, "atol": 1e-6}
 
@@ -58,7 +58,7 @@ def test_scores_and_phase_match_scanpy_bit_for_bit(lognorm_pbmc: AnnData) -> Non
     g2m_genes = _present(G2M_GENES, lognorm_pbmc)
     ours, theirs = lognorm_pbmc, lognorm_pbmc.copy()
 
-    scrust_call("tl.score_genes_cell_cycle", ours, s_genes=s_genes, g2m_genes=g2m_genes)
+    silicell_call("tl.score_genes_cell_cycle", ours, s_genes=s_genes, g2m_genes=g2m_genes)
     sc.tl.score_genes_cell_cycle(theirs, s_genes=s_genes, g2m_genes=g2m_genes)
 
     assert_allclose(ours.obs["S_score"], theirs.obs["S_score"], **ELEMENTWISE, err_msg="S_score")
@@ -69,15 +69,15 @@ def test_scores_and_phase_match_scanpy_bit_for_bit(lognorm_pbmc: AnnData) -> Non
 
 
 def test_phase_follows_scanpys_exact_three_way_rule(lognorm_pbmc: AnnData) -> None:
-    """Reconstruct scanpy's rule from the scores and assert scrust's `phase` equals it.
+    """Reconstruct scanpy's rule from the scores and assert silicell's `phase` equals it.
 
     This catches a change to the *decision* independently of the scores: if the tie break
-    or the G1 guard drifted, the reconstructed labels and scrust's would part even though
+    or the G1 guard drifted, the reconstructed labels and silicell's would part even though
     both score columns still matched.
     """
     s_genes = _present(S_GENES, lognorm_pbmc)
     g2m_genes = _present(G2M_GENES, lognorm_pbmc)
-    scrust_call("tl.score_genes_cell_cycle", lognorm_pbmc, s_genes=s_genes, g2m_genes=g2m_genes)
+    silicell_call("tl.score_genes_cell_cycle", lognorm_pbmc, s_genes=s_genes, g2m_genes=g2m_genes)
 
     scores = lognorm_pbmc.obs[["S_score", "G2M_score"]]
     rule = pd.Series("S", index=scores.index)
@@ -102,7 +102,7 @@ def test_ctrl_size_is_the_shorter_list(lognorm_pbmc: AnnData) -> None:
     g2m_genes = _present(G2M_GENES, lognorm_pbmc)[:5]  # shorter, so ctrl_size = 5 for both
     ours, theirs = lognorm_pbmc, lognorm_pbmc.copy()
 
-    scrust_call("tl.score_genes_cell_cycle", ours, s_genes=s_genes, g2m_genes=g2m_genes)
+    silicell_call("tl.score_genes_cell_cycle", ours, s_genes=s_genes, g2m_genes=g2m_genes)
     sc.tl.score_genes_cell_cycle(theirs, s_genes=s_genes, g2m_genes=g2m_genes)
 
     assert_allclose(ours.obs["S_score"], theirs.obs["S_score"], **ELEMENTWISE)
@@ -125,8 +125,8 @@ def test_is_deterministic_for_a_fixed_input(lognorm_pbmc: AnnData) -> None:
     g2m_genes = _present(G2M_GENES, lognorm_pbmc)
     first, second = lognorm_pbmc, lognorm_pbmc.copy()
 
-    scrust_call("tl.score_genes_cell_cycle", first, s_genes=s_genes, g2m_genes=g2m_genes)
-    scrust_call("tl.score_genes_cell_cycle", second, s_genes=s_genes, g2m_genes=g2m_genes)
+    silicell_call("tl.score_genes_cell_cycle", first, s_genes=s_genes, g2m_genes=g2m_genes)
+    silicell_call("tl.score_genes_cell_cycle", second, s_genes=s_genes, g2m_genes=g2m_genes)
 
     assert_allclose(first.obs["S_score"], second.obs["S_score"], rtol=0, atol=0)
     assert_allclose(first.obs["G2M_score"], second.obs["G2M_score"], rtol=0, atol=0)

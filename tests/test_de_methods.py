@@ -34,7 +34,7 @@ from anndata import AnnData
 from scipy import sparse, stats
 
 from reference_metrics import de_comparison, set_overlap
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 TOP_N_GENES = 100
 
@@ -45,7 +45,7 @@ _STATISTIC_TOLERANCES = {"scores": 1e-3, "logfoldchanges": 1e-3}
 
 def _run(adata: AnnData, method: str) -> dict[str, Any]:
     ours = adata.copy()
-    scrust_call("tl.rank_genes_groups", ours, "group", method=method)
+    silicell_call("tl.rank_genes_groups", ours, "group", method=method)
     return ours.uns["rank_genes_groups"]
 
 
@@ -178,10 +178,10 @@ def test_logreg_reaches_the_optimum_scanpy_only_approaches(
 
 def test_rejects_an_unknown_method(lognorm: AnnData) -> None:
     """The wrapper names the supported methods rather than letting the core panic."""
-    import scrust
+    import silicell
 
     with pytest.raises(ValueError, match=r"wilcoxon.*t-test.*logreg|method must be one of"):
-        scrust.tl.rank_genes_groups(lognorm.copy(), "group", method="deseq2")
+        silicell.tl.rank_genes_groups(lognorm.copy(), "group", method="deseq2")
 
 
 # The constant-in-both gene makes scipy warn about cancellation; that gene is the point.

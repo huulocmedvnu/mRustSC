@@ -1,4 +1,4 @@
-"""Audit of `scrust.tl.paga` against `scanpy.tl.paga(model="v1.2")`.
+"""Audit of `silicell.tl.paga` against `scanpy.tl.paga(model="v1.2")`.
 
 PAGA's connectivity is a ratio of observed to expected inter-group edges under a null
 model that rewires the *directed* neighbour graph at random. Almost every way of
@@ -10,7 +10,7 @@ same graphs against scanpy.
 
 Two divergences from scanpy are pinned rather than smoothed over:
 
-* explicitly stored zeros in `obsp["distances"]` used to be dropped by scrust and are
+* explicitly stored zeros in `obsp["distances"]` used to be dropped by silicell and are
   counted as edges by scanpy. That was a real defect -- half the graph on data with
   duplicate cells -- and it is fixed; `test_explicit_zero_*` now pins the agreement;
 * the spanning tree differs on tied connectivities, though the total weight matches.
@@ -25,7 +25,7 @@ from anndata import AnnData
 from numpy.testing import assert_allclose
 from scipy import sparse
 
-from scrust_call import DEVICE, scrust_call
+from silicell_call import DEVICE, silicell_call
 
 # float32 accumulation in the core against scanpy's float64.
 RTOL = 1e-6
@@ -75,7 +75,7 @@ def _undirected(pairs, labels, *, weights=None) -> AnnData:
 
 def _ours(adata: AnnData) -> dict:
     copy = adata.copy()
-    scrust_call("tl.paga", copy, groups="group", device=DEVICE)
+    silicell_call("tl.paga", copy, groups="group", device=DEVICE)
     return copy.uns["paga"]
 
 
@@ -312,7 +312,7 @@ def test_tree_is_the_unique_maximum_spanning_tree() -> None:
     """With six distinct connectivities the maximum spanning tree is unique: c-d, b-d, a-d.
 
     scanpy takes the *minimum* spanning tree of the reciprocal connectivities; this pins
-    that scrust's Prim-on-the-maximum agrees with it, and the hard-coded edge set means
+    that silicell's Prim-on-the-maximum agrees with it, and the hard-coded edge set means
     the test fails if either the sense of the optimisation or the reciprocal is dropped.
     """
     adata, _ = _ring_graph()
@@ -363,7 +363,7 @@ def test_tree_diverges_from_scanpy_on_tied_connectivities() -> None:
     """PINNED DIVERGENCE: tied connectivities give a different, equally heavy tree.
 
     The `min(..., 1)` cap makes exact ties routine on real data -- several pairs saturate
-    at 1.0 -- and scrust breaks them with Prim from group 0 while scanpy breaks them with
+    at 1.0 -- and silicell breaks them with Prim from group 0 while scanpy breaks them with
     scipy's Kruskal on the reciprocals. Both answers are maximum spanning trees; the
     total weight is identical to the last bit, but the edge sets are not. This is a
     genuine, benign difference, and it is pinned here rather than hidden behind a loose
@@ -437,7 +437,7 @@ def test_explicit_zeros_from_duplicate_cells_shift_a_real_pipeline() -> None:
     """Documents the size of the defect above on a graph `sc.pp.neighbors` actually built.
 
     120 cells of which 60 are exact duplicates of the other 60, so the kNN distance
-    matrix stores 107 explicit zeros. The assertions below record scrust's *current,
+    matrix stores 107 explicit zeros. The assertions below record silicell's *current,
     wrong* answer: every connectivity it reports is at least as large as scanpy's,
     because dropping edges shrank `es` faster than it shrank the observed count, and the
     worst pair was off by 0.096 absolute -- far outside any sane tolerance.
@@ -489,7 +489,7 @@ def test_connectivities_match_scanpy_on_a_knn_graph_without_duplicates() -> None
 def test_core_binding_returns_row_major_matrices_of_the_group_count() -> None:
     """The PyO3 layer flattens both matrices; pin the shape contract the wrapper relies on.
 
-    Called against `_scrust.paga` directly so that a change to the flattening -- column
+    Called against `_silicell.paga` directly so that a change to the flattening -- column
     major, or the tree symmetrised on the way out -- fails here rather than silently
     transposing every downstream result. The graph is asymmetric on purpose: a
     transposed connectivity matrix is invisible on a symmetric one, but the *tree* is
@@ -500,8 +500,8 @@ def test_core_binding_returns_row_major_matrices_of_the_group_count() -> None:
     graph = _from_directed_edges(edges, labels).obsp["distances"].tocsr()
     codes = np.array([0, 0, 0, 1, 1, 2], dtype=np.uint32)
 
-    flat, tree, n_groups = scrust_call(
-        "_scrust.paga",
+    flat, tree, n_groups = silicell_call(
+        "_silicell.paga",
         graph.indptr.astype(np.uint32),
         graph.indices.astype(np.uint32),
         graph.data.astype(np.float32),
@@ -522,16 +522,16 @@ def test_core_binding_returns_row_major_matrices_of_the_group_count() -> None:
 
 
 def test_group_sizes_are_not_written_to_uns() -> None:
-    """PINNED DIVERGENCE: scanpy writes `uns["<groups>_sizes"]`, scrust does not.
+    """PINNED DIVERGENCE: scanpy writes `uns["<groups>_sizes"]`, silicell does not.
 
     `sc.tl.paga` records the cell count of each group alongside the abstracted graph, and
-    `sc.pl.paga` sizes its nodes from it by default. scrust's wrapper writes only the
+    `sc.pl.paga` sizes its nodes from it by default. silicell's wrapper writes only the
     `uns["paga"]` slot, so plotting code that reads the sizes key raises a KeyError
-    against a scrust-produced AnnData.
+    against a silicell-produced AnnData.
     """
     adata, _ = _ring_graph()
     ours = adata.copy()
-    scrust_call("tl.paga", ours, groups="group", device=DEVICE)
+    silicell_call("tl.paga", ours, groups="group", device=DEVICE)
     theirs = adata.copy()
     sc.tl.paga(theirs, groups="group", model="v1.2")
 

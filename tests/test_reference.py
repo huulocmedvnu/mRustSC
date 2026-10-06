@@ -1,10 +1,10 @@
 """One test per algorithm, asserting exactly the criterion in `docs/API_CONTRACT.md`.
 
-Each test gives scrust and scanpy the same input, prepared by scanpy, so the only
+Each test gives silicell and scanpy the same input, prepared by scanpy, so the only
 difference between the two runs is the single step under test. Every test runs twice:
 on a small synthetic matrix, and on real PBMC 3k under the `reference` marker.
 
-The scrust call always comes first, so an unimplemented step skips before the reference
+The silicell call always comes first, so an unimplemented step skips before the reference
 is computed.
 """
 
@@ -40,7 +40,7 @@ from reference_metrics import (
     set_overlap,
     tsne_kl_divergence,
 )
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 # t-SNE has an explicit objective, so it is judged on reaching one no worse
 # than the reference's, with room for f32 and a different random start.
@@ -63,7 +63,7 @@ def _min_genes(adata: AnnData) -> int:
 
 def test_normalize_total(counts: AnnData) -> None:
     ours = counts.copy()
-    scrust_call("pp.normalize_total", ours, target_sum=TARGET_SUM)
+    silicell_call("pp.normalize_total", ours, target_sum=TARGET_SUM)
 
     expected = counts.copy()
     sc.pp.normalize_total(expected, target_sum=TARGET_SUM)
@@ -75,7 +75,7 @@ def test_log1p(counts: AnnData) -> None:
     sc.pp.normalize_total(base, target_sum=TARGET_SUM)
 
     ours = base.copy()
-    scrust_call("pp.log1p", ours)
+    silicell_call("pp.log1p", ours)
 
     expected = base.copy()
     sc.pp.log1p(expected)
@@ -85,7 +85,7 @@ def test_log1p(counts: AnnData) -> None:
 def test_filter_cells(counts: AnnData) -> None:
     min_genes = _min_genes(counts)
     ours = counts.copy()
-    scrust_call("pp.filter_cells", ours, min_genes=min_genes)
+    silicell_call("pp.filter_cells", ours, min_genes=min_genes)
 
     expected = counts.copy()
     sc.pp.filter_cells(expected, min_genes=min_genes)
@@ -96,7 +96,7 @@ def test_filter_cells(counts: AnnData) -> None:
 
 def test_filter_genes(counts: AnnData) -> None:
     ours = counts.copy()
-    scrust_call("pp.filter_genes", ours, min_cells=3)
+    silicell_call("pp.filter_genes", ours, min_cells=3)
 
     expected = counts.copy()
     sc.pp.filter_genes(expected, min_cells=3)
@@ -107,7 +107,7 @@ def test_filter_genes(counts: AnnData) -> None:
 
 def test_scale(lognorm: AnnData) -> None:
     ours = lognorm.copy()
-    scrust_call("pp.scale", ours, zero_center=True, max_value=10)
+    silicell_call("pp.scale", ours, zero_center=True, max_value=10)
 
     expected = lognorm.copy()
     sc.pp.scale(expected, zero_center=True, max_value=10)
@@ -117,7 +117,7 @@ def test_scale(lognorm: AnnData) -> None:
 def test_highly_variable_genes(lognorm: AnnData) -> None:
     n_top = n_top_genes(lognorm)
     ours = lognorm.copy()
-    scrust_call("pp.highly_variable_genes", ours, n_top_genes=n_top, flavor="seurat")
+    silicell_call("pp.highly_variable_genes", ours, n_top_genes=n_top, flavor="seurat")
 
     expected = lognorm.copy()
     sc.pp.highly_variable_genes(expected, n_top_genes=n_top, flavor="seurat")
@@ -130,7 +130,7 @@ def test_highly_variable_genes(lognorm: AnnData) -> None:
 
 def test_pca(scaled: AnnData, record_property: Callable[[str, object], None]) -> None:
     ours = scaled.copy()
-    scrust_call("pp.pca", ours, n_comps=N_COMPS, zero_center=True, random_state=0)
+    silicell_call("pp.pca", ours, n_comps=N_COMPS, zero_center=True, random_state=0)
 
     expected = scaled.copy()
     sc.pp.pca(expected, n_comps=N_COMPS, zero_center=True, random_state=0)
@@ -142,7 +142,7 @@ def test_pca(scaled: AnnData, record_property: Callable[[str, object], None]) ->
 
 def test_neighbors(embedded: AnnData) -> None:
     ours = embedded.copy()
-    scrust_call("pp.neighbors", ours, n_neighbors=N_NEIGHBORS, use_rep="X_pca")
+    silicell_call("pp.neighbors", ours, n_neighbors=N_NEIGHBORS, use_rep="X_pca")
 
     expected = embedded.copy()
     sc.pp.neighbors(expected, n_neighbors=N_NEIGHBORS, use_rep="X_pca", random_state=0)
@@ -189,7 +189,7 @@ def _check_band(
 
 def test_umap(neighbored: AnnData, record_property: Callable[[str, object], None]) -> None:
     ours = neighbored.copy()
-    scrust_call("tl.umap", ours, n_components=2, min_dist=0.5, spread=1.0, random_state=0)
+    silicell_call("tl.umap", ours, n_components=2, min_dist=0.5, spread=1.0, random_state=0)
 
     expected = neighbored.copy()
     sc.tl.umap(expected, min_dist=0.5, spread=1.0, random_state=0)
@@ -218,7 +218,7 @@ def test_tsne(embedded: AnnData, record_property: Callable[[str, object], None])
         "random_state": 0,
     }
     ours = embedded.copy()
-    scrust_call("tl.tsne", ours, **settings)
+    silicell_call("tl.tsne", ours, **settings)
 
     expected = embedded.copy()
     sc.tl.tsne(expected, **settings)
@@ -264,7 +264,7 @@ def test_embedding_on_separated_clusters(
     layout rather than the stochasticity of the method.
     """
     ours = blobs.copy()
-    scrust_call(f"tl.{algorithm}", ours, random_state=0, **kwargs)
+    silicell_call(f"tl.{algorithm}", ours, random_state=0, **kwargs)
 
     expected = blobs.copy()
     getattr(sc.tl, algorithm)(expected, random_state=0, **kwargs)
@@ -293,7 +293,7 @@ def test_tsne_on_separated_clusters(
         "learning_rate": _auto_learning_rate(blobs.n_obs),
     }
     ours = blobs.copy()
-    scrust_call("tl.tsne", ours, random_state=0, **settings)
+    silicell_call("tl.tsne", ours, random_state=0, **settings)
     expected = blobs.copy()
     sc.tl.tsne(expected, random_state=0, **settings)
 
@@ -313,7 +313,7 @@ def test_rank_genes_groups(
     lognorm: AnnData, record_property: Callable[[str, object], None]
 ) -> None:
     ours = lognorm.copy()
-    scrust_call("tl.rank_genes_groups", ours, "group", method="wilcoxon")
+    silicell_call("tl.rank_genes_groups", ours, "group", method="wilcoxon")
 
     expected = lognorm.copy()
     sc.tl.rank_genes_groups(expected, "group", method="wilcoxon")
@@ -331,10 +331,10 @@ def test_rank_genes_groups(
 
 
 @pytest.mark.parametrize("path", ["pp.does_not_exist", "definitely.not.here"])
-def test_scrust_call_skips_on_missing_names(path: str) -> None:
+def test_silicell_call_skips_on_missing_names(path: str) -> None:
     """The skip helper must fire on a name that was never bound.
 
     Guarding the guard: if this ever fails, every skipped test below is meaningless.
     """
     with pytest.raises(pytest.skip.Exception, match="unavailable"):
-        scrust_call(path)
+        silicell_call(path)

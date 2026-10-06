@@ -5,10 +5,10 @@ name: release
 # can be rehearsed, `publish` only ever runs for a tag.
 #
 # Maintainer setup, one time, before the first tag:
-#   1. On PyPI, under the `scrust` project (or as a pending publisher if the name
+#   1. On PyPI, under the `silicell` project (or as a pending publisher if the name
 #      is not registered yet), add a trusted publisher:
 #        owner        huulocmedvnu
-#        repository   mRustSC
+#        repository   silicell
 #        workflow     release.yml
 #        environment  pypi
 #   2. In this repository's settings, create an environment named `pypi`.
@@ -48,15 +48,15 @@ jobs:
 
       - name: Check that the wheel imports
         run: |
-          pip install --find-links dist scrust
-          python -c "import scrust; print(scrust.__version__, scrust.gpu_available())"
+          pip install --find-links dist silicell
+          python -c "import silicell; print(silicell.__version__, silicell.gpu_available())"
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.python-version }}
           path: dist/*.whl
 
-  # An sdist is what a non-macOS user gets from `pip install scrust`; building it
+  # An sdist is what a non-macOS user gets from `pip install silicell`; building it
   # needs a Rust toolchain, and the result is CPU-only. See docs/INSTALL.md.
   sdist:
     runs-on: ubuntu-latest

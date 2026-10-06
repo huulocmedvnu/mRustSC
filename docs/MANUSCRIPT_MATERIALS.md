@@ -3,7 +3,7 @@
 A checklist for writing the paper, kept next to the results so nothing is claimed that
 was not measured. Target: an application note or methods paper (Bioinformatics,
 Nature Methods brief communication style, or IEEE TCBB), one main figure set of six and
-a supplement. Working title: *scrust: a Rust implementation of the scanpy API that puts
+a supplement. Working title: *silicell: a Rust implementation of the scanpy API that puts
 a million cells through the standard pipeline on an Apple silicon laptop.*
 
 ## 1. What the paper claims, and the evidence behind each claim
@@ -11,7 +11,7 @@ a million cells through the standard pipeline on an Apple silicon laptop.*
 | claim | evidence | file | status |
 |---|---|---|---|
 | Drop-in scanpy API, same answers | parity tests per algorithm (neighbours exact, UMAP ref. preservation, Leiden modularity = leidenalg quality, HVG, DE, PCA 50/50 components vs `covariance_eigh`) | `docs/VALIDATION.md`, `tests/*_audit.py`, `tests/test_streaming.py`, F9 | done |
-| Same biology on a real atlas | HVG overlap, PCA subspace, k-NN overlap, Leiden ARI, marker-gene rank agreement, scrust vs scanpy on the 117k atlas | `benches/agreement.py` → `benches/results/agreement_bm117k.json`, figure F11 | **to do** |
+| Same biology on a real atlas | HVG overlap, PCA subspace, k-NN overlap, Leiden ARI, marker-gene rank agreement, silicell vs scanpy on the 117k atlas | `benches/agreement.py` → `benches/results/agreement_bm117k.json`, figure F11 | **to do** |
 | 5 to 11x faster than scanpy defaults, 3 to 4x than scanpy tuned, on a real atlas | 117k end-to-end, 5 configurations | `docs/SCALE.md` §2, F6 | done (single runs; repeat x3 for mean ± sd: **to do**) |
 | A million cells on 18 GB, scanpy cannot | 1M streamed head + graph; scanpy killed at scale/PCA | `docs/SCALE.md` §3, F3 | done |
 | One fifth of the energy | powermetrics, idle subtracted | `docs/SCALE.md` §4, F7, F8 | done (CPU-only row: optional) |
@@ -52,7 +52,7 @@ working set; 17/22 `pp`, 15/20 `tl`, 3/48 `pl` of scanpy's API; CI has no GPU; m
 for the GPU path (the CPU path builds anywhere). All stated in `docs/SCALE.md`,
 `docs/BENCHMARKS.md`, `docs/PLAN_APPLE_SILICON.md`.
 
-**Availability.** github.com/huulocmedvnu/mRustSC, MIT, `pip install` from source via maturin;
+**Availability.** github.com/huulocmedvnu/silicell, MIT, `pip install` from source via maturin;
 `benches/results/` holds every number in the paper and `benches/figures.py` draws every
 figure.
 

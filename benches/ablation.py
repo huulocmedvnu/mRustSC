@@ -15,7 +15,7 @@ its own process, so a knob set through the environment holds for that run only:
 | `no_metal`        | the GPU                         | `--device cpu` |
 | `p_cores_only`    | the 6 efficiency cores          | `RAYON_NUM_THREADS=5` |
 | `one_core`        | every core but one              | `RAYON_NUM_THREADS=1` |
-| `no_zero_copy`    | the in-place numpy borrows      | `SCRUST_FORCE_COPY=1` |
+| `no_zero_copy`    | the in-place numpy borrows      | `SILICELL_FORCE_COPY=1` |
 | `no_accelerate`   | Apple's BLAS (AMX)              | `.venv-noaccel` wheel, no `accelerate` |
 | `sequential_umap` | the Hogwild optimiser           | no `--umap-parallel` |
 
@@ -41,7 +41,7 @@ CONFIGS = [
     ("no_metal", {}, ["--device", "cpu"], None),
     ("p_cores_only", {"RAYON_NUM_THREADS": "5"}, [], None),
     ("one_core", {"RAYON_NUM_THREADS": "1"}, [], None),
-    ("no_zero_copy", {"SCRUST_FORCE_COPY": "1"}, [], None),
+    ("no_zero_copy", {"SILICELL_FORCE_COPY": "1"}, [], None),
     ("no_accelerate", {}, [], NOACCEL),
     ("sequential_umap", {}, ["--no-umap-parallel"], None),
 ]
@@ -55,7 +55,7 @@ def run_one(name, env_extra, args, python, h5ad, million, out_dir):
     out = out_dir / f"ablation_{name}.json"
     cmd = [str(python), str(script), str(h5ad), "--json", str(out)]
     if not million:
-        cmd += ["--library", "scrust"]
+        cmd += ["--library", "silicell"]
     if "--no-umap-parallel" not in args:
         cmd.append("--umap-parallel")
     cmd += [a for a in args if a != "--no-umap-parallel"]

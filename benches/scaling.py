@@ -9,7 +9,7 @@ random subsample of one real atlas, so every point is the same biology at a diff
 scale (not a bootstrap). A configuration that fails or is killed at a size is marked and
 not tried at any larger size; a swap watchdog kills a run that drives the machine past
 `--swap-limit-gb`, which is what scanpy does on this laptop above a few hundred thousand
-cells. The scrust point at the full size comes from `pipeline_1m.py` (the streamed head),
+cells. The silicell point at the full size comes from `pipeline_1m.py` (the streamed head),
 because the in-memory pipeline cannot hold the dense scaled matrix either.
 """
 
@@ -31,8 +31,8 @@ SIZES = (10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000)
 CONFIGS = {
     "scanpy": ["--library", "scanpy"],
     "scanpy_tuned": ["--library", "scanpy", "--tuned"],
-    "scrust_cpu": ["--library", "scrust", "--device", "cpu", "--umap-parallel"],
-    "scrust_metal": ["--library", "scrust", "--device", "auto", "--umap-parallel"],
+    "silicell_cpu": ["--library", "silicell", "--device", "cpu", "--umap-parallel"],
+    "silicell_metal": ["--library", "silicell", "--device", "auto", "--umap-parallel"],
 }
 
 
@@ -99,7 +99,7 @@ def main() -> int:
             if (name, size) in done or name in dead:
                 continue
             out = runs_dir / f"{name}_{size}.json"
-            if size >= 1_000_000 and name.startswith("scrust"):
+            if size >= 1_000_000 and name.startswith("silicell"):
                 cmd = [
                     sys.executable,
                     str(BENCH_DIR / "pipeline_1m.py"),
@@ -107,7 +107,7 @@ def main() -> int:
                     "--json",
                     str(out),
                 ]
-                cmd += ["--device", "cpu" if name == "scrust_cpu" else "auto", "--umap-parallel"]
+                cmd += ["--device", "cpu" if name == "silicell_cpu" else "auto", "--umap-parallel"]
             else:
                 cmd = [
                     sys.executable,

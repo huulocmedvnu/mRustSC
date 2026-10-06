@@ -15,7 +15,7 @@ import scipy.sparse as sp
 from anndata import AnnData
 from numpy.testing import assert_allclose
 
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 RTOL = 1e-5
 
@@ -66,7 +66,7 @@ def assert_frames_agree(ours, reference, label: str) -> None:
 def test_qc_metrics_match_scanpy(counts: AnnData) -> None:
     percent_top = percent_top_for(counts)
     mark_subset(counts)
-    ours = scrust_call(
+    ours = silicell_call(
         "pp.calculate_qc_metrics",
         counts,
         qc_vars=[QC_VAR],
@@ -83,7 +83,7 @@ def test_qc_metrics_match_scanpy(counts: AnnData) -> None:
 
 def test_qc_metrics_land_in_obs_and_var(counts: AnnData) -> None:
     percent_top = percent_top_for(counts)
-    scrust_call("pp.calculate_qc_metrics", counts, percent_top=percent_top)
+    silicell_call("pp.calculate_qc_metrics", counts, percent_top=percent_top)
     assert "total_counts" in counts.obs
     assert "pct_dropout_by_counts" in counts.var
     assert counts.obs["total_counts"].shape == (counts.n_obs,)
@@ -92,7 +92,7 @@ def test_qc_metrics_land_in_obs_and_var(counts: AnnData) -> None:
 def test_gene_subset_percentage(counts: AnnData) -> None:
     """`pct_counts_mt` is the subset's share of each cell's counts."""
     flags = mark_subset(counts)
-    obs, _ = scrust_call(
+    obs, _ = silicell_call(
         "pp.calculate_qc_metrics",
         counts,
         qc_vars=[QC_VAR],
@@ -112,7 +112,7 @@ def test_gene_subset_percentage(counts: AnnData) -> None:
 def test_percent_top_is_hand_computable() -> None:
     adata = tiny()
     # Cell 0 expresses only 2 genes, so its top 3 already hold everything.
-    obs, _ = scrust_call(
+    obs, _ = silicell_call(
         "pp.calculate_qc_metrics", adata, percent_top=(1, 2, 3), log1p=False, inplace=False
     )
 
@@ -123,14 +123,14 @@ def test_percent_top_is_hand_computable() -> None:
 
 def test_percent_top_matches_scanpy_on_a_tiny_matrix() -> None:
     percent_top = (1, 2, 3, 4)
-    ours = scrust_call("pp.calculate_qc_metrics", tiny(), percent_top=percent_top, inplace=False)
+    ours = silicell_call("pp.calculate_qc_metrics", tiny(), percent_top=percent_top, inplace=False)
     reference = sc.pp.calculate_qc_metrics(tiny(), percent_top=percent_top, inplace=False)
     assert_frames_agree(ours[0], reference[0], "obs")
     assert_frames_agree(ours[1], reference[1], "var")
 
 
 def test_empty_percent_top_produces_no_columns() -> None:
-    obs, _ = scrust_call("pp.calculate_qc_metrics", tiny(), percent_top=(), inplace=False)
+    obs, _ = silicell_call("pp.calculate_qc_metrics", tiny(), percent_top=(), inplace=False)
     assert not [column for column in obs.columns if "in_top" in column]
 
 
@@ -138,7 +138,7 @@ def test_all_zero_cell_and_gene() -> None:
     """Cell 1 has no counts and gene 3 is seen in no cell."""
     dense = np.array([[1, 2, 0, 0], [0, 0, 0, 0], [3, 0, 4, 0]], dtype=np.float32)
     adata = AnnData(sp.csr_matrix(dense))
-    obs, var = scrust_call("pp.calculate_qc_metrics", adata, percent_top=(2,), inplace=False)
+    obs, var = silicell_call("pp.calculate_qc_metrics", adata, percent_top=(2,), inplace=False)
 
     assert obs["total_counts"].to_numpy()[1] == 0.0
     assert obs["n_genes_by_counts"].to_numpy()[1] == 0
@@ -151,14 +151,14 @@ def test_all_zero_cell_and_gene() -> None:
 
 def test_sqrt_matches_scanpy(counts: AnnData) -> None:
     reference = counts.copy()
-    scrust_call("pp.sqrt", counts)
+    silicell_call("pp.sqrt", counts)
     sc.pp.sqrt(reference)
     assert_allclose(counts.X.toarray(), reference.X.toarray(), rtol=RTOL)
 
 
 def test_normalize_per_cell_matches_scanpy(counts: AnnData) -> None:
     reference = counts.copy()
-    scrust_call("pp.normalize_per_cell", counts)
+    silicell_call("pp.normalize_per_cell", counts)
     with pytest.warns(FutureWarning):
         sc.pp.normalize_per_cell(reference)
 
@@ -169,7 +169,7 @@ def test_normalize_per_cell_matches_scanpy(counts: AnnData) -> None:
 
 def test_normalize_per_cell_with_an_explicit_target(counts: AnnData) -> None:
     reference = counts.copy()
-    scrust_call("pp.normalize_per_cell", counts, counts_per_cell_after=1e4)
+    silicell_call("pp.normalize_per_cell", counts, counts_per_cell_after=1e4)
     with pytest.warns(FutureWarning):
         sc.pp.normalize_per_cell(reference, counts_per_cell_after=1e4)
     assert_allclose(counts.X.toarray(), reference.X.toarray(), rtol=RTOL)
@@ -187,7 +187,7 @@ def test_filter_genes_dispersion_matches_the_legacy_cutoffs(counts: AnnData) -> 
     logged = reference.copy()
     sc.pp.log1p(logged)
 
-    scrust_call("pp.filter_genes_dispersion", logged)
+    silicell_call("pp.filter_genes_dispersion", logged)
     with warnings.catch_warnings():  # the legacy entry point announces its age
         warnings.simplefilter("ignore")
         sc.pp.filter_genes_dispersion(reference, subset=False)
@@ -204,7 +204,7 @@ def test_filter_genes_dispersion_matches_the_legacy_cutoffs(counts: AnnData) -> 
 
 def test_filter_genes_dispersion_flags_genes(lognorm: AnnData) -> None:
     n_top_genes = 50
-    scrust_call("pp.filter_genes_dispersion", lognorm, n_top_genes=n_top_genes)
+    silicell_call("pp.filter_genes_dispersion", lognorm, n_top_genes=n_top_genes)
 
     assert lognorm.var["highly_variable"].sum() >= n_top_genes
     for column in ("means", "dispersions_norm", "highly_variable"):
@@ -212,5 +212,5 @@ def test_filter_genes_dispersion_flags_genes(lognorm: AnnData) -> None:
     # The legacy entry point is the modern one underneath, so they must select
     # the same genes from the same data.
     modern = lognorm.copy()
-    scrust_call("pp.highly_variable_genes", modern, n_top_genes=n_top_genes)
+    silicell_call("pp.highly_variable_genes", modern, n_top_genes=n_top_genes)
     assert (lognorm.var["highly_variable"] == modern.var["highly_variable"]).all()

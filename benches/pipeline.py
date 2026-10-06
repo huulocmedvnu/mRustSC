@@ -3,7 +3,7 @@
 
 Run from the repo root:
 
-    PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data.h5ad --library scrust
+    PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data.h5ad --library silicell
     PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data.h5ad --library scanpy
 
 `benches/benchmark.py` times each operation on its own, with every stage prepared by
@@ -14,7 +14,7 @@ Leiden and marker genes by *one* library from start to finish, so each step sees
 output of the previous one from the same library. Per-step wall time and the memory the
 step added (physical footprint) are printed and, with `--json`, written out.
 
-`--device cpu` pins scrust to the CPU path (`scrust.settings.device`), `--device auto`
+`--device cpu` pins silicell to the CPU path (`silicell.settings.device`), `--device auto`
 takes Metal where there is one. `--cells N` subsamples the matrix first.
 """
 
@@ -92,13 +92,13 @@ def steps(
 
     `tuned` is the fastest scanpy configuration rather than its defaults: the
     `covariance_eigh` PCA solver, UMAP without a fixed seed (which lets umap-learn run its
-    optimiser across cores, as scrust's `parallel=True` does) and the `igraph` Leiden
+    optimiser across cores, as silicell's `parallel=True` does) and the `igraph` Leiden
     backend with two iterations. Every comparison against scanpy should show both.
     """
     umap_kwargs: dict[str, Any] = {"random_state": 0}
     pca_kwargs: dict[str, Any] = {"n_comps": N_COMPS, "random_state": 0}
     leiden_kwargs: dict[str, Any] = {"random_state": 0}
-    if library == "scrust" and umap_parallel:
+    if library == "silicell" and umap_parallel:
         umap_kwargs["parallel"] = True
     if library == "scanpy" and tuned:
         umap_kwargs = {"random_state": None}
@@ -115,7 +115,7 @@ def steps(
     def markers(adata: anndata.AnnData) -> None:
         key = _group_key(adata)
         _drop_rare_groups(adata, key)
-        # scrust ranks on `X` (the 2 000 variable genes); scanpy would silently switch to
+        # silicell ranks on `X` (the 2 000 variable genes); scanpy would silently switch to
         # `adata.raw` (all genes) and test ten times as many, so pin it to `X` too.
         extra = {"use_raw": False} if library == "scanpy" else {}
         lib.tl.rank_genes_groups(adata, key, method="wilcoxon", **extra)
@@ -151,7 +151,7 @@ def run(
         lib.settings.verbosity = 0
         resolved = "cpu"
     else:
-        import scrust as lib
+        import silicell as lib
 
         lib.settings.device = device
         resolved = "metal" if device == "auto" and lib.gpu_available() else "cpu"
@@ -183,7 +183,7 @@ def run(
     return {
         "library": library,
         "device": resolved,
-        "umap_parallel": bool(umap_parallel and library == "scrust"),
+        "umap_parallel": bool(umap_parallel and library == "silicell"),
         "tuned": bool(tuned and library == "scanpy"),
         "file": str(path),
         "input_shape": list(shape0),
@@ -197,7 +197,7 @@ def run(
 
 def _versions() -> dict[str, str]:
     out = {}
-    for name in ("scanpy", "scrust", "anndata", "numpy"):
+    for name in ("scanpy", "silicell", "anndata", "numpy"):
         with contextlib.suppress(Exception):
             out[name] = __import__(name).__version__
     return out
@@ -206,7 +206,7 @@ def _versions() -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("h5ad", type=Path)
-    parser.add_argument("--library", choices=["scanpy", "scrust"], required=True)
+    parser.add_argument("--library", choices=["scanpy", "silicell"], required=True)
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--cells", type=int)
     parser.add_argument("--umap-parallel", action="store_true")

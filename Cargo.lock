@@ -1229,7 +1229,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scrust-core"
+name = "silicell-core"
 version = "0.2.0"
 dependencies = [
  "blas-src",
@@ -1241,7 +1241,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "scrust-gpu"
+name = "silicell-gpu"
 version = "0.2.0"
 dependencies = [
  "blas-src",
@@ -1249,19 +1249,19 @@ dependencies = [
  "metal",
  "ndarray",
  "rand 0.8.7",
- "scrust-core",
+ "silicell-core",
 ]
 
 [[package]]
-name = "scrust-py"
+name = "silicell-py"
 version = "0.2.0"
 dependencies = [
  "candle-core",
  "ndarray",
  "numpy",
  "pyo3",
- "scrust-core",
- "scrust-gpu",
+ "silicell-core",
+ "silicell-gpu",
 ]
 
 [[package]]

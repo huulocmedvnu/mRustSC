@@ -2,7 +2,7 @@
 
 Every function takes an `AnnData` and writes into the slot scanpy uses, so scanpy's
 plotting reads the result unchanged. Signatures below are the ones the installed
-package actually exposes; anything scanpy has that scrust does not is listed too,
+package actually exposes; anything scanpy has that silicell does not is listed too,
 with what the call does today.
 
 Names are grouped as scanpy groups them: `pp`, `tl`, `metrics`, `get`.
@@ -14,7 +14,7 @@ package has **no `NotImplementedError` left**: `tl.dpt(n_branchings>0)`, the las
 runs native branch detection. v0.2.0 also adds `pp.harmony_integrate` (Harmony batch
 integration, mirroring `sc.external.pp.harmony_integrate`).
 
-Where scrust and scanpy disagree the divergence is stated under the function it
+Where silicell and scanpy disagree the divergence is stated under the function it
 affects, and each one is pinned by a test in `tests/test_*_audit.py` rather than left
 to drift.
 
@@ -79,7 +79,7 @@ Flags the `n_top_genes` most variable genes. `flavor` is `"seurat"` or
 | `means` | per-gene mean |
 | `dispersions_norm` | dispersion normalised within its mean bin |
 
-scanpy also writes `dispersions`, `variances` and `highly_variable_rank`; scrust
+scanpy also writes `dispersions`, `variances` and `highly_variable_rank`; silicell
 does not. The Rust core computes raw `dispersions`, but the Python layer drops the
 field, so anything reading `var["dispersions"]` will `KeyError`.
 
@@ -242,7 +242,7 @@ two libraries called with defaults are not doing the same amount of work — pas
 > 1.42x *faster* than scanpy at 499 cells, 0.25x at 2 638, and **0.06x at 10 000
 > cells — 271.7 s against scanpy's 15.4 s**. Above 20 000 cells it refuses.
 > Use `sc.tl.tsne` for anything above a couple of thousand cells; it writes the same
-> `obsm["X_tsne"]`, so the rest of a scrust pipeline is unaffected. For a large
+> `obsm["X_tsne"]`, so the rest of a silicell pipeline is unaffected. For a large
 > dataset prefer `tl.umap`, which is 4.84x faster than scanpy at 10 000 cells.
 > Details in [BENCHMARKS.md](BENCHMARKS.md#tltsne-does-not-scale).
 
@@ -509,7 +509,7 @@ The transpose: one row per gene, columns from `var` or from named cells.
 Flattens `uns[key]` into a tidy frame. `group=None` returns every group with a
 `group` column; a single group name drops that column, as scanpy does. The cutoffs
 filter rows. A `logreg` result — recognised by `params["method"]`, and now something
-scrust produces as well as reads — has only `names` and `scores`; the three cutoffs
+silicell produces as well as reads — has only `names` and `scores`; the three cutoffs
 have nothing to filter on there and are skipped rather than raising.
 
 #### `get.aggregate(adata, by, func, *, axis=0, layer=None, device="auto")`
@@ -525,7 +525,7 @@ products and per-group medians, not core algorithms.
 
 ## Settings
 
-`scrust.settings` is a dataclass singleton, validated on assignment:
+`silicell.settings` is a dataclass singleton, validated on assignment:
 
 | attribute | default | effect |
 | --- | --- | --- |
@@ -560,7 +560,7 @@ statistics.
 ## Devices
 
 `device` is `"auto"` (Metal if a device initialises, CPU otherwise), `"cpu"`, or
-`"gpu"`/`"metal"` (an error if no Metal device is found). `scrust.gpu_available()`
+`"gpu"`/`"metal"` (an error if no Metal device is found). `silicell.gpu_available()`
 reports whether Metal came up.
 
 The CPU and GPU paths are the same candle source. That makes them the same algorithm;
@@ -582,11 +582,11 @@ two devices agree. The floor is far below anything real: on PBMC 3k's 50 PCs it 
 `tests/test_device_parity.py` holds the two devices against each other, but it skips
 entirely where no Metal device comes up — which includes GitHub's hosted macOS
 runners. **CI passing is not evidence the GPU path works**; that check only happens on
-a machine with a GPU. `SCRUST_TEST_DEVICE` (default `"cpu"`, set it to `"auto"`)
+a machine with a GPU. `SILICELL_TEST_DEVICE` (default `"cpu"`, set it to `"auto"`)
 selects the device the audit suite runs against, and both legs pass locally.
 
-Of the four hand-written Metal kernels in `crates/scrust-gpu`, one — `knn` — is now on
-the call path: `crates/scrust-py` depends on the crate and routes a Metal caller's k-NN
+Of the four hand-written Metal kernels in `crates/silicell-gpu`, one — `knn` — is now on
+the call path: `crates/silicell-py` depends on the crate and routes a Metal caller's k-NN
 (behind `pp.neighbors`) to it, with the candle CPU path as the fallback and the oracle.
 It reproduces `neighbors::knn`'s mean-centering and squared-distance snapping, so
 `tests/test_device_parity.py` holds the two devices' neighbour lists equal. The other
@@ -602,7 +602,7 @@ can part company. What the GPU actually buys you per operation is measured in
 ## Out-of-core: `pp.preprocess_backed`
 
 ```python
-adata = sr.pp.preprocess_backed(
+adata = si.pp.preprocess_backed(
     "atlas_counts.h5ad",     # counts in X, CSR, any size
     n_top_genes=2000, n_comps=50, target_sum=1e4,
     min_genes=200, min_cells=3, max_value=10.0,
@@ -613,7 +613,7 @@ adata = sr.pp.preprocess_backed(
 adata.obsm["X_pca"]          # (cells kept, n_comps)
 adata.var["highly_variable"] # over every gene of the file
 adata.uns["streaming"]       # block size, device, per-pass timings, cells and genes dropped
-sr.pp.neighbors(adata, use_rep="X_pca"); sr.tl.umap(adata, parallel=True); sr.tl.leiden(adata)
+si.pp.neighbors(adata, use_rep="X_pca"); si.tl.umap(adata, parallel=True); si.tl.leiden(adata)
 ```
 
 The head of the pipeline for a matrix that does not fit memory: four passes over the row
@@ -629,10 +629,10 @@ has the million-cell run.
 
 `normalize_total` and `log1p` also accept a backed `AnnData` (`anndata.read_h5ad(path,
 backed="r+")`) and rewrite `X` on disk a block at a time. The block reader itself is
-`scrust._backed.open_backed`:
+`silicell._backed.open_backed`:
 
 ```python
-from scrust._backed import open_backed
+from silicell._backed import open_backed
 
 with open_backed("atlas.h5ad") as backed:
     for start, block in backed.blocks():

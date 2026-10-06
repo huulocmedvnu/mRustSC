@@ -3,7 +3,7 @@
 **For 100 000 cells and beyond, real atlases, energy and the ablation, read [SCALE.md](SCALE.md).**
 This page is the per-operation sweep on bootstrapped PBMC 3k and the optimisation history.
 
-scrust is faster than scanpy at some things and slower at others, and the pattern is
+silicell is faster than scanpy at some things and slower at others, and the pattern is
 consistent enough to plan around. This page is the measurement, wins and losses in
 the same table.
 
@@ -32,10 +32,10 @@ produce the same values.
 
 Measured on an Apple M3 Pro (5 performance + 6 efficiency cores, 18 GB unified memory), scanpy 1.12.4,
 the same `benches/benchmark.py`, PBMC 3k bootstrapped to 10 000 and 50 000 cells. "Before" is `main`
-at `48a66ff`; "after" is this branch. Times in seconds; speedup is scanpy / scrust. Rows marked * are best of
+at `48a66ff`; "after" is this branch. Times in seconds; speedup is scanpy / silicell. Rows marked * are best of
 3 runs (single runs of these sub-50 ms steps are dominated by first-call page faults); the rest are single runs.
 
-| step | cells | scanpy | scrust before | scrust after | speedup before | speedup after |
+| step | cells | scanpy | silicell before | silicell after | speedup before | speedup after |
 |---|---:|---:|---:|---:|---:|---:|
 | `pp.normalize_total`* | 10 000 | 0.008 | 0.122 | 0.004 | 0.21x | 1.87x |
 | `pp.normalize_total`* | 50 000 | 0.043 | 0.393 | 0.033 | 0.49x | 1.28x |
@@ -65,20 +65,20 @@ What changed:
   duplicated points and ragged tiles. The old kernel remains for `k > 64` or more than 128 dimensions.
 - **PCA densifies once.** The range finder re-densified the sparse matrix block by block for every product
   (about 16 times per call). The matrix is now densified once in parallel and kept on the device when it
-  fits `SCRUST_PCA_DENSE_MB` (default 4096); a dense `X` (after `pp.scale`) goes straight to the device
+  fits `SILICELL_PCA_DENSE_MB` (default 4096); a dense `X` (after `pp.scale`) goes straight to the device
   through the new `pca_dense` entry instead of a dense -> CSR -> dense detour.
 - **Apple Accelerate** BLAS/LAPACK is on by default in the wheel (about 15-20% on the CPU PCA path).
 
 Correctness: `pytest -m "not slow"` gives 835 passed, 1 xfailed (the documented ill-conditioned PCA case),
 3 failed; the 3 failures exist on `main` too and come from scanpy 1.12.4 changing its sparse median rule in
-`normalize_total` (the audits were written against 1.12.2). With `SCRUST_TEST_DEVICE=auto` the device-parity,
+`normalize_total` (the audits were written against 1.12.2). With `SILICELL_TEST_DEVICE=auto` the device-parity,
 PCA and neighbour audits pass on the Metal GPU (31 passed). `cargo test --workspace` passes except the
 Hogwild `umap_sgd` structure test, which is flaky under parallel test load on `main` as well and passes when
 run alone.
 
 ### Second pass: UMAP, Leiden, neighbour memory (same branch, same machine)
 
-| step | cells | scanpy | scrust | speedup | added memory scanpy / scrust |
+| step | cells | scanpy | silicell | speedup | added memory scanpy / silicell |
 |---|---:|---:|---:|---:|---|
 | `tl.leiden` | 10 000 | 3.886 | 0.029 | 134x | 45 / 1 MB |
 | `tl.leiden` | 50 000 | 2.615 | 0.089 | 29x | 209 / 46 MB |
@@ -96,7 +96,7 @@ run alone.
   epochs run lock-free across all cores (Hogwild SGD, umap-learn's `parallel=True`), about 6x faster than
   the sequential path; its layout keeps the same share of each cell's 15 PCA neighbours (0.248 against 0.247
   sequential and 0.255 for scanpy on 10 000 cells) but is not reproducible run to run, so it is opt-in.
-- **Neighbour memory.** The earlier "scrust uses more memory" reading came from comparing absolute resident
+- **Neighbour memory.** The earlier "silicell uses more memory" reading came from comparing absolute resident
   sizes of two processes on an 18 GB machine, where macOS compression moves them by gigabytes. Measured as
   the memory a call adds (physical footprint, which the benchmark now reports in its `+MB` columns), the two
   are level. The k-NN step itself was trimmed from about 34 to 16 MB at 50 000 cells: it borrows numpy's
@@ -119,7 +119,7 @@ run alone.
   which preserves sparsity and depth. Above 2 638 cells this is a cost model, not
   biology.
 - Machine: Apple silicon, GPU path live (`gpu_available() == True`), scanpy 1.12.2,
-  scrust 0.2.0. Every number on this page was measured on that one machine, on that
+  silicell 0.2.0. Every number on this page was measured on that one machine, on that
   configuration, and has **not** been re-measured since. Where a note below says a
   figure is stale, it is stale — it is kept with its provenance rather than deleted or
   guessed at.
@@ -127,7 +127,7 @@ run alone.
 ### Which rows actually used the GPU
 
 `settings.device` defaults to `"auto"`, and `DeviceKind::Auto` resolves to
-`Device::new_metal(0).unwrap_or(Device::Cpu)` (`crates/scrust-core/src/device.rs`), so
+`Device::new_metal(0).unwrap_or(Device::Cpu)` (`crates/silicell-core/src/device.rs`), so
 the sweep above ran with Metal selected. **Selected is not the same as used.** Several
 bindings take the device and then never touch it — the core signature is `_device` —
 and those rows are CPU timings no matter what the machine offers:
@@ -140,7 +140,7 @@ and those rows are CPU timings no matter what the machine offers:
 | `pp.highly_variable_genes` | **no** — `_device` | `preprocess/hvg.rs:44` |
 | `pp.scale` | yes (moments in f64 on the CPU, the broadcast arithmetic on the device) | `preprocess/scale.rs:13` |
 | `pp.pca` | yes | `pca.rs:79` |
-| `pp.neighbors` | yes — hand-written `knn` Metal kernel on Metal, candle path on the CPU | `scrust-py/src/embedding.rs` (dispatch), `scrust-gpu/.../knn.rs` |
+| `pp.neighbors` | yes — hand-written `knn` Metal kernel on Metal, candle path on the CPU | `silicell-py/src/embedding.rs` (dispatch), `silicell-gpu/.../knn.rs` |
 | `tl.umap` | **no** — `_device`; UMAP always runs on the CPU | `umap.rs:61` |
 | `tl.tsne` | yes | `tsne.rs:77` |
 | `tl.rank_genes_groups` (wilcoxon) | **no** — `_device` | `de/wilcoxon.rs:51` |
@@ -175,12 +175,12 @@ being green is not evidence the GPU path was exercised.
 
 ## Results
 
-`speedup` is scanpy seconds ÷ scrust seconds. **Above 1.00x scrust is faster; below
+`speedup` is scanpy seconds ÷ silicell seconds. **Above 1.00x silicell is faster; below
 1.00x scanpy is faster.**
 
 ### 499 cells
 
-| operation | genes | scanpy s | scrust s | speedup | scanpy MB | scrust MB |
+| operation | genes | scanpy s | silicell s | speedup | scanpy MB | silicell MB |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `pp.filter_cells` | 32738 | 0.0039 | 0.0043 | 0.89x | 696 | 690 |
 | `pp.filter_genes` | 32738 | 0.0047 | 0.0045 | 1.05x | 697 | 697 |
@@ -201,7 +201,7 @@ being green is not evidence the GPU path was exercised.
 
 ### 2 638 cells (real PBMC 3k)
 
-| operation | genes | scanpy s | scrust s | speedup | scanpy MB | scrust MB |
+| operation | genes | scanpy s | silicell s | speedup | scanpy MB | silicell MB |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `pp.filter_cells` | 32738 | 0.0131 | 0.0126 | 1.04x | 1033 | 1055 |
 | `pp.filter_genes` | 32738 | 0.0207 | 0.0196 | 1.06x | 1042 | 1064 |
@@ -222,7 +222,7 @@ being green is not evidence the GPU path was exercised.
 
 ### 10 000 cells (bootstrapped)
 
-| operation | genes | scanpy s | scrust s | speedup | scanpy MB | scrust MB |
+| operation | genes | scanpy s | silicell s | speedup | scanpy MB | silicell MB |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `pp.filter_cells` | 32738 | 0.0394 | 0.0430 | 0.92x | 2170 | 2168 |
 | `pp.filter_genes` | 32738 | 0.0642 | 0.0603 | 1.07x | 2178 | 2200 |
@@ -253,7 +253,7 @@ unaffected and was not re-run.
 
 ## Reading the table
 
-### Where scrust wins, and why
+### Where silicell wins, and why
 
 `rank_genes_groups` and `paga` are the clearest wins, and both improve with size:
 
@@ -274,7 +274,7 @@ device at all — so these are CPU-against-CPU wins.
 `pca` and `neighbors` are the tensor-algebra wins: dense batched work that does reach
 the device, on hardware with unified memory. `neighbors` is now the strongest of the
 two, because it is the one row backed by a **hand-written Metal kernel**: a Metal caller
-runs `scrust-gpu`'s `knn` kernel rather than candle's backend, which does the distance
+runs `silicell-gpu`'s `knn` kernel rather than candle's backend, which does the distance
 matrix and the k-selection in one GPU pass. That is what re-measured the row from
 `0.43x / 0.59x / 2.33x` (candle) to `0.64x / 1.15x / 5.80x` (kernel) — the scanpy
 baseline reproduced within noise, so the change is the kernel, not the machine. The
@@ -288,7 +288,7 @@ ahead as the matrix grows, for the same boundary-cost reason as the elementwise
 steps below; `neighbors` now crosses into a win by 2 638 cells where before it took
 until 10 000.
 
-### Where scrust loses, and why
+### Where silicell loses, and why
 
 **The cheap elementwise steps are slower at every size measured, and much slower at
 small sizes.**
@@ -301,7 +301,7 @@ small sizes.**
 | `get.aggregate` | 0.65x | 0.44x | 0.25x |
 
 These are bandwidth-bound passes over a sparse matrix that numpy already does in
-optimised C, and scrust adds a fixed per-call cost that numpy does not pay:
+optimised C, and silicell adds a fixed per-call cost that numpy does not pay:
 
 1. the CSR arrays are cast to `uint32`/`float32` if they are not already,
 2. they cross the FFI boundary,
@@ -312,7 +312,7 @@ fraction of a millisecond either way, so the ratio measures the boundary and not
 else. The trend confirms it: `normalize_total` climbs 0.09x → 0.17x → 0.30x and
 `scale` 0.17x → 0.35x → 0.42x as the fixed cost is amortised over more data. But
 neither has reached parity by 10 000 cells, and `log1p` sits flat at ~0.44x
-throughout. **If your pipeline is dominated by normalising small matrices, scrust is
+throughout. **If your pipeline is dominated by normalising small matrices, silicell is
 the wrong tool**; these steps are cheap in absolute terms (tens of milliseconds at
 10 000 cells) and the pipeline-level win has to come from `pca`, `umap`,
 `rank_genes_groups` and `paga`.
@@ -321,17 +321,17 @@ the wrong tool**; these steps are cheap in absolute terms (tens of milliseconds 
 
 This is the one large, structural loss, and it is worth stating without softening:
 
-| cells | scanpy s | scrust s | speedup |
+| cells | scanpy s | silicell s | speedup |
 | ---: | ---: | ---: | ---: |
-| 499 | 0.8776 | 0.6189 | 1.42x — scrust faster |
+| 499 | 0.8776 | 0.6189 | 1.42x — silicell faster |
 | 2 638 | 4.1346 | 16.6965 | 0.25x — 4x slower |
 | 10 000 | 15.4091 | **271.7281** | **0.06x — 17x slower** |
 | above 20 000 | — | refuses | `ValueError` |
 
-The trend is the finding: scrust wins at 499 cells, loses by 4x at 2 638, and loses
+The trend is the finding: silicell wins at 499 cells, loses by 4x at 2 638, and loses
 by 17x at 10 000. It gets worse, not better, with size.
 
-The cause is a deliberate design choice going the wrong way at scale. scrust's t-SNE
+The cause is a deliberate design choice going the wrong way at scale. silicell's t-SNE
 is **exact**: it materialises the full `(n, n)` affinity matrix, because a dense
 quadratic form is a matmul the GPU eats, where a Barnes-Hut tree walk is exactly the
 irregular pointer-chasing a GPU is worst at. scanpy uses scikit-learn's Barnes-Hut,
@@ -339,7 +339,7 @@ which is `O(n log n)`. Exact beats `n log n` while `n` is small enough that cons
 factors dominate — that is the 499-cell row — and loses increasingly fast after that.
 
 The exact formulation is also why there is a hard ceiling. `MAX_CELLS = 20 000` in
-`crates/scrust-core/src/tsne.rs`: above it the call returns
+`crates/silicell-core/src/tsne.rs`: above it the call returns
 `Error::InvalidParameter`, surfacing in Python as a `ValueError`, rather than
 attempting the allocation. At 20 000 cells the affinity matrix alone is 1.6 GB and
 the gradient step holds three more buffers of that shape, for a peak near 6.5 GB.
@@ -347,17 +347,17 @@ Refusing with a documented limit is the designed behaviour; exhausting unified
 memory is the alternative.
 
 What it buys is a marginally better optimum of the objective:
-[VALIDATION.md](VALIDATION.md) records scrust reaching KL 2.028 against scanpy's
+[VALIDATION.md](VALIDATION.md) records silicell reaching KL 2.028 against scanpy's
 2.076 on PBMC 3k. That is a real but small gain for 4x the time at 2 638 cells and
 17x at 10 000.
 
 **What to do instead.** Above roughly 2 000 cells, use `sc.tl.tsne` — it writes the
-same `obsm["X_tsne"]` slot, so nothing else in a scrust pipeline changes:
+same `obsm["X_tsne"]` slot, so nothing else in a silicell pipeline changes:
 
 ```python
-sr.pp.neighbors(adata, use_rep="X_pca")
-sc.tl.tsne(adata)          # Barnes-Hut; scrust's exact version is for small n
-sr.tl.umap(adata)          # UMAP, by contrast, is 4.84x faster at 10 000 cells
+si.pp.neighbors(adata, use_rep="X_pca")
+sc.tl.tsne(adata)          # Barnes-Hut; silicell's exact version is for small n
+si.tl.umap(adata)          # UMAP, by contrast, is 4.84x faster at 10 000 cells
 ```
 
 If you want a 2-D embedding of a large dataset, prefer `tl.umap`, which goes the
@@ -366,7 +366,7 @@ other way with size: 3.41x faster at 499 cells, 2.96x at 2 638, 4.84x at 10 000.
 **`get.*` are a wash, with one loss.** They are plain Python and pandas in both
 libraries — there is no Rust behind them — so most differences are incidental.
 `get.aggregate` is the exception and the only `get` row that moves with size:
-0.65x → 0.44x → 0.25x. It is scrust doing per-group reductions in scipy where scanpy
+0.65x → 0.44x → 0.25x. It is silicell doing per-group reductions in scipy where scanpy
 has a more specialised path, and it gets relatively worse as groups grow.
 
 ### The 50 000-cell case
@@ -403,14 +403,14 @@ test: peak resident memory computing the same per-gene sums over a synthetic
 | mode | seconds | peak GB |
 | --- | ---: | ---: |
 | read whole file, densify, reduce | 0.86 | 4.34 |
-| stream row blocks (`scrust._backed`) | 0.51 | **1.41** |
+| stream row blocks (`silicell._backed`) | 0.51 | **1.41** |
 
 Both produce identical sums. The file is 0.15 GB on disk; dense `float32` would be
 3.73 GB, which is what the first mode pays for and the second does not. Streaming
 used blocks of 12 904 rows, sized from `settings.max_memory_gb = 1.0`.
 
 **This is not a benchmark against scanpy and it does not fill the gap left by the
-abandoned 50 000-cell sweep.** It compares two ways of reading a file inside scrust,
+abandoned 50 000-cell sweep.** It compares two ways of reading a file inside silicell,
 it measures bytes rather than seconds against a reference, and it completed in under
 a second. No operation timing at 50 000 cells is reported anywhere on this page.
 
@@ -419,7 +419,7 @@ still `rows x n_vars x 4` bytes, which is what the block sizing is derived from.
 
 ### Out-of-core `pp.normalize_total` and `pp.log1p` (v0.2.0)
 
-As of v0.2.0 `scrust._backed` is wired into `pp.normalize_total` and `pp.log1p`: when
+As of v0.2.0 `silicell._backed` is wired into `pp.normalize_total` and `pp.log1p`: when
 `adata.isbacked`, they stream `X` in row blocks and rewrite it on disk in place, so peak
 memory is one block rather than the whole matrix. `benches/backed_transform.py` measures
 the peak resident memory of the two paths — read the file into memory and transform it
@@ -433,12 +433,12 @@ there, versus stream it — applying counts-per-10k normalisation then `log1p`.
 Measured on a synthetic 40 000 x 6 000 matrix at 8% density: **404 MB less peak RAM
 (0.65× of the in-memory peak)**, with **bit-for-bit identical** output (the two paths
 produce the same matrix; the checksums agree). Each block is transformed by the same
-`scrust-core` routine the in-memory path uses, so normalisation stays per-row exact and
+`silicell-core` routine the in-memory path uses, so normalisation stays per-row exact and
 `log1p` element-wise exact.
 
 ## Harmony batch integration (v0.2.0)
 
-`sr.pp.harmony_integrate` is a native Rust/candle implementation of Harmony (Korsunsky et
+`si.pp.harmony_integrate` is a native Rust/candle implementation of Harmony (Korsunsky et
 al. 2019). It is iterative and k-means seeded, so it is not bit-for-bit with `harmonypy` (a
 compiled C++ backend); correctness is batch mixing, measured by iLISI, and the timing is
 reported against `harmonypy` as a reference. Measured on PBMC 3k (2 638 cells, 50 PCs, two
@@ -447,10 +447,10 @@ batches with a shift injected into the embedding):
 | | time | iLISI |
 | --- | ---: | ---: |
 | before correction | — | 1.00 |
-| scrust harmony (CPU) | **0.182 s** | **1.90** |
+| silicell harmony (CPU) | **0.182 s** | **1.90** |
 | `harmonypy` 2.0.0 (C++) | 0.064 s | — |
 
-scrust raises iLISI from 1.00 (batches separated) to 1.90, near the maximum of 2 for two
+silicell raises iLISI from 1.00 (batches separated) to 1.90, near the maximum of 2 for two
 batches, and its objective converges. The CPU path is **0.182 s, a 3.2× improvement** over
 the 0.590 s of the first working version — from an adaptive ndarray/candle matmul,
 rayon-parallel M-step and E-step reductions, and harmonypy's convergence tolerances.
@@ -506,19 +506,19 @@ once on a small input so that its outcome is measured rather than asserted.
 `NotImplementedError` naming the branch that owed them; that was true while the feature
 branches were in flight and is not true now. Every name in `PROBES` is exported and
 implemented, and as of v0.2.0 there is **no `NotImplementedError` left anywhere in
-`python/scrust/`** — `tl.dpt(n_branchings > 0)`, the last one, now runs native branch
+`python/silicell/`** — `tl.dpt(n_branchings > 0)`, the last one, now runs native branch
 detection. What is still missing is *timings*: none of these 24 appears in the tables
 above, because `PROBES` calls them once and does not time them. Benchmarking them means
 adding them to `OPS` and re-running the sweep. See [API.md](API.md) for the current state
 of each.
 
-**The hand-written Metal kernels.** `crates/scrust-gpu` contains four kernel modules —
+**The hand-written Metal kernels.** `crates/silicell-gpu` contains four kernel modules —
 `spmm` (CSR SpMM, transposed SpMM, column moments, row scaling), `knn`, `umap_sgd` and
-`tsne_gradient` — tested in Rust against their `scrust-core` counterparts.
+`tsne_gradient` — tested in Rust against their `silicell-core` counterparts.
 
-**One of them, `knn`, is now on the call path.** `crates/scrust-py` depends on
-`crates/scrust-gpu` and its `embedding` binding dispatches a Metal caller's k-NN to the
-`knn` kernel (`scrust-py/src/embedding.rs`), falling back to the candle path on the CPU
+**One of them, `knn`, is now on the call path.** `crates/silicell-py` depends on
+`crates/silicell-gpu` and its `embedding` binding dispatches a Metal caller's k-NN to the
+`knn` kernel (`silicell-py/src/embedding.rs`), falling back to the candle path on the CPU
 or where no Metal context builds. The `pp.neighbors` row above is measured with that
 kernel live, which is why it improved: the figure is no longer a Rust-against-Rust
 microbenchmark of unreachable code but the shipped path a Metal caller takes. The kernel

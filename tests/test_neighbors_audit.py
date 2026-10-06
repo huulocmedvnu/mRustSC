@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from scrust_call import DEVICE, scrust_call
+from silicell_call import DEVICE, silicell_call
 
 umap_ = pytest.importorskip("umap.umap_", reason="the audit compares against umap-learn")
 
@@ -62,13 +62,13 @@ def exact_knn(x: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def our_knn(x: np.ndarray, k: int = K) -> tuple[np.ndarray, np.ndarray]:
-    indices, distances = scrust_call("_scrust.knn", np.ascontiguousarray(x), k, DEVICE)
+    indices, distances = silicell_call("_silicell.knn", np.ascontiguousarray(x), k, DEVICE)
     return np.asarray(indices), np.asarray(distances, dtype=np.float32)
 
 
 def our_connectivities(indices: np.ndarray, distances: np.ndarray) -> sparse.csr_matrix:
     n_obs = indices.shape[0]
-    indptr, columns, values, _ = scrust_call("_scrust.connectivities", indices, distances)
+    indptr, columns, values, _ = silicell_call("_silicell.connectivities", indices, distances)
     matrix = sparse.csr_matrix(
         (np.asarray(values), np.asarray(columns), np.asarray(indptr)), shape=(n_obs, n_obs)
     )
@@ -139,7 +139,7 @@ def test_row_width_matches_scanpy() -> None:
     anndata = pytest.importorskip("anndata")
     x = embedding()
     adata = anndata.AnnData(np.zeros((x.shape[0], 3), dtype=np.float32), obsm={"X_pca": x})
-    scrust_call("pp.neighbors", adata, n_neighbors=N_NEIGHBORS, use_rep="X_pca", device=DEVICE)
+    silicell_call("pp.neighbors", adata, n_neighbors=N_NEIGHBORS, use_rep="X_pca", device=DEVICE)
 
     distances = sparse.csr_matrix(adata.obsp["distances"])
     per_row = np.diff(distances.indptr)

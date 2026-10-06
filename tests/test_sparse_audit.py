@@ -1,12 +1,12 @@
-"""Audit of `scrust_core::sparse::CsrMatrix`, the type every other module is handed.
+"""Audit of `silicell_core::sparse::CsrMatrix`, the type every other module is handed.
 
 There is no scanpy equivalent, but there is a precise reference: `scipy.sparse.csr_matrix`.
 Every binding converts a scipy CSR into this type through
-`crates/scrust-py/src/convert.rs::csr_from_py` -> `CsrMatrix::new`, and the two functions
-that return a CSR triple (`_scrust.log1p`, `_scrust.normalize_total`) hand the same three
+`crates/silicell-py/src/convert.rs::csr_from_py` -> `CsrMatrix::new`, and the two functions
+that return a CSR triple (`_silicell.log1p`, `_silicell.normalize_total`) hand the same three
 arrays back, so construction, validation and export are all reachable end to end.
 
-`log1p` is the sharpest probe available: `crates/scrust-core/src/preprocess/normalize.rs`
+`log1p` is the sharpest probe available: `crates/silicell-core/src/preprocess/normalize.rs`
 copies `indptr` and `indices` through untouched and only maps the values, so anything the
 round trip changes about the sparsity pattern was changed by `CsrMatrix`, not by the
 algorithm. `normalize_total` with a target equal to the row total gives an exact identity
@@ -23,7 +23,7 @@ What carries the most risk here:
   duplicates and `densify_rows` overwrites, so the same triple means two different
   matrices on the two sides of the boundary.
 
-These tests call `scrust._scrust` directly instead of going through `tests/scrust_call.py`.
+These tests call `silicell._silicell` directly instead of going through `tests/silicell_call.py`.
 That helper skips on `PanicException`, and three of the tests below exist precisely to show
 that a `PanicException` is what an invalid `indptr` produces; routing them through the
 helper would turn every one of those failures into a green skip.
@@ -36,7 +36,7 @@ import pytest
 from numpy.testing import assert_array_equal
 from scipy import sparse
 
-_scrust = pytest.importorskip("scrust._scrust", reason="the scrust extension is not built")
+_silicell = pytest.importorskip("silicell._silicell", reason="the silicell extension is not built")
 
 DEVICE = "cpu"
 
@@ -55,11 +55,11 @@ def log1p(indptr, indices, values, n_cols):
     Nothing is caught: a `PanicException` or a `ValueError` from the core is the
     observation the caller is making.
     """
-    return _scrust.log1p(u32(indptr), u32(indices), f32(values), n_cols)
+    return _silicell.log1p(u32(indptr), u32(indices), f32(values), n_cols)
 
 
 def normalize_total(indptr, indices, values, n_cols, target_sum):
-    return _scrust.normalize_total(
+    return _silicell.normalize_total(
         u32(indptr), u32(indices), f32(values), n_cols, target_sum, DEVICE
     )
 
@@ -183,7 +183,7 @@ def test_a_row_made_entirely_of_stored_zeros_keeps_its_entries():
 
 
 def test_stored_zeros_reach_the_dense_form_as_zeros():
-    """Reaching `densify_rows` through `_scrust.scale`: the dense matrix a stored zero
+    """Reaching `densify_rows` through `_silicell.scale`: the dense matrix a stored zero
     produces has to be indistinguishable from the one an unstored zero produces, since
     `dense` starts as a buffer of zeros and only stored entries are written.
 
@@ -192,7 +192,7 @@ def test_stored_zeros_reach_the_dense_form_as_zeros():
     iterating `indices`/`values`, so a stored zero contributes `0` to the sum either way;
     if it did not, the two calls would differ.
     """
-    with_zeros = _scrust.scale(
+    with_zeros = _silicell.scale(
         u32([0, 3, 6]),
         u32([0, 1, 2, 0, 1, 2]),
         f32([1.0, 0.0, 3.0, 5.0, 0.0, 0.0]),
@@ -201,7 +201,7 @@ def test_stored_zeros_reach_the_dense_form_as_zeros():
         None,
         DEVICE,
     )
-    without_zeros = _scrust.scale(
+    without_zeros = _silicell.scale(
         u32([0, 2, 3]), u32([0, 2, 0]), f32([1.0, 3.0, 5.0]), 3, True, None, DEVICE
     )
     assert_array_equal(with_zeros, without_zeros)
@@ -246,7 +246,7 @@ def test_duplicate_columns_are_kept_and_densify_takes_the_last():
     last duplicate wins and the earlier ones vanish. The same three arrays therefore denote
     two different matrices on the two sides of the boundary, with nothing raised.
 
-    Reached through `_scrust.scale(zero_center=False)`, whose output is
+    Reached through `_silicell.scale(zero_center=False)`, whose output is
     `densify_rows(...) / deviation`. The per-gene deviation is computed by iterating
     `indices`/`values` and so is *identical* under either reading of the duplicates; only
     the numerator differs. The ratio of the two rows in gene 0 is therefore a clean
@@ -257,7 +257,7 @@ def test_duplicate_columns_are_kept_and_densify_takes_the_last():
     """
     indptr, indices, values = [0, 2, 3, 3, 3], [0, 0, 0], [3.0, 4.0, 7.0]
 
-    scaled = _scrust.scale(u32(indptr), u32(indices), f32(values), 2, False, None, DEVICE)
+    scaled = _silicell.scale(u32(indptr), u32(indices), f32(values), 2, False, None, DEVICE)
 
     assert scaled.shape == (4, 2)
     assert scaled[1, 0] > 0.0, "the discriminator is a ratio; the denominator must be real"
@@ -297,7 +297,7 @@ def test_an_all_empty_rows_matrix_keeps_its_rows():
     assert len(out_values) == 0
     assert out_n_cols == 4
 
-    keep = _scrust.filter_cells(u32([0, 0, 0, 0]), u32([]), f32([]), 4, 0, None)
+    keep = _silicell.filter_cells(u32([0, 0, 0, 0]), u32([]), f32([]), 4, 0, None)
     assert keep.shape == (3,), f"n_rows() should be len(indptr) - 1 == 3, got {keep.shape}"
     assert_array_equal(scipy_csr([0, 0, 0, 0], [], [], (3, 4)).toarray(), np.zeros((3, 4)))
 
@@ -329,7 +329,7 @@ def test_a_matrix_with_zero_columns_is_accepted():
     assert len(out_values) == 0
     assert out_n_cols == 0
 
-    dense = _scrust.scale(u32([0, 0, 0]), u32([]), f32([]), 0, True, None, DEVICE)
+    dense = _silicell.scale(u32([0, 0, 0]), u32([]), f32([]), 0, True, None, DEVICE)
     assert dense.shape == (2, 0)
 
     # And any entry at all is out of range, since there is no legal column.
@@ -346,7 +346,7 @@ def test_trailing_all_zero_columns_are_preserved():
     assert_array_equal(out_indices, [0, 1])
     assert len(out_values) == 2
 
-    dense = _scrust.scale(
+    dense = _silicell.scale(
         u32([0, 2, 3]), u32([0, 1, 0]), f32([1.0, 2.0, 4.0]), 50, True, None, DEVICE
     )
     assert dense.shape == (2, 50)

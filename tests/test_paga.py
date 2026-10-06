@@ -16,7 +16,7 @@ from anndata import AnnData
 from numpy.testing import assert_allclose
 from scipy import sparse
 
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 # The contract's element-wise bar for this algorithm.
 CONNECTIVITY_RTOL = 1e-4
@@ -67,7 +67,7 @@ def _edge_set(tree: object) -> set[frozenset[int]]:
 
 def _run_both(adata: AnnData) -> tuple[dict, dict]:
     ours = adata.copy()
-    scrust_call("tl.paga", ours, groups="group")
+    silicell_call("tl.paga", ours, groups="group")
     theirs = adata.copy()
     sc.tl.paga(theirs, groups="group", model="v1.2")
     return ours.uns["paga"], theirs.uns["paga"]
@@ -103,7 +103,7 @@ def test_chain_of_three_groups() -> None:
     labels = ["a", "a", "b", "b", "c", "c"]
     edges = [(0, 1), (2, 3), (4, 5), (1, 2), (3, 4)]
     adata = _adata_from_edges(edges, labels)
-    scrust_call("tl.paga", adata, groups="group")
+    silicell_call("tl.paga", adata, groups="group")
 
     connectivities = _dense(adata.uns["paga"]["connectivities"])
     assert_allclose(
@@ -156,8 +156,8 @@ def test_rejects_a_label_out_of_range() -> None:
     """The core is given raw labels, so it cannot assume the wrapper produced them."""
     graph = sparse.csr_matrix(np.array([[0.0, 1.0], [1.0, 0.0]]))
     with pytest.raises(ValueError, match="groups"):
-        scrust_call(
-            "_scrust.paga",
+        silicell_call(
+            "_silicell.paga",
             graph.indptr.astype(np.uint32),
             graph.indices.astype(np.uint32),
             graph.data.astype(np.float32),
@@ -172,10 +172,10 @@ def test_rejects_a_group_with_no_cells() -> None:
     adata = _adata_from_edges([(0, 1), (2, 3), (1, 2)], ["a", "a", "b", "b"])
     adata.obs["group"] = adata.obs["group"].cat.add_categories(["ghost"])
     with pytest.raises(ValueError, match="no cells"):
-        scrust_call("tl.paga", adata, groups="group")
+        silicell_call("tl.paga", adata, groups="group")
 
 
 def test_rejects_an_empty_graph() -> None:
     adata = _adata_from_edges([], [])
     with pytest.raises(ValueError, match="empty graph"):
-        scrust_call("tl.paga", adata, groups="group")
+        silicell_call("tl.paga", adata, groups="group")

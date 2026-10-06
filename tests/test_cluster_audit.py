@@ -1,4 +1,4 @@
-"""Line-by-line audit of `crates/scrust-core/src/cluster.rs` against the reference.
+"""Line-by-line audit of `crates/silicell-core/src/cluster.rs` against the reference.
 
 These tests are the falsifiable half of an audit written against three references:
 
@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from scrust_call import DEVICE
+from silicell_call import DEVICE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,12 +35,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def core():
     """The compiled extension, or a skip while the bindings are unregistered."""
     try:
-        from scrust import _scrust
+        from silicell import _silicell
     except ImportError as exc:  # pragma: no cover - only without a built wheel
-        pytest.skip(f"scrust is not installed: {exc}")
-    if not hasattr(_scrust, "leiden"):
-        pytest.skip("the clustering bindings are not registered in scrust-py/src/lib.rs yet")
-    return _scrust
+        pytest.skip(f"silicell is not installed: {exc}")
+    if not hasattr(_silicell, "leiden"):
+        pytest.skip("the clustering bindings are not registered in silicell-py/src/lib.rs yet")
+    return _silicell
 
 
 def csr_args(matrix) -> tuple:
@@ -219,10 +219,10 @@ def test_every_leiden_community_is_internally_connected_under_fuzzing():
         """
         import numpy as np, sys
         from scipy import sparse
-        from scrust import _scrust
+        from silicell import _silicell
         sys.path.insert(0, %r)
         from test_cluster_audit import csr_args, random_graph, is_connected, communities
-        from scrust_call import DEVICE  # this runs in a fresh interpreter, so it needs its own
+        from silicell_call import DEVICE  # this runs in a fresh interpreter, so it needs its own
 
         rng = np.random.default_rng(12345)
         bad = []
@@ -231,7 +231,7 @@ def test_every_leiden_community_is_internally_connected_under_fuzzing():
             graph = random_graph(rng, n, float(rng.uniform(0.08, 0.4)))
             for resolution in (1.0, 2.0, 4.0):
                 for seed in range(6):
-                    labels, _, k = _scrust.leiden(*csr_args(graph), resolution, 3, seed, DEVICE)
+                    labels, _, k = _silicell.leiden(*csr_args(graph), resolution, 3, seed, DEVICE)
                     for community, nodes in communities(labels, k):
                         if not is_connected(graph, nodes):
                             bad.append((trial, resolution, seed, nodes.tolist()))

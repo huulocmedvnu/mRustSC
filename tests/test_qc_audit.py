@@ -23,7 +23,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
 
-from scrust_call import scrust_call
+from silicell_call import silicell_call
 
 
 def csr_args(matrix: sparse.csr_matrix):
@@ -36,21 +36,21 @@ def csr_args(matrix: sparse.csr_matrix):
     )
 
 
-def scrust_qc(matrix, percent_top=(50,), subsets=()):
-    return scrust_call(
-        "_scrust.qc_metrics",
+def silicell_qc(matrix, percent_top=(50,), subsets=()):
+    return silicell_call(
+        "_silicell.qc_metrics",
         *csr_args(matrix),
         list(percent_top),
         [np.asarray(s, dtype=bool) for s in subsets],
     )
 
 
-def scrust_filter_cells(matrix, *, min_genes=None, min_counts=None):
-    return np.asarray(scrust_call("_scrust.filter_cells", *csr_args(matrix), min_genes, min_counts))
+def silicell_filter_cells(matrix, *, min_genes=None, min_counts=None):
+    return np.asarray(silicell_call("_silicell.filter_cells", *csr_args(matrix), min_genes, min_counts))
 
 
-def scrust_filter_genes(matrix, *, min_cells=None, min_counts=None):
-    return np.asarray(scrust_call("_scrust.filter_genes", *csr_args(matrix), min_cells, min_counts))
+def silicell_filter_genes(matrix, *, min_cells=None, min_counts=None):
+    return np.asarray(silicell_call("_silicell.filter_genes", *csr_args(matrix), min_cells, min_counts))
 
 
 def counts(n_cells=120, n_genes=80, seed=0, sparsity=0.7):
@@ -86,7 +86,7 @@ def scanpy_qc(matrix, percent_top=(50,), subsets=None):
 @pytest.mark.parametrize("percent_top", [(50,), (10, 50), (1, 5, 20, 50)])
 def test_cell_metrics_match_scanpy(percent_top):
     matrix = counts()
-    cells, _ = scrust_qc(matrix, percent_top)
+    cells, _ = silicell_qc(matrix, percent_top)
     obs, _ = scanpy_qc(matrix, percent_top)
 
     np.testing.assert_array_equal(
@@ -107,7 +107,7 @@ def test_cell_metrics_match_scanpy(percent_top):
 
 def test_gene_metrics_match_scanpy():
     matrix = counts(seed=2)
-    _, genes = scrust_qc(matrix)
+    _, genes = silicell_qc(matrix)
     _, var = scanpy_qc(matrix)
 
     np.testing.assert_array_equal(
@@ -135,7 +135,7 @@ def test_gene_subset_totals_match_scanpys_qc_vars():
     ribo = rng.random(matrix.shape[1]) < 0.2
     assert mito.any() and ribo.any()
 
-    cells, _ = scrust_qc(matrix, (50,), (mito, ribo))
+    cells, _ = silicell_qc(matrix, (50,), (mito, ribo))
     obs, _ = scanpy_qc(matrix, (50,), (mito, ribo))
 
     totals = np.asarray(cells["subset_totals"])
@@ -168,8 +168,8 @@ def test_explicit_zeros_are_not_expressed_genes():
     assert explicit.nnz == dense.size
     assert explicit.count_nonzero() < explicit.nnz
 
-    compact_cells, compact_genes = scrust_qc(matrix)
-    stored_cells, stored_genes = scrust_qc(explicit)
+    compact_cells, compact_genes = silicell_qc(matrix)
+    stored_cells, stored_genes = silicell_qc(explicit)
 
     for key in ("n_genes_by_counts", "total_counts"):
         np.testing.assert_allclose(
@@ -201,7 +201,7 @@ def test_percent_top_of_a_cell_with_no_counts_is_not_a_number():
     matrix = sparse.csr_matrix(matrix)
     assert matrix[0].nnz == 0
 
-    cells, _ = scrust_qc(matrix, (10,))
+    cells, _ = silicell_qc(matrix, (10,))
     obs, _ = scanpy_qc(matrix, (10,))
 
     ours = np.asarray(cells["pct_counts_in_top"])[0]
@@ -221,7 +221,7 @@ def test_percent_top_deeper_than_the_cell_expresses_is_all_of_it():
     expressed = np.diff(matrix.indptr)
     assert expressed.min() < 40, "some cell has to express fewer genes than we ask for"
 
-    cells, _ = scrust_qc(matrix, (40,))
+    cells, _ = silicell_qc(matrix, (40,))
     fractions = np.asarray(cells["pct_counts_in_top"])[0]
     totals = np.asarray(cells["total_counts"])
     np.testing.assert_allclose(fractions[totals > 0], 1.0, rtol=1e-6)
@@ -238,7 +238,7 @@ def test_a_gene_in_no_cell_has_dropped_out_of_all_of_them():
     matrix[:, 3] = 0
     matrix = sparse.csr_matrix(matrix)
 
-    _, genes = scrust_qc(matrix)
+    _, genes = silicell_qc(matrix)
     assert np.asarray(genes["n_cells_by_counts"])[3] == 0
     assert np.asarray(genes["pct_dropout_by_counts"])[3] == 100.0
     assert np.asarray(genes["mean_counts"])[3] == 0.0
@@ -258,7 +258,7 @@ def test_a_gene_in_no_cell_has_dropped_out_of_all_of_them():
 
 def test_sqrt_matches_scipy_and_stays_sparse():
     matrix = counts(seed=14)
-    indptr, indices, values, _ = scrust_call("_scrust.sqrt", *csr_args(matrix))
+    indptr, indices, values, _ = silicell_call("_silicell.sqrt", *csr_args(matrix))
     ours = sparse.csr_matrix(
         (np.asarray(values), np.asarray(indices), np.asarray(indptr)), shape=matrix.shape
     )
@@ -272,7 +272,7 @@ def test_sqrt_of_a_negative_is_a_nan_rather_than_an_error():
     compatibility break, as the t-SNE perplexity guard was."""
     dense = np.array([[4.0, -1.0], [0.0, 9.0]], dtype=np.float32)
     matrix = sparse.csr_matrix(dense)
-    _, _, values, _ = scrust_call("_scrust.sqrt", *csr_args(matrix))
+    _, _, values, _ = silicell_call("_silicell.sqrt", *csr_args(matrix))
     values = np.asarray(values)
     assert values[0] == 2.0
     assert np.isnan(values[1])
@@ -289,7 +289,7 @@ def test_filter_cells_by_gene_count_matches_scanpy(min_genes):
     matrix = counts(seed=16)
     adata = AnnData(matrix.copy())
     keep, _ = sc.pp.filter_cells(adata, min_genes=min_genes, inplace=False)
-    np.testing.assert_array_equal(scrust_filter_cells(matrix, min_genes=min_genes), keep)
+    np.testing.assert_array_equal(silicell_filter_cells(matrix, min_genes=min_genes), keep)
 
 
 @pytest.mark.parametrize("min_counts", [1.0, 50.0, 200.0])
@@ -297,7 +297,7 @@ def test_filter_cells_by_total_counts_matches_scanpy(min_counts):
     matrix = counts(seed=18)
     adata = AnnData(matrix.copy())
     keep, _ = sc.pp.filter_cells(adata, min_counts=min_counts, inplace=False)
-    np.testing.assert_array_equal(scrust_filter_cells(matrix, min_counts=min_counts), keep)
+    np.testing.assert_array_equal(silicell_filter_cells(matrix, min_counts=min_counts), keep)
 
 
 @pytest.mark.parametrize("min_cells", [1, 10, 40])
@@ -305,7 +305,7 @@ def test_filter_genes_by_cell_count_matches_scanpy(min_cells):
     matrix = counts(seed=20)
     adata = AnnData(matrix.copy())
     keep, _ = sc.pp.filter_genes(adata, min_cells=min_cells, inplace=False)
-    np.testing.assert_array_equal(scrust_filter_genes(matrix, min_cells=min_cells), keep)
+    np.testing.assert_array_equal(silicell_filter_genes(matrix, min_cells=min_cells), keep)
 
 
 @pytest.mark.parametrize("min_counts", [1.0, 30.0, 150.0])
@@ -313,7 +313,7 @@ def test_filter_genes_by_total_counts_matches_scanpy(min_counts):
     matrix = counts(seed=22)
     adata = AnnData(matrix.copy())
     keep, _ = sc.pp.filter_genes(adata, min_counts=min_counts, inplace=False)
-    np.testing.assert_array_equal(scrust_filter_genes(matrix, min_counts=min_counts), keep)
+    np.testing.assert_array_equal(silicell_filter_genes(matrix, min_counts=min_counts), keep)
 
 
 def test_filter_counts_positive_entries_where_qc_counts_non_zero_ones():
@@ -338,11 +338,11 @@ def test_filter_counts_positive_entries_where_qc_counts_non_zero_ones():
     )
     matrix = sparse.csr_matrix(dense)
 
-    cells, _ = scrust_qc(matrix, ())
+    cells, _ = silicell_qc(matrix, ())
     non_zero = np.asarray(cells["n_genes_by_counts"])
     np.testing.assert_array_equal(non_zero, np.array([3, 3, 0], dtype=non_zero.dtype))
 
-    positive_only = scrust_filter_cells(matrix, min_genes=1)
+    positive_only = silicell_filter_cells(matrix, min_genes=1)
     np.testing.assert_array_equal(positive_only, np.array([True, False, False]))
 
     adata = AnnData(matrix.copy())

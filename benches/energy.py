@@ -4,7 +4,7 @@
 Run from the repo root, with sudo because `powermetrics` reads the power counters:
 
     sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data.h5ad \
-        --library scrust --device auto --json results/energy_scrust.json
+        --library silicell --device auto --json results/energy_silicell.json
 
 Apple silicon exposes per-rail package power (CPU, GPU, ANE and their sum) through
 `powermetrics`. This script samples those rails every 100 ms while `benches/pipeline.py`
@@ -106,7 +106,7 @@ def _as_user_prefix() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("h5ad", type=Path)
-    parser.add_argument("--library", choices=["scanpy", "scrust"], required=True)
+    parser.add_argument("--library", choices=["scanpy", "silicell"], required=True)
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--cells", type=int)
     parser.add_argument("--umap-parallel", action="store_true")

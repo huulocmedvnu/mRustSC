@@ -8,7 +8,7 @@ Run from the repo root:
 Both modes compute the same thing — the per-gene sum of a 50 000 x 20 000 matrix —
 and the only difference is how much of it is resident at once. The whole-matrix mode
 is what a numpy-shaped implementation does: read the file, densify, reduce. The
-streamed mode reads one row block at a time through `scrust._backed.open_backed`,
+streamed mode reads one row block at a time through `silicell._backed.open_backed`,
 so its peak is the block rather than the dataset.
 
 Each mode runs in its own process, so a peak reading belongs to one mode only, and a
@@ -90,10 +90,10 @@ def run_whole(path: Path) -> dict[str, Any]:
 
 def run_streamed(path: Path, budget_gb: float) -> dict[str, Any]:
     """The same reduction over row blocks read straight from the file."""
-    import scrust
-    from scrust._backed import open_backed
+    import silicell
+    from silicell._backed import open_backed
 
-    scrust.settings.max_memory_gb = budget_gb
+    silicell.settings.max_memory_gb = budget_gb
     with PeakRss() as peak:
         start = time.perf_counter()
         with open_backed(path) as backed:
@@ -170,7 +170,7 @@ def run(n_cells: int, n_genes: int, density: float, budget_gb: float) -> int:
     if "block_size" in streamed:
         print(
             f"\nstreamed used blocks of {streamed['block_size']} rows, sized by "
-            f"scrust.settings.max_memory_gb = {budget_gb} GB."
+            f"silicell.settings.max_memory_gb = {budget_gb} GB."
         )
     if all("error" not in result for result in results.values()):
         gap = abs(results["whole"]["checksum"] - streamed["checksum"])

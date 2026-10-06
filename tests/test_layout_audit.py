@@ -1,4 +1,4 @@
-"""Audit of `scrust_core::layout` against scanpy: dendrogram, draw_graph, density.
+"""Audit of `silicell_core::layout` against scanpy: dendrogram, draw_graph, density.
 
 This file is a *second opinion* on `tests/test_layout.py`. It deliberately goes at the
 places that file leaves open:
@@ -16,7 +16,7 @@ places that file leaves open:
   covariance bandwidth (via affine equivariance), Scott's exponent beyond two
   dimensions, and the behaviour on degenerate input where scanpy returns NaN.
 
-Every test calls into the crate through `scrust_call`; nothing here compares scipy to
+Every test calls into the crate through `silicell_call`; nothing here compares scipy to
 scipy. `fa2-modified` is not installed in this environment, so `sc.tl.draw_graph`
 cannot be run as a reference at all — see the module note above `test_draw_graph_*`.
 """
@@ -36,7 +36,7 @@ from scipy.sparse.csgraph import shortest_path
 from scipy.spatial.distance import pdist, squareform
 from scipy.stats import gaussian_kde, spearmanr
 
-from scrust_call import DEVICE, scrust_call
+from silicell_call import DEVICE, silicell_call
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -44,7 +44,7 @@ from scrust_call import DEVICE, scrust_call
 
 
 def _csr_args(dense: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-    """The four arguments `_scrust.draw_graph` takes a CSR matrix as."""
+    """The four arguments `_silicell.draw_graph` takes a CSR matrix as."""
     matrix = sparse.csr_matrix(dense)
     return (
         matrix.indptr.astype(np.uint32),
@@ -115,7 +115,7 @@ def test_dendrogram_uses_the_complete_linkage_scanpy_defaults_to() -> None:
     most of them, and that is precisely how this went unnoticed.
     """
     centroids = _divergent_centroids()
-    linkage, leaves = scrust_call("_scrust.dendrogram", centroids)
+    linkage, leaves = silicell_call("_silicell.dendrogram", centroids)
     linkage = np.asarray(linkage)
 
     average = _correlation_linkage(centroids, "average")
@@ -146,7 +146,7 @@ def test_dendrogram_breaks_distance_ties_the_way_scipy_does() -> None:
         [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4], [4, 1, 3, 2], [4, 1, 3, 2]],
         dtype=np.float32,
     )
-    linkage, leaves = scrust_call("_scrust.dendrogram", centroids)
+    linkage, leaves = silicell_call("_silicell.dendrogram", centroids)
     linkage = np.asarray(linkage)
     reference = _correlation_linkage(centroids, "complete")
 
@@ -167,7 +167,7 @@ def test_dendrogram_leaf_order_is_scipys_traversal_and_not_a_sort() -> None:
     correct order is provably neither sorted nor reversed.
     """
     centroids = _divergent_centroids()
-    _, leaves = scrust_call("_scrust.dendrogram", centroids)
+    _, leaves = silicell_call("_silicell.dendrogram", centroids)
     order = list(map(int, leaves))
 
     reference = sch.dendrogram(_correlation_linkage(centroids, "complete"), no_plot=True)["leaves"]
@@ -188,7 +188,7 @@ def test_dendrogram_rejects_a_constant_centroid_that_scanpy_turns_into_nan() -> 
     centroids = np.array([[1, 1, 1], [1, 2, 3], [3, 2, 1]], dtype=np.float32)
 
     with pytest.raises(ValueError, match="constant"):
-        scrust_call("_scrust.dendrogram", centroids)
+        silicell_call("_silicell.dendrogram", centroids)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -200,7 +200,7 @@ def test_dendrogram_handles_a_group_of_a_single_cell() -> None:
     """A category with one cell has that cell as its centroid, exactly as scanpy.
 
     The mean of a one-row group is a degenerate case for the pandas `groupby` in
-    `scrust.tl.dendrogram`; it is also the case where the correlation distance is at
+    `silicell.tl.dendrogram`; it is also the case where the correlation distance is at
     its noisiest. Compared against `sc.tl.dendrogram` run with its default `complete` linkage, so
     the only thing under test is the group-mean and clustering path, not the linkage
     divergence pinned above.
@@ -219,7 +219,7 @@ def test_dendrogram_handles_a_group_of_a_single_cell() -> None:
     adata.obsm["X_pca"] = pcs
 
     ours = adata.copy()
-    scrust_call("tl.dendrogram", ours, "group", n_pcs=n_pcs)
+    silicell_call("tl.dendrogram", ours, "group", n_pcs=n_pcs)
     slot = ours.uns["dendrogram_group"]
 
     reference = sc.tl.dendrogram(
@@ -269,7 +269,7 @@ def test_draw_graph_recovers_the_geometry_of_a_path_graph(seed: int) -> None:
     """
     adjacency = _path_graph(20)
     positions = np.asarray(
-        scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 300, seed, DEVICE)
+        silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 300, seed, DEVICE)
     )
     graph_distance = shortest_path(sparse.csr_matrix(adjacency), unweighted=True)
     upper = np.triu_indices(adjacency.shape[0], 1)
@@ -294,7 +294,7 @@ def test_draw_graph_honours_edge_weights() -> None:
     adjacency[:size, :size] = _clique_block(size, 6.0)
     adjacency[size:, size:] = _clique_block(size, 0.4)
 
-    positions = np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 200, 0, DEVICE))
+    positions = np.asarray(silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 200, 0, DEVICE))
     heavy = _mean_pairwise(positions[:size])
     light = _mean_pairwise(positions[size:])
     assert light > 2.0 * heavy, (heavy, light)
@@ -308,9 +308,9 @@ def test_draw_graph_is_reproducible_from_its_seed_and_moves_with_it() -> None:
     the first: a layout that ignored the seed would still be "deterministic".
     """
     adjacency = _path_graph(12)
-    first = np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
-    again = np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
-    other = np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 60, 8, DEVICE))
+    first = np.asarray(silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
+    again = np.asarray(silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
+    other = np.asarray(silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 60, 8, DEVICE))
 
     assert np.array_equal(first, again)
     assert not np.allclose(first, other, atol=1e-3)
@@ -346,7 +346,7 @@ def test_draw_graph_reads_edges_whichever_triangle_they_are_stored_in() -> None:
         return float(distance[same].mean()), float(distance[~same].mean())
 
     layouts = {
-        name: np.asarray(scrust_call("_scrust.draw_graph", *_csr_args(stored), 100, 0, DEVICE))
+        name: np.asarray(silicell_call("_silicell.draw_graph", *_csr_args(stored), 100, 0, DEVICE))
         for name, stored in (
             ("symmetric", adjacency),
             ("lower", np.tril(adjacency)),
@@ -374,12 +374,12 @@ def test_draw_graph_rejects_input_no_layout_exists_for() -> None:
     """
     adjacency = _path_graph(6)
     with pytest.raises(ValueError, match="n_iterations"):
-        scrust_call("_scrust.draw_graph", *_csr_args(adjacency), 0, 0, DEVICE)
+        silicell_call("_silicell.draw_graph", *_csr_args(adjacency), 0, 0, DEVICE)
 
     empty = sparse.csr_matrix((6, 6), dtype=np.float32)
     with pytest.raises(ValueError, match="non-empty"):
-        scrust_call(
-            "_scrust.draw_graph",
+        silicell_call(
+            "_silicell.draw_graph",
             empty.indptr.astype(np.uint32),
             empty.indices.astype(np.uint32),
             empty.data.astype(np.float32),
@@ -390,7 +390,7 @@ def test_draw_graph_rejects_input_no_layout_exists_for() -> None:
         )
 
     with pytest.raises(ValueError, match="square"):
-        scrust_call("_scrust.draw_graph", *_csr_args(adjacency[:, :5]), 10, 0, DEVICE)
+        silicell_call("_silicell.draw_graph", *_csr_args(adjacency[:, :5]), 10, 0, DEVICE)
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +409,7 @@ def test_embedding_density_matches_scipy_gaussian_kde_and_lands_exactly_on_zero_
     rng = np.random.default_rng(0)
     embedding = np.ascontiguousarray(rng.normal(size=(400, 2)), dtype=np.float32)
 
-    density = np.asarray(scrust_call("_scrust.embedding_density", embedding, DEVICE))
+    density = np.asarray(silicell_call("_silicell.embedding_density", embedding, DEVICE))
     assert_allclose(density, _scaled_kde(embedding), rtol=0, atol=1e-5)
     assert density.min() == 0.0
     assert density.max() == 1.0
@@ -427,7 +427,7 @@ def test_embedding_density_uses_scotts_exponent_in_higher_dimensions(n_dims: int
     rng = np.random.default_rng(1)
     embedding = np.ascontiguousarray(rng.normal(size=(300, n_dims)), dtype=np.float32)
 
-    density = np.asarray(scrust_call("_scrust.embedding_density", embedding, DEVICE))
+    density = np.asarray(silicell_call("_silicell.embedding_density", embedding, DEVICE))
     assert_allclose(density, _scaled_kde(embedding), rtol=0, atol=1e-5)
 
 
@@ -448,8 +448,8 @@ def test_embedding_density_is_invariant_under_an_affine_map_of_the_embedding() -
         embedding @ transform.T + np.array([5.0, -3.0], dtype=np.float32), dtype=np.float32
     )
 
-    plain = np.asarray(scrust_call("_scrust.embedding_density", embedding, DEVICE))
-    affine = np.asarray(scrust_call("_scrust.embedding_density", mapped, DEVICE))
+    plain = np.asarray(silicell_call("_silicell.embedding_density", embedding, DEVICE))
+    affine = np.asarray(silicell_call("_silicell.embedding_density", mapped, DEVICE))
     assert_allclose(affine, plain, rtol=0, atol=1e-5)
 
 
@@ -469,7 +469,7 @@ def test_embedding_density_flattens_a_symmetric_layout_where_scanpy_amplifies_ro
     """
     square = np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.float32)
 
-    density = np.asarray(scrust_call("_scrust.embedding_density", square, DEVICE))
+    density = np.asarray(silicell_call("_silicell.embedding_density", square, DEVICE))
     assert float(density.max() - density.min()) < 1e-3, density
     assert_allclose(density, 0.0, atol=1e-3)
 
@@ -487,19 +487,19 @@ def test_embedding_density_rejects_degenerate_input_that_scanpy_returns_nan_for(
       singular covariance, returns two identical values, and scanpy's rescaling turns
       them into `nan`. The core requires `n_cells > n_dims` and raises. This is a
       behavioural divergence for a `groupby` category with two cells: scanpy writes
-      NaN into `obs`, scrust raises.
+      NaN into `obs`, silicell raises.
     * Four collinear cells: both refuse, scipy with `LinAlgError` and the core with a
       `ValueError` about a non-invertible covariance.
     """
     two_cells = np.array([[0, 0], [1, 1]], dtype=np.float32)
     with pytest.raises(ValueError, match="cells"):
-        scrust_call("_scrust.embedding_density", two_cells, DEVICE)
+        silicell_call("_silicell.embedding_density", two_cells, DEVICE)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         assert np.isnan(_scaled_kde(two_cells)).all(), "scanpy silently yields NaN here"
 
     collinear = np.array([[0, 0], [1, 1], [2, 2], [3, 3]], dtype=np.float32)
     with pytest.raises(ValueError, match=r"collinear|degenerate"):
-        scrust_call("_scrust.embedding_density", collinear, DEVICE)
+        silicell_call("_silicell.embedding_density", collinear, DEVICE)
     with pytest.raises(np.linalg.LinAlgError):
         gaussian_kde(collinear.astype(np.float64).T)

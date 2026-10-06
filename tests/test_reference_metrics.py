@@ -1,6 +1,6 @@
 """Unit tests for the metrics themselves, against cases computed by hand.
 
-These touch no scrust code, so they run today and keep the rest of the suite honest.
+These touch no silicell code, so they run today and keep the rest of the suite honest.
 """
 
 from __future__ import annotations

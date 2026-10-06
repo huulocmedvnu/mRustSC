@@ -10,7 +10,7 @@ C++ backend) to the bit. Correctness for a batch-integration method is instead:
 
 A synthetic batch effect is injected into the PCA embedding (a shift on one batch), so a
 correct method raises iLISI from ~1 back towards `n_batches`. `harmonypy` is run on the
-same data as a reference; its iLISI and the cosine correlation are recorded, and scrust is
+same data as a reference; its iLISI and the cosine correlation are recorded, and silicell is
 asserted to integrate at least as well as it.
 """
 
@@ -24,7 +24,7 @@ import scanpy as sc
 from anndata import AnnData
 from sklearn.neighbors import NearestNeighbors
 
-import scrust as sr
+import silicell as si
 
 N_BATCHES = 2
 
@@ -80,7 +80,7 @@ def test_harmony_raises_batch_mixing(
     batch = batched.uns["batch_codes"]
     before = _ilisi(batched.obsm["X_pca"], batch)
 
-    sr.pp.harmony_integrate(batched, key="batch", device="cpu")
+    si.pp.harmony_integrate(batched, key="batch", device="cpu")
     after = _ilisi(batched.obsm["X_pca_harmony"], batch)
 
     record_property("harmony.ilisi_before", round(before, 4))
@@ -99,7 +99,7 @@ def test_objective_converges(batched: AnnData) -> None:
     changes the embedding, so re-clustering can nudge it up by a hair near convergence --
     so the test asserts a large overall drop and a small final wobble, not monotonicity.
     """
-    sr.pp.harmony_integrate(batched, key="batch", device="cpu")
+    si.pp.harmony_integrate(batched, key="batch", device="cpu")
     objective = batched.uns["harmony"]["objective"]
     assert len(objective) >= 2
 
@@ -117,14 +117,14 @@ def test_integrates_at_least_as_well_as_harmonypy(
     """Reference check against harmonypy on the same data: iLISI and cosine correlation.
 
     Not a bit-for-bit assertion -- harmonypy is a C++ backend with its own k-means seed and
-    lambda schedule. scrust is only required to mix batches at least as well; the
+    lambda schedule. silicell is only required to mix batches at least as well; the
     correlation is recorded for the record.
     """
     harmonypy = pytest.importorskip("harmonypy")
     batch = batched.uns["batch_codes"]
     x = np.ascontiguousarray(batched.obsm["X_pca"], dtype=np.float64)
 
-    sr.pp.harmony_integrate(batched, key="batch", device="cpu")
+    si.pp.harmony_integrate(batched, key="batch", device="cpu")
     ours = batched.obsm["X_pca_harmony"]
 
     reference = harmonypy.run_harmony(x, batched.obs[["batch"]], ["batch"], verbose=False)
@@ -136,7 +136,7 @@ def test_integrates_at_least_as_well_as_harmonypy(
     ilisi_theirs = _ilisi(np.ascontiguousarray(theirs), batch)
     correlation = _mean_abs_column_cosine(ours, theirs)
 
-    record_property("harmony.ilisi_scrust", round(ilisi_ours, 4))
+    record_property("harmony.ilisi_silicell", round(ilisi_ours, 4))
     record_property("harmony.ilisi_harmonypy", round(ilisi_theirs, 4))
     record_property("harmony.cosine_correlation", round(correlation, 4))
     assert ilisi_ours >= ilisi_theirs - 0.1

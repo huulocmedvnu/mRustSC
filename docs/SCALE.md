@@ -10,7 +10,7 @@ figures for the NVIDIA-GPU alternative. Everything here was measured on one mach
 |---|---|
 | machine | Apple M3 Pro, 5 performance + 6 efficiency cores, 18 GB unified memory, 14-core GPU |
 | scanpy | 1.12.4 (leidenalg Leiden, umap-learn UMAP) |
-| scrust | this branch (`feat/scanpy-parity`), Accelerate BLAS on, Metal on |
+| silicell | this branch (`feat/scanpy-parity`), Accelerate BLAS on, Metal on |
 | scripts | `benches/benchmark.py --sizes 100000`, `benches/pipeline.py`, `benches/pipeline_1m.py`, `benches/energy.py` |
 
 Reproduce with the commands under each section. Every table below was produced by the
@@ -22,7 +22,7 @@ file named next to it in `benches/results/`.
 stage prepared by scanpy, each operation timed on its own (best of up to 2 runs, repeats
 stop after 30 s). Times in seconds; `+MB` is the physical footprint the call added.
 
-| operation | genes | scanpy | scrust | speedup | +MB scanpy / scrust |
+| operation | genes | scanpy | silicell | speedup | +MB scanpy / silicell |
 |---|---:|---:|---:|---:|---|
 | `pp.filter_cells` | 32 738 | 0.525 | 0.533 | 0.99x | 1344 / 1263 |
 | `pp.filter_genes` | 32 738 | 0.686 | 0.742 | 0.92x | 1246 / 1256 |
@@ -39,7 +39,7 @@ stop after 30 s). Times in seconds; `+MB` is the physical footprint the call add
 
 What to read into it:
 
-- **The graph and the decomposition are where the time goes, and they are where scrust is
+- **The graph and the decomposition are where the time goes, and they are where silicell is
   one to two orders of magnitude faster.** PCA, UMAP, Leiden and the rank-sum test are
   60x to 80x faster. The elementwise steps are at parity (they are memory-bound in both
   libraries, and scanpy's are already numpy).
@@ -72,13 +72,13 @@ each step seeing the previous step's output from the same library.
 ```bash
 .venv/bin/python benches/prepare_counts.py data/bone_marrow_117k.h5ad data/bone_marrow_117k_counts.h5ad
 PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library scanpy --json benches/results/bm117k_scanpy.json
-PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library scrust --device cpu --json benches/results/bm117k_scrust_cpu.json
-PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library scrust --device auto --json benches/results/bm117k_scrust_metal.json
+PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library silicell --device cpu --json benches/results/bm117k_silicell_cpu.json
+PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library silicell --device auto --json benches/results/bm117k_silicell_metal.json
 ```
 
 `benches/results/bm117k_*.json`. Seconds per step; 115 868 cells pass the filter, 2 000 variable genes, 36 or 37 Leiden clusters.
 
-| step | scanpy | scanpy (tuned) | scrust CPU, parallel UMAP | scrust Metal | scrust Metal, `umap(parallel=True)` |
+| step | scanpy | scanpy (tuned) | silicell CPU, parallel UMAP | silicell Metal | silicell Metal, `umap(parallel=True)` |
 |---|---:|---:|---:|---:|---:|
 | `pp.calculate_qc_metrics` | 1.46 | 1.40 | 1.37 | 0.97 | 0.86 |
 | `pp.filter_cells` | 0.69 | 0.69 | 1.07 | 2.07 | 0.64 |
@@ -110,7 +110,7 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117
   CPU measurement, before that rewrite, had the search at 79 s on effectively one core. Whole
   pipeline: 29 s CPU-only, 20 s with the GPU, against 233 s for scanpy's defaults and 86 s tuned.
 - **The elementwise head is at parity or a little ahead**, as at 100 000 cells. `filter_cells`
-  is slower in scrust (it copies the matrix once more than scanpy); it is 2 s of a 47 s run.
+  is slower in silicell (it copies the matrix once more than scanpy); it is 2 s of a 47 s run.
 - **The rank-sum test is 1.3x to 1.6x here**, not the 73x of section 1: 2 000 genes by 37
   groups is a small test and both libraries spend their time elsewhere in the call.
 - Scanpy's UMAP took 47 s on this real matrix, which is the figure to set against the 1 690 s
@@ -124,7 +124,7 @@ stored counts, 4.8 GB on disk as counts).
 
 The dense scaled matrix scanpy's pipeline builds for PCA is 1 001 288 x 2 000 x 4 bytes =
 8 GB, before the copies `scale` and the solver make. On an 18 GB machine that does not
-fit next to the 4.7 GB count matrix. `scrust.pp.preprocess_backed` never builds it:
+fit next to the 4.7 GB count matrix. `silicell.pp.preprocess_backed` never builds it:
 
 1. **pass 1** reads row blocks off the disk, drops cells under `min_genes`, normalises and
    log-transforms each block in place (the in-memory kernels, so the numbers match), and
@@ -150,15 +150,15 @@ components span the same space as `covariance_eigh` (smallest canonical correlat
 
 ```bash
 .venv/bin/python benches/prepare_counts.py data/embryo_1m.h5ad data/embryo_1m_counts.h5ad
-PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline_1m.py data/embryo_1m_counts.h5ad --umap-parallel --json benches/results/embryo1m_scrust.json
+PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline_1m.py data/embryo_1m_counts.h5ad --umap-parallel --json benches/results/embryo1m_silicell.json
 PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline_1m.py data/embryo_1m_counts.h5ad --library scanpy --json benches/results/embryo1m_scanpy.json
 ```
 
-`benches/results/embryo1m_scrust_{metal,cpu}.json`. Of the 1 001 288 cells, 953 436 pass `min_genes=200`;
+`benches/results/embryo1m_silicell_{metal,cpu}.json`. Of the 1 001 288 cells, 953 436 pass `min_genes=200`;
 9 022 genes fall under `min_cells=3`; 2 000 variable genes; 50 components; 42 Leiden clusters.
 Seconds per step and the memory each step added (physical footprint):
 
-| step | scrust Metal | scrust CPU | +MB (Metal) |
+| step | silicell Metal | silicell CPU | +MB (Metal) |
 |---|---:|---:|---:|
 | pass 1: QC, normalise, log1p, HVG sums | 3.6 | 4.7 | |
 | pass 2: moments of the variable genes | 5.3 | 5.9 | |
@@ -199,7 +199,7 @@ figure that matters is the net joules per pipeline: what the analysis cost the b
 
 ```bash
 sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_117k_counts.h5ad --library scanpy --json benches/results/energy_bm117k_scanpy.json
-sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_117k_counts.h5ad --library scrust --device auto --json benches/results/energy_bm117k_scrust_metal.json
+sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_117k_counts.h5ad --library silicell --device auto --json benches/results/energy_bm117k_silicell_metal.json
 ```
 
 `benches/results/energy_bm117k_*.json`, raw samples next to them. Net joules (idle draw of the
@@ -208,28 +208,28 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
 | run | seconds | CPU rail J | GPU rail J | **net J** | mean W | kJ per million cells |
 |---|---:|---:|---:|---:|---:|---:|
 | scanpy (defaults) | 229 | 980 | 0 | **974** | 6.0 | 8 |
-| scrust, Metal, parallel UMAP | 20 | 159 | 72 | **195** | 9.5 | 2 |
-| scrust, run labelled "cpu" (was a Metal run, see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
+| silicell, Metal, parallel UMAP | 20 | 159 | 72 | **195** | 9.5 | 2 |
+| silicell, run labelled "cpu" (was a Metal run, see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
 
-- **scrust does the same analysis for one fifth of the energy**: 195 J against 974 J, because it is
+- **silicell does the same analysis for one fifth of the energy**: 195 J against 974 J, because it is
   done 12x sooner while drawing only 1.6x the power (9.5 W against 6.0 W: scanpy keeps one core
-  busy, scrust keeps eleven).
+  busy, silicell keeps eleven).
 - **Per million cells that is about 1.7 kJ.** The published rapids-singlecell run on an L40S is
   92 s for a million cells; an L40S is rated at 300 W and the EPYC host at 200 W, so even at half
   load that is roughly 20 to 45 kJ for the same work: the laptop is one order of magnitude cheaper
   in energy and one order of magnitude slower in time.
-- **The GPU rail is a quarter of scrust's energy** (72 J) and it was drawn in the "cpu" run as
+- **The GPU rail is a quarter of silicell's energy** (72 J) and it was drawn in the "cpu" run as
   well, which is how the measurement caught a bug: `pp.neighbors`, `pp.pca`, `tl.umap`, `tl.leiden`,
   `tl.rank_genes_groups` and eleven other functions defaulted to `device="auto"` in their own
   signatures and ignored `settings.device`. Fixed on this branch (every function now resolves
   `device=None` through `settings`); the third row is therefore a second Metal run, and the true
   CPU-only pipeline is 99 s (section 2), which at the same 8 W would be about 800 J, close to
   scanpy's. The energy saving comes with the GPU; a re-measured CPU row needs one more `sudo` run.
-- Idle draw was 1.8 W before the scanpy run and 0.6 W before the scrust runs (the machine had
+- Idle draw was 1.8 W before the scanpy run and 0.6 W before the silicell runs (the machine had
   been busy); the net figures subtract each run's own idle.
 
 Figure F8 (`docs/figures/F8_utilisation.png`) is the P-cluster, E-cluster and GPU active residency
-over both runs from the raw samples. In the scrust trace the three phases are legible to the eye:
+over both runs from the raw samples. In the silicell trace the three phases are legible to the eye:
 the GPU pinned at 100% for the three seconds of PCA and the neighbour search, both clusters at
 100% through the parallel UMAP (the efficiency cores are saturated, not idle), and the P cluster
 alone through the rank-sum test. In the scanpy trace the P cluster sits at 100% for 230 s with
@@ -239,7 +239,7 @@ windows were open on the machine), not the analysis, which is why its net GPU en
 ## 5. Ablation: what each Apple-specific choice is worth
 
 `benches/results/ablation_bm117k.json`, from `benches/ablation.py` on the 117 308-cell
-atlas, scrust with the parallel UMAP. One knob off per row; seconds per step. Run-to-run
+atlas, silicell with the parallel UMAP. One knob off per row; seconds per step. Run-to-run
 noise on this machine is about ±2 s on the whole pipeline (the rank-sum step alone moves
 between 6.3 and 8.9 s with nothing changed), so differences under that are not differences.
 
@@ -250,7 +250,7 @@ between 6.3 and 8.9 s with nothing changed), so differences under that are not d
 | `no_accelerate` | Apple's BLAS, AMX (wheel built without the feature) | 20.4 | 0.92 | 2.13 | 4.76 | 0.63 | 7.84 | 0.03 | 0.14 |
 | `p_cores_only` | the 6 efficiency cores (`RAYON_NUM_THREADS=5`) | 22.8 | 0.85 | 2.12 | 7.49 | 0.77 | 7.66 | 0.02 | 0.14 |
 | `one_core` | every core but one (`RAYON_NUM_THREADS=1`) | 49.9 | 0.99 | 2.07 | 33.38 | 0.69 | 8.10 | 0.09 | 0.21 |
-| `no_zero_copy` | the in-place numpy borrows (`SCRUST_FORCE_COPY=1`) | 25.1 | 4.83 | 1.99 | 4.73 | 0.63 | 6.32 | 1.59 | 0.85 |
+| `no_zero_copy` | the in-place numpy borrows (`SILICELL_FORCE_COPY=1`) | 25.1 | 4.83 | 1.99 | 4.73 | 0.63 | 6.32 | 1.59 | 0.85 |
 | `sequential_umap` | the Hogwild optimiser | 46.6 | 0.89 | 2.08 | 31.33 | 0.65 | 7.71 | 0.03 | 0.12 |
 
 What the table says, plainly:
@@ -295,7 +295,7 @@ were measured on, next to this page's:
 | rapids-singlecell | NVIDIA RTX PRO 6000 (96 GB) | 1 000 000 | 28.4 s |
 | rapids-singlecell | NVIDIA DGX B200 (8 x B200) | 1 000 000 | 24.6 s |
 | rapids-singlecell (examples repo) | NVIDIA A100 40 GB | 1 300 000 | 686 s (UMAP 21 s, Leiden 1.7 s) |
-| **scrust** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; 409 s CPU-only) |
+| **silicell** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; 409 s CPU-only) |
 
 Sources: NVIDIA developer blog "Driving toward billion-cell analysis and biological
 breakthroughs with RAPIDS-singlecell" (12 June 2025) for the 1 M-cell rows;
@@ -308,7 +308,7 @@ The placement is the point of the project:
 - **rapids-singlecell needs a data-centre GPU and CUDA.** Its 1 M-cell runs were on a 48 GB
   L40S at the small end and an eight-GPU DGX at the large end; the 1.3 M-cell example
   wants an A100 and spends 475 s of its 686 s loading and preprocessing because the data
-  does not fit a 40 GB card without `dask`. scrust runs the same steps on the GPU every
+  does not fit a 40 GB card without `dask`. silicell runs the same steps on the GPU every
   recent Mac ships with, in the same memory the CPU uses, so a million cells stream off
   the SSD and no step waits on a PCIe copy.
 - **The CPU baseline those speedups are quoted against is a 24-core server.** On that
