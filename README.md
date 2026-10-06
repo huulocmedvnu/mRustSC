@@ -1,13 +1,16 @@
 # Metalcyte
 
-**Metalcyte** is a single-cell analysis engine for Apple silicon: the scanpy API on a Rust core that
-uses the whole package the chip offers, every performance and efficiency core, the AMX matrix units
+**Metalcyte** is a single-cell analysis engine for Apple silicon: a Rust core with its own Python
+interface, no dependency on scanpy, that uses the whole package the chip offers, every performance and efficiency core, the AMX matrix units
 through Accelerate, the GPU through hand-written Metal kernels, and one unified memory, so an
 atlas-scale dataset runs on the laptop on the desk. A 117 308-cell atlas goes from counts to marker
 genes in 20 s, a 1 001 288-cell atlas from counts to Leiden clusters in 210 s on 18 GB, with an
 out-of-core head that never holds the matrix. Python is the interface only: it holds the AnnData
-plumbing and defaults, and every result lands in the slot scanpy uses, so existing scripts change
-their import and keep their plotting.
+plumbing and defaults. The function names, arguments and AnnData slots follow the conventions
+scanpy users already know, so a scanpy script runs on Metalcyte after changing its import, and
+scanpy's plotting still reads Metalcyte's results. scanpy itself is never imported: it appears only
+in the reference tests, as the implementation the results are checked against, and in the benchmarks,
+as the comparison.
 
 Metalcyte was previously published as `scrust` (`mRustSC`); `import scrust` still works and warns.
 All benchmark numbers are measured, not claimed.
