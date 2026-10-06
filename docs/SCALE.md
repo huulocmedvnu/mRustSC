@@ -281,7 +281,37 @@ What the table says, plainly:
   does all of this at under 10 W (section 4). The AMX units do not show at 2 000 genes; the
   plan's neighbour-search rewrite (`docs/PLAN_APPLE_SILICON.md`, 2.1) is where they would.
 
-## 6. Against the NVIDIA-GPU alternative
+## 6. Scaling: seconds against cells
+
+`benches/results/scaling_embryo.json`, from `benches/scaling.py`: random subsamples of the 1 M-cell
+embryo atlas at 10k to 250k cells and the first 500k rows and the whole file above that, the same
+pipeline as section 2, one process per point, a swap watchdog (a run that adds more than 10 GB of
+swap is stopped) and a 40-minute cap. Up to 250k cells scrust runs the in-memory pipeline; from
+500k it runs the streamed head and the graph steps (`pipeline_1m.py`), which is the recommended
+use at that size. Whole-pipeline seconds (the in-memory points include the marker test, the
+streamed points do not):
+
+| cells | scanpy (defaults) | scanpy (tuned) | scrust CPU | scrust Metal |
+|---:|---:|---:|---:|---:|
+| 10,000 | 30 s | 27 s | 1 s | 1 s |
+| 25,000 | 42 s | 30 s | 3 s | 3 s |
+| 50,000 | 123 s | 45 s | 7 s | 8 s |
+| 100,000 | 264 s | 73 s | 15 s | 16 s |
+| 250,000 | 1368 s | 177 s | 68 s | 52 s |
+| 500,000 | over 40 min | 377 s | 113 s | 75 s |
+| 1,000,000 | not run | added more than 10 GB of swap | 366 s | 207 s |
+
+- **The gap widens with size.** scrust Metal is 21x faster than scanpy's defaults at 10k cells and
+  26x at 250k, 19x and 7x against scanpy tuned. scanpy's defaults stop at 250k (23 minutes) and did
+  not finish 500k in 40 minutes; scanpy tuned reaches 500k in 6 minutes and does not fit a million.
+- **The in-memory scrust pipeline also stops between 250k and 500k on 18 GB**, and the sweep showed
+  why: `tl.rank_genes_groups` added 6 GB at 116k cells and 25 GB at 476k. The marker test's working
+  set is the memory ceiling of the in-memory path and is the next engineering item
+  (`docs/PLAN_APPLE_SILICON.md`, 2.3). Above 250k the streamed head is the path to use, and it
+  carries a million cells at 207 s on Metal and 366 s on the CPU.
+- Figure F5 draws every step; the quadratic neighbour search is the one line whose slope steepens.
+
+## 7. Against the NVIDIA-GPU alternative
 
 rapids-singlecell (Dicks et al., "GPU-accelerated single-cell analysis at scale with
 rapids-singlecell", 2026, arXiv 2603.02402; NVIDIA developer blog, 12 June 2025) is the

@@ -3,3 +3,15 @@
 == scrust_metal at 250,000 cells
    ok, 51.6 s
 == scanpy at 500,000 cells
+   killed: over 40 min
+== scanpy_tuned at 500,000 cells
+   ok, 377.0 s
+== scrust_cpu at 500,000 cells
+   killed: added more than 10 GB of swap
+== scrust_metal at 500,000 cells
+   ok, 250.4 s
+== scanpy_tuned at 1,000,000 cells
+   killed: added more than 10 GB of swap
+== scrust_metal at 1,000,000 cells
+   ok, 201.1 s
+SCALING_DONE
