@@ -32,14 +32,14 @@ import numpy as np
 import pytest
 from scipy import sparse
 
-from silicell_call import DEVICE, silicell_call
+from metalcyte_call import DEVICE, metalcyte_call
 
 umap_learn = pytest.importorskip("umap", reason="the audit is against umap-learn")
 from umap.layouts import clip as umap_clip  # noqa: E402
 from umap.umap_ import find_ab_params, make_epochs_per_sample  # noqa: E402
 from umap.utils import tau_rand_int  # noqa: E402
 
-# scanpy's defaults, which are what `silicell.tl.umap` has to reproduce.
+# scanpy's defaults, which are what `metalcyte.tl.umap` has to reproduce.
 MIN_DIST = 0.5
 SPREAD = 1.0
 LEARNING_RATE = 1.0
@@ -57,8 +57,8 @@ _U32 = (1 << 32) - 1
 
 
 # --------------------------------------------------------------------------------
-# Transcriptions of the silicell side. Every one of these mirrors a named function in
-# `crates/silicell-core/src/umap.rs`; if the Rust changes, the comparison tests fail.
+# Transcriptions of the metalcyte side. Every one of these mirrors a named function in
+# `crates/metalcyte-core/src/umap.rs`; if the Rust changes, the comparison tests fail.
 # --------------------------------------------------------------------------------
 
 
@@ -89,7 +89,7 @@ class TauRng:
         return np.float32(np.float32(self.next_u32()) / np.float32(_U32))
 
 
-def silicell_initial_layout(n_cells: int, n_components: int, seed: int) -> np.ndarray:
+def metalcyte_initial_layout(n_cells: int, n_components: int, seed: int) -> np.ndarray:
     """`umap.rs::random_layout` followed by `rescale_to_init_range`.
 
     umap-learn's own `init="random"` (`umap_.py:1095`) draws uniformly in [-10, 10]
@@ -111,7 +111,7 @@ def silicell_initial_layout(n_cells: int, n_components: int, seed: int) -> np.nd
     return (np.float32(10.0) * (embedding - low) / span).astype(np.float32)
 
 
-def silicell_edge_list(graph: sparse.csr_matrix, n_epochs: int):
+def metalcyte_edge_list(graph: sparse.csr_matrix, n_epochs: int):
     """`umap.rs::EdgeList::from_graph`, in CSR row-major order.
 
     The order matters: the reference epoch is sequential, so visiting the edges in a
@@ -132,7 +132,7 @@ def silicell_edge_list(graph: sparse.csr_matrix, n_epochs: int):
     return np.array(head, np.int64), np.array(tail, np.int64), np.array(eps, np.float64)
 
 
-def silicell_umap(graph: sparse.csr_matrix, **kwargs):
+def metalcyte_umap(graph: sparse.csr_matrix, **kwargs):
     """The compiled core, reached past the Python wrapper so every knob is settable."""
 
     graph = graph.tocsr()
@@ -148,8 +148,8 @@ def silicell_umap(graph: sparse.csr_matrix, **kwargs):
     )
     params.update(kwargs)
     return np.asarray(
-        silicell_call(
-            "_silicell.umap",
+        metalcyte_call(
+            "_metalcyte.umap",
             graph.indptr.astype(np.uint32),
             graph.indices.astype(np.uint32),
             graph.data.astype(np.float32),
@@ -313,7 +313,7 @@ def _stateless_firing_epochs(eps: float, n_epochs: int, dtype=np.float64) -> lis
 
 
 def test_transcribed_epochs_per_sample_match_umap_learn():
-    """`silicell_edge_list` must produce umap-learn's schedule, or the reference epoch
+    """`metalcyte_edge_list` must produce umap-learn's schedule, or the reference epoch
     below is measuring the wrong thing."""
     graph = _blob_graph()
     n_epochs = 200
@@ -324,7 +324,7 @@ def test_transcribed_epochs_per_sample_match_umap_learn():
     coo.eliminate_zeros()
     theirs = make_epochs_per_sample(coo.data, n_epochs)
 
-    head, tail, eps = silicell_edge_list(graph, n_epochs)
+    head, tail, eps = metalcyte_edge_list(graph, n_epochs)
     ours_edges = list(zip(head.tolist(), tail.tolist(), strict=True))
     their_edges = list(zip(coo.row.tolist(), coo.col.tolist(), strict=True))
     assert ours_edges == their_edges
@@ -374,7 +374,7 @@ def test_tau88_port_matches_umap_learns_tau_rand_int(state):
     """`umap.rs::TauRng::next_u32` against `umap.utils.tau_rand_int` word for word.
 
     umap-learn declares the state `int64` and returns `int32`, so the two agree
-    exactly only while the state stays inside [0, 2^32) -- which is where silicell's
+    exactly only while the state stays inside [0, 2^32) -- which is where metalcyte's
     splitmix64 seeding puts it, and is the claim being checked.
     """
     theirs_state = np.array(state, dtype=np.int64)
@@ -424,13 +424,13 @@ def test_initial_layout_transcription_matches_the_core():
     graph = _blob_graph()
     n_epochs = 200
     # A schedule no edge meets: the weakest surviving edge fires first at ceil(eps).
-    _, _, eps = silicell_edge_list(graph, n_epochs)
+    _, _, eps = metalcyte_edge_list(graph, n_epochs)
     assert eps.min() >= 1.0
-    ours = silicell_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, seed=11)
+    ours = metalcyte_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, seed=11)
     mine = _reference_layout(
-        silicell_initial_layout(graph.shape[0], 2, 11),
-        *silicell_edge_list(graph, n_epochs)[:2],
-        silicell_edge_list(graph, n_epochs)[2],
+        metalcyte_initial_layout(graph.shape[0], 2, 11),
+        *metalcyte_edge_list(graph, n_epochs)[:2],
+        metalcyte_edge_list(graph, n_epochs)[2],
         n_epochs,
         *find_ab_params(SPREAD, MIN_DIST),
         n_vertices=graph.shape[0],
@@ -457,11 +457,11 @@ def test_matches_a_transcription_of_layouts_py(n_epochs, seed):
     """
     graph = _blob_graph()
     a, b = find_ab_params(SPREAD, MIN_DIST)
-    head, tail, eps = silicell_edge_list(graph, n_epochs)
+    head, tail, eps = metalcyte_edge_list(graph, n_epochs)
 
-    ours = silicell_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, seed=seed)
+    ours = metalcyte_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, seed=seed)
     theirs = _reference_layout(
-        silicell_initial_layout(graph.shape[0], 2, seed),
+        metalcyte_initial_layout(graph.shape[0], 2, seed),
         head,
         tail,
         eps,
@@ -495,12 +495,12 @@ def test_matches_the_transcription_with_negative_sampling(n_epochs):
     """
     graph = _blob_graph()
     a, b = find_ab_params(SPREAD, MIN_DIST)
-    head, tail, eps = silicell_edge_list(graph, n_epochs)
+    head, tail, eps = metalcyte_edge_list(graph, n_epochs)
     seed = 5
 
-    ours = silicell_umap(graph, n_epochs=n_epochs, seed=seed)
+    ours = metalcyte_umap(graph, n_epochs=n_epochs, seed=seed)
     theirs = _reference_layout(
-        silicell_initial_layout(graph.shape[0], 2, seed),
+        metalcyte_initial_layout(graph.shape[0], 2, seed),
         head,
         tail,
         eps,
@@ -538,8 +538,8 @@ def test_the_negative_sampling_horizon_is_set_by_amplification():
     graph = _blob_graph()
     n_vertices = graph.shape[0]
     a, b = find_ab_params(SPREAD, MIN_DIST)
-    head, tail, eps = silicell_edge_list(graph, n_epochs)
-    start = silicell_initial_layout(n_vertices, 2, seed)
+    head, tail, eps = metalcyte_edge_list(graph, n_epochs)
+    start = metalcyte_initial_layout(n_vertices, 2, seed)
 
     def run(layout):
         return _reference_layout(
@@ -592,7 +592,7 @@ def test_the_clip_is_applied_before_the_learning_rate():
     dense[0, 1] = dense[1, 0] = 1.0
     graph = sparse.csr_matrix(dense)
 
-    start = silicell_initial_layout(3, 1, seed)
+    start = metalcyte_initial_layout(3, 1, seed)
     a, b = find_ab_params(spread, min_dist)
     separation = float(start[0, 0] - start[1, 0])
     d2 = separation * separation
@@ -606,7 +606,7 @@ def test_the_clip_is_applied_before_the_learning_rate():
         "the two orderings have to be distinguishable here"
     )
 
-    ours = silicell_umap(
+    ours = metalcyte_umap(
         graph,
         n_epochs=n_epochs,
         negative_sample_rate=0,
@@ -616,7 +616,7 @@ def test_the_clip_is_applied_before_the_learning_rate():
         spread=spread,
         seed=seed,
     )
-    head, tail, eps = silicell_edge_list(graph, n_epochs)
+    head, tail, eps = metalcyte_edge_list(graph, n_epochs)
     theirs = _reference_layout(
         start,
         head,
@@ -640,9 +640,9 @@ def test_the_learning_rate_decays_after_an_epoch_not_before():
     graph = sparse.csr_matrix(np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.float32))
     a, b = find_ab_params(SPREAD, MIN_DIST)
     n_epochs = 4
-    ours = silicell_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, n_components=1, seed=4)
+    ours = metalcyte_umap(graph, n_epochs=n_epochs, negative_sample_rate=0, n_components=1, seed=4)
 
-    start = silicell_initial_layout(2, 1, 4)
+    start = metalcyte_initial_layout(2, 1, 4)
     at_full_rate = _reference_layout(
         start,
         np.array([0, 1]),
@@ -710,7 +710,7 @@ def test_global_arrangement_needs_spectral_init():
     graph, _, _ = fuzzy_simplicial_set(x, 15, check_random_state(0), "euclidean")
     scores = [
         _adjacency_of_consecutive_groups(
-            silicell_umap(graph.tocsr(), n_epochs=500, seed=seed), labels
+            metalcyte_umap(graph.tocsr(), n_epochs=500, seed=seed), labels
         )
         for seed in (0, 1, 2)
     ]
@@ -776,7 +776,7 @@ def test_random_init_reaches_the_same_objective():
         return np.asarray(embedding)
 
     spectral = [umap_learn("spectral", s) for s in (0, 1, 2)]
-    ours = [silicell_umap(graph.tocsr(), n_epochs=500, seed=s) for s in (0, 1, 2)]
+    ours = [metalcyte_umap(graph.tocsr(), n_epochs=500, seed=s) for s in (0, 1, 2)]
 
     reference = np.mean([cross_entropy(e) for e in spectral])
     spread = np.std([cross_entropy(e) for e in spectral])

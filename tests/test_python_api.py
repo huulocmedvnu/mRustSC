@@ -17,18 +17,18 @@ import pytest
 import scipy.sparse as sp
 from anndata import AnnData
 
-# `silicell/__init__.py` imports the extension eagerly, so this file needs one to be
+# `metalcyte/__init__.py` imports the extension eagerly, so this file needs one to be
 # collectible without a compiled core. Only stand in when there is genuinely none:
 # leaving a placeholder in `sys.modules` next to a working extension makes every
 # later test module skip itself as "not bound yet" while reporting green.
 try:
-    import silicell._silicell  # noqa: F401
+    import metalcyte._metalcyte  # noqa: F401
 except ImportError:
-    _PLACEHOLDER = types.ModuleType("silicell._silicell")
+    _PLACEHOLDER = types.ModuleType("metalcyte._metalcyte")
     _PLACEHOLDER.gpu_available = lambda: False
-    sys.modules["silicell._silicell"] = _PLACEHOLDER
+    sys.modules["metalcyte._metalcyte"] = _PLACEHOLDER
 
-from silicell import _shared, pp, tl
+from metalcyte import _shared, pp, tl
 
 N_OBS = 6
 N_VARS = 4
@@ -36,7 +36,7 @@ GROUPS = ["a", "b", "a", "c", "b", "a"]
 
 
 class FakeCore:
-    """Stands in for `silicell._silicell`, recording every call it receives."""
+    """Stands in for `metalcyte._metalcyte`, recording every call it receives."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple]] = []
@@ -233,21 +233,21 @@ class FakeCore:
 def core(monkeypatch: pytest.MonkeyPatch) -> FakeCore:
     """Stand a recording double in for the compiled core.
 
-    `from silicell import _silicell` resolves the attribute on the package, which is
+    `from metalcyte import _metalcyte` resolves the attribute on the package, which is
     bound once at import; patching `sys.modules` alone would leave a real
     extension in place and silently test it instead of the double.
     """
-    import silicell
+    import metalcyte
 
     fake = FakeCore()
-    monkeypatch.setitem(sys.modules, "silicell._silicell", fake)
-    monkeypatch.setattr(silicell, "_silicell", fake, raising=False)
+    monkeypatch.setitem(sys.modules, "metalcyte._metalcyte", fake)
+    monkeypatch.setattr(metalcyte, "_metalcyte", fake, raising=False)
     return fake
 
 
 # The device every call passes when its caller names none: `settings.device`, which
-# `SILICELL_DEVICE` may pin (the CI runners set it to `cpu`).
-from silicell.settings import settings as _settings  # noqa: E402
+# `METALCYTE_DEVICE` may pin (the CI runners set it to `cpu`).
+from metalcyte.settings import settings as _settings  # noqa: E402
 
 _DEVICE = _settings.device
 
@@ -575,8 +575,8 @@ def test_rank_genes_groups_encodes_labels_and_rest_reference(core: FakeCore) -> 
     assert labels.dtype == np.uint32
     assert list(labels) == [0, 1, 0, 2, 1, 0]
     # "rest" is the core's None; the unsigned boundary has no room for a sentinel.
-    # The device is whatever `settings.device` resolves to (`SILICELL_DEVICE` may pin it).
-    from silicell.settings import settings
+    # The device is whatever `settings.device` resolves to (`METALCYTE_DEVICE` may pin it).
+    from metalcyte.settings import settings
 
     assert (n_groups, reference, tie_correct, device) == (3, None, False, settings.device)
 

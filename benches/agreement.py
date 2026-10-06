@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Do silicell and scanpy reach the same biology on a real atlas?
+"""Do metalcyte and scanpy reach the same biology on a real atlas?
 
     PYTHONPATH=$PWD/python .venv/bin/python benches/agreement.py data/bone_marrow_117k_counts.h5ad \
         --json benches/results/agreement_bm117k.json
@@ -9,7 +9,7 @@ intermediate is compared, not only the end:
 
 - highly variable genes: Jaccard overlap of the two 2 000-gene sets;
 - PCA: canonical correlations between the two 50-dimensional embeddings on the shared
-  gene set (silicell's set), i.e. do the subspaces agree, component by component;
+  gene set (metalcyte's set), i.e. do the subspaces agree, component by component;
 - neighbour graph: mean fraction of each cell's 15 neighbours shared, on each library's
   own PCA and on a common PCA (so the graph step is judged on its own);
 - Leiden: adjusted Rand index and normalised mutual information between the two
@@ -108,20 +108,20 @@ def main() -> int:
     import scanpy as sc
     from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
-    import silicell as si
+    import metalcyte as mc
 
     sc.settings.verbosity = 0
     counts = load_counts(args.h5ad, args.cells, seed=0)
     print("scanpy ...", flush=True)
     a_sc, b_sc, hv_sc, key = run_library(sc, counts, "scanpy")
-    print("silicell ...", flush=True)
-    _a_sr, b_sr, hv_sr, _ = run_library(si, counts, "silicell")
+    print("metalcyte ...", flush=True)
+    _a_sr, b_sr, hv_sr, _ = run_library(mc, counts, "metalcyte")
     assert (b_sc.obs_names == b_sr.obs_names).all()
 
     report = {"file": str(args.h5ad), "n_cells": int(b_sc.n_obs)}
     report["hvg_jaccard"] = len(hv_sc & hv_sr) / len(hv_sc | hv_sr)
 
-    # PCA on silicell's gene set for both, so the subspaces are comparable.
+    # PCA on metalcyte's gene set for both, so the subspaces are comparable.
     shared = a_sc[:, sorted(hv_sr)].copy()
     sc.pp.scale(shared, max_value=10)
     sc.pp.pca(shared, n_comps=50, svd_solver="covariance_eigh")
@@ -133,15 +133,15 @@ def main() -> int:
         canonical(b_sr.obsm["X_pca"], shared.obsm["X_pca"], 30).min()
     )
     report["pca_canonical_min_top50"] = float(cc.min())
-    report["pca_variance_ratio_silicell"] = [float(v) for v in b_sr.uns["pca"]["variance_ratio"][:10]]
+    report["pca_variance_ratio_metalcyte"] = [float(v) for v in b_sr.uns["pca"]["variance_ratio"][:10]]
     report["pca_variance_ratio_scanpy_eigh"] = [
         float(v) for v in shared.uns["pca"]["variance_ratio"][:10]
     ]
 
     report["knn_overlap_own_pca"] = knn_overlap(b_sc.obsp["distances"], b_sr.obsp["distances"])
-    # The graph step alone: silicell neighbours on scanpy's PCA versus scanpy's own.
+    # The graph step alone: metalcyte neighbours on scanpy's PCA versus scanpy's own.
     common = b_sc.copy()
-    si.pp.neighbors(common, n_neighbors=15, use_rep="X_pca")
+    mc.pp.neighbors(common, n_neighbors=15, use_rep="X_pca")
     report["knn_overlap_common_pca"] = knn_overlap(b_sc.obsp["distances"], common.obsp["distances"])
 
     l_sc = b_sc.obs["leiden"].astype(str).to_numpy()
@@ -149,13 +149,13 @@ def main() -> int:
     truth = b_sc.obs[key].astype(str).to_numpy()
     report["leiden"] = {
         "n_clusters_scanpy": len(set(l_sc)),
-        "n_clusters_silicell": len(set(l_sr)),
-        "ari_scanpy_vs_silicell": float(adjusted_rand_score(l_sc, l_sr)),
-        "nmi_scanpy_vs_silicell": float(normalized_mutual_info_score(l_sc, l_sr)),
+        "n_clusters_metalcyte": len(set(l_sr)),
+        "ari_scanpy_vs_metalcyte": float(adjusted_rand_score(l_sc, l_sr)),
+        "nmi_scanpy_vs_metalcyte": float(normalized_mutual_info_score(l_sc, l_sr)),
         "ari_scanpy_vs_celltype": float(adjusted_rand_score(truth, l_sc)),
-        "ari_silicell_vs_celltype": float(adjusted_rand_score(truth, l_sr)),
+        "ari_metalcyte_vs_celltype": float(adjusted_rand_score(truth, l_sr)),
         "nmi_scanpy_vs_celltype": float(normalized_mutual_info_score(truth, l_sc)),
-        "nmi_silicell_vs_celltype": float(normalized_mutual_info_score(truth, l_sr)),
+        "nmi_metalcyte_vs_celltype": float(normalized_mutual_info_score(truth, l_sr)),
     }
     markers = marker_agreement(b_sc, b_sr, key)
     report["markers"] = markers
@@ -167,7 +167,7 @@ def main() -> int:
     summary = {
         k: v
         for k, v in report.items()
-        if k not in ("markers", "pca_variance_ratio_silicell", "pca_variance_ratio_scanpy_eigh")
+        if k not in ("markers", "pca_variance_ratio_metalcyte", "pca_variance_ratio_scanpy_eigh")
     }
     print(json.dumps(summary, indent=2))
     if args.json:

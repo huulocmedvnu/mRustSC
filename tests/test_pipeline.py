@@ -1,4 +1,4 @@
-"""The whole scanpy tutorial pipeline, run through silicell and through scanpy.
+"""The whole scanpy tutorial pipeline, run through metalcyte and through scanpy.
 
 Single-step tests hand every step the same reference input, so none of them can see
 error accumulating from one step to the next. This one chains the steps inside each
@@ -24,7 +24,7 @@ from reference_metrics import (
     preservation_band,
     set_overlap,
 )
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 # The pipeline's own settings, shared by the run under test and the ceiling run.
 _N_COMPS = 50
@@ -46,14 +46,14 @@ def _scanpy_call(path: str, adata: AnnData, *args: object, **kwargs: object) -> 
     getattr(getattr(sc, module), name)(adata, *args, **kwargs)
 
 
-def _silicell_call(path: str, adata: AnnData, *args: object, **kwargs: object) -> None:
-    silicell_call(path, adata, *args, **kwargs)
+def _metalcyte_call(path: str, adata: AnnData, *args: object, **kwargs: object) -> None:
+    metalcyte_call(path, adata, *args, **kwargs)
 
 
 def _run_pipeline(adata: AnnData, call: Call) -> dict[str, AnnData]:
     """The tutorial pipeline, snapshotted after every stage.
 
-    One body for both libraries: the API contract says the silicell signatures mirror
+    One body for both libraries: the API contract says the metalcyte signatures mirror
     scanpy's, so any divergence in the calls themselves is a contract violation.
     """
     call("pp.filter_cells", adata, min_genes=200)
@@ -92,8 +92,8 @@ def _common_genes(ours: AnnData, theirs: AnnData) -> tuple[AnnData, AnnData]:
 
 
 def test_full_pipeline(pbmc3k: AnnData, record_property: Callable[[str, object], None]) -> None:
-    # silicell first: an unimplemented step skips before the slow reference run.
-    ours = _run_pipeline(pbmc3k.copy(), _silicell_call)
+    # metalcyte first: an unimplemented step skips before the slow reference run.
+    ours = _run_pipeline(pbmc3k.copy(), _metalcyte_call)
     theirs = _run_pipeline(pbmc3k.copy(), _scanpy_call)
 
     assert_array_equal(ours["lognorm"].obs_names, theirs["lognorm"].obs_names)

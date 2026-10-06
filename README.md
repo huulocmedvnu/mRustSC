@@ -1,6 +1,6 @@
-# Silicell
+# Metalcyte
 
-**Silicell** is a single-cell analysis engine for Apple silicon: the scanpy API on a Rust core that
+**Metalcyte** is a single-cell analysis engine for Apple silicon: the scanpy API on a Rust core that
 uses the whole package the chip offers, every performance and efficiency core, the AMX matrix units
 through Accelerate, the GPU through hand-written Metal kernels, and one unified memory, so an
 atlas-scale dataset runs on the laptop on the desk. A 117 308-cell atlas goes from counts to marker
@@ -9,29 +9,29 @@ out-of-core head that never holds the matrix. Python is the interface only: it h
 plumbing and defaults, and every result lands in the slot scanpy uses, so existing scripts change
 their import and keep their plotting.
 
-Silicell was previously published as `scrust` (`mRustSC`); `import scrust` still works and warns.
+Metalcyte was previously published as `scrust` (`mRustSC`); `import scrust` still works and warns.
 All benchmark numbers are measured, not claimed.
 
 ```python
 import scanpy as sc
-import silicell as si
+import metalcyte as mc
 
 adata = sc.datasets.pbmc3k()
 adata.var_names_make_unique()
 
-si.pp.filter_cells(adata, min_genes=200)
-si.pp.filter_genes(adata, min_cells=3)
-si.pp.normalize_total(adata, target_sum=1e4)
-si.pp.log1p(adata)
-si.pp.highly_variable_genes(adata, n_top_genes=2000)
+mc.pp.filter_cells(adata, min_genes=200)
+mc.pp.filter_genes(adata, min_cells=3)
+mc.pp.normalize_total(adata, target_sum=1e4)
+mc.pp.log1p(adata)
+mc.pp.highly_variable_genes(adata, n_top_genes=2000)
 adata = adata[:, adata.var["highly_variable"].to_numpy()].copy()
 
-si.pp.scale(adata, max_value=10)
-si.pp.pca(adata, n_comps=50)
-si.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")
-si.tl.umap(adata)
-si.tl.leiden(adata)
-si.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
+mc.pp.scale(adata, max_value=10)
+mc.pp.pca(adata, n_comps=50)
+mc.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")
+mc.tl.umap(adata)
+mc.tl.leiden(adata)
+mc.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
 
 sc.pl.umap(adata, color="leiden")  # Scanpy plotting still works
 ```
@@ -41,9 +41,9 @@ sc.pl.umap(adata, color="leiden")  # Scanpy plotting still works
 (no p-values or fold changes).
 
 `examples/pbmc3k.py` demonstrates this pipeline end-to-end, printing each Scanpy call
-alongside its silicell replacement. Every mirrored step has a silicell equivalent —
+alongside its metalcyte replacement. Every mirrored step has a metalcyte equivalent —
 including `calculate_qc_metrics` and `leiden`. Note that timings in that script serve as
-a tutorial transcript and Scanpy baseline, not a silicell benchmark. For true performance
+a tutorial transcript and Scanpy baseline, not a metalcyte benchmark. For true performance
 measurements, see `benches/benchmark.py`.
 
 ## Why Rust and Metal
@@ -60,7 +60,7 @@ or Metal GPU. The CPU path uses the same algorithm and serves as the correctness
 ### Note on Floating-Point Parity
 
 Same code does not mean identical bitwise outputs. `settings.device` defaults to
-`"auto"`, resolving to Metal wherever available (`crates/silicell-core/src/device.rs`).
+`"auto"`, resolving to Metal wherever available (`crates/metalcyte-core/src/device.rs`).
 Because `f32` addition is non-associative, GPU parallel reductions land a few ULPs away
 from sequential CPU execution.
 
@@ -80,22 +80,22 @@ the full write-up, including what was tried and did not work, is [docs/SCALE.md]
 log1p → 2 000 variable genes → scale → PCA → 15-NN graph → UMAP → Leiden → Wilcoxon markers
 (`benches/pipeline.py`):
 
-| | scanpy (defaults) | scanpy (tuned) | silicell, CPU only | silicell, Metal |
+| | scanpy (defaults) | scanpy (tuned) | metalcyte, CPU only | metalcyte, Metal |
 |---|---:|---:|---:|---:|
 | whole pipeline | 233 s | 86 s | 29 s | **20 s** |
 | energy (powermetrics, idle subtracted) | 974 J | | | **195 J** |
 | PCA / neighbours / UMAP / Leiden | 13.6 / 17.9 / 46.8 / 135 s | 3.7 / 18.2 / 46.1 / 2.5 s | 3.1 / 4.9 / 4.9 / 0.7 s | 1.1 / 2.0 / 4.8 / 0.6 s |
 
 "Tuned" is scanpy with `covariance_eigh` PCA, `igraph` Leiden and an unseeded UMAP, the fastest
-settings it offers; silicell uses `tl.umap(parallel=True)`. The two libraries find the same biology
+settings it offers; metalcyte uses `tl.umap(parallel=True)`. The two libraries find the same biology
 (same variable genes, the same PCA subspace, Leiden clusterings that agree; `benches/agreement.py`).
 
 **A million cells on 18 GB.** 1 001 288 human embryo cells (CELLxGENE), through
-`si.pp.preprocess_backed` (QC, filters, normalise, log1p, HVG, scale and PCA over row blocks of the
+`mc.pp.preprocess_backed` (QC, filters, normalise, log1p, HVG, scale and PCA over row blocks of the
 on-disk counts, never holding the matrix) and then the graph steps in memory
 (`benches/pipeline_1m.py`):
 
-| | scanpy | silicell, CPU only | silicell, Metal |
+| | scanpy | metalcyte, CPU only | metalcyte, Metal |
 |---|---:|---:|---:|
 | QC → Leiden, 953 436 cells kept | did not finish (`scale` needed 21.9 GB, PCA swapped) | 409 s | **210 s** |
 | peak memory added per step | | < 1.5 GB | < 1.5 GB |
@@ -152,7 +152,7 @@ build instructions, see [docs/INSTALL.md](docs/INSTALL.md).
 **Verification:**
 
 ```bash
-python -c "import silicell; print(silicell.__version__, silicell.gpu_available())"
+python -c "import metalcyte; print(metalcyte.__version__, metalcyte.gpu_available())"
 ```
 
 ## Status & Capabilities (v0.2.0)
@@ -172,11 +172,11 @@ branch detection (Haghverdi 2016 port, verified ARI = 1.0000 against Scanpy).
 ### Harmony Integration Usage
 
 ```python
-import silicell as si
+import metalcyte as mc
 
-si.pp.pca(adata, n_comps=50)
-si.pp.harmony_integrate(adata, key="batch")      # Writes to obsm["X_pca_harmony"]
-si.pp.neighbors(adata, use_rep="X_pca_harmony")  # Downstream graph on integrated space
+mc.pp.pca(adata, n_comps=50)
+mc.pp.harmony_integrate(adata, key="batch")      # Writes to obsm["X_pca_harmony"]
+mc.pp.neighbors(adata, use_rep="X_pca_harmony")  # Downstream graph on integrated space
 ```
 
 ## API Coverage
@@ -195,10 +195,10 @@ pseudotime values), see [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ```text
 crates/
-  silicell-core/    Core data types and algorithms written against candle
-  silicell-gpu/     Metal context & custom kernels (knn bound to Python)
-  silicell-py/      PyO3 bindings for zero-copy FFI data transfer
-python/silicell/    Scanpy-shaped API wrappers and AnnData integration
+  metalcyte-core/    Core data types and algorithms written against candle
+  metalcyte-gpu/     Metal context & custom kernels (knn bound to Python)
+  metalcyte-py/      PyO3 bindings for zero-copy FFI data transfer
+python/metalcyte/    Scanpy-shaped API wrappers and AnnData integration
 benches/          Performance benchmarks (benchmark.py, streaming.py)
 examples/         Full PBMC 3k walkthrough pipeline
 tests/            Comprehensive integration and audit test suite
@@ -213,4 +213,4 @@ PYTHONPATH=$PWD/python .venv/bin/pytest
 ```
 
 `tests/` contains 843 Python tests across 40 files. Audits run against the device
-specified by `SILICELL_TEST_DEVICE` (default `"cpu"`, set to `"auto"` for GPU testing).
+specified by `METALCYTE_TEST_DEVICE` (default `"cpu"`, set to `"auto"` for GPU testing).

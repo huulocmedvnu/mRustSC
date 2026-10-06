@@ -26,7 +26,7 @@ from scipy import sparse
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 from conftest import CEILING_FRACTION
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 # Seeds per implementation for the agreement measurement. Six gives fifteen
 # reference-against-itself pairs, enough for a median that does not swing on one
@@ -37,12 +37,12 @@ N_SEEDS = 6
 def core():
     """The compiled extension, or a skip while the bindings are unregistered."""
     try:
-        from silicell import _silicell
+        from metalcyte import _metalcyte
     except ImportError as exc:  # pragma: no cover - only without a built wheel
-        pytest.skip(f"silicell is not installed: {exc}")
-    if not hasattr(_silicell, "leiden"):
-        pytest.skip("the clustering bindings are not registered in silicell-py/src/lib.rs yet")
-    return _silicell
+        pytest.skip(f"metalcyte is not installed: {exc}")
+    if not hasattr(_metalcyte, "leiden"):
+        pytest.skip("the clustering bindings are not registered in metalcyte-py/src/lib.rs yet")
+    return _metalcyte
 
 
 def csr_args(matrix: sparse.spmatrix) -> tuple:
@@ -84,7 +84,7 @@ def labels_of(adata: AnnData, key: str) -> np.ndarray:
 
 
 def cluster(adata: AnnData, algorithm: str, **kwargs) -> np.ndarray:
-    silicell_call(f"tl.{algorithm}", adata, **kwargs)
+    metalcyte_call(f"tl.{algorithm}", adata, **kwargs)
     return labels_of(adata, kwargs.get("key_added", algorithm))
 
 
@@ -113,7 +113,7 @@ def test_disconnected_cliques_are_recovered_exactly(algorithm: str) -> None:
 def test_labels_are_a_categorical_of_strings(algorithm: str) -> None:
     """scanpy's plotting reads a categorical of `'0'`, `'1'`, ... and its params."""
     adata = graph_adata(cliques(3, 8))
-    silicell_call(f"tl.{algorithm}", adata, 0.8, random_state=7)
+    metalcyte_call(f"tl.{algorithm}", adata, 0.8, random_state=7)
 
     column = adata.obs[algorithm]
     assert str(column.dtype) == "category"
@@ -129,7 +129,7 @@ def test_labels_are_a_categorical_of_strings(algorithm: str) -> None:
 
 def test_key_added_is_honoured() -> None:
     adata = graph_adata(cliques(3, 8))
-    silicell_call("tl.leiden", adata, key_added="clusters")
+    metalcyte_call("tl.leiden", adata, key_added="clusters")
     assert "clusters" in adata.obs
     assert "clusters" in adata.uns
     assert "leiden" not in adata.obs
@@ -293,7 +293,7 @@ def test_rejects_degenerate_input() -> None:
 def test_missing_graph_is_reported() -> None:
     adata = AnnData(np.zeros((4, 1), dtype=np.float32))
     with pytest.raises(KeyError, match="connectivities"):
-        silicell_call("tl.leiden", adata)
+        metalcyte_call("tl.leiden", adata)
 
 
 # --------------------------------------------------------------------------

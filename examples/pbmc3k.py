@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""scanpy's PBMC 3k tutorial, run through silicell as far as silicell goes today.
+"""scanpy's PBMC 3k tutorial, run through metalcyte as far as metalcyte goes today.
 
     PYTHONPATH=$PWD/python .venv/bin/python examples/pbmc3k.py
 
-Every step prints the scanpy call it replaces next to the silicell call that ran, so
+Every step prints the scanpy call it replaces next to the metalcyte call that ran, so
 the two APIs can be read against each other. Nothing is silently substituted: a step
 that still goes through scanpy says so on its own line.
 
 The timings below still call scanpy for every step, so what the script measures is
-scanpy, not silicell — it is a tutorial transcript and a timing baseline, not a
+scanpy, not metalcyte — it is a tutorial transcript and a timing baseline, not a
 benchmark of this crate. `docs/BENCHMARKS.md` has the side-by-side numbers.
 
 The whole script takes about a minute, most of it in the one step that is not from
@@ -27,7 +27,7 @@ from typing import Any
 
 import scanpy as sc
 
-import silicell as si
+import metalcyte as mc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_CACHE = REPO_ROOT / ".cache" / "scanpy"
@@ -40,10 +40,10 @@ MAX_VALUE = 10.0
 RESOLUTION = 1.0
 
 
-def step(scanpy_call: str, silicell_call: str) -> None:
+def step(scanpy_call: str, metalcyte_call: str) -> None:
     """Print one step of the tutorial as the pair of calls it is."""
     print(f"\n  scanpy: {scanpy_call}")
-    print(f"  silicell: {silicell_call}")
+    print(f"  metalcyte: {metalcyte_call}")
 
 
 def timed(label: str, function: Any, *args: Any, **kwargs: Any) -> Any:
@@ -55,7 +55,7 @@ def timed(label: str, function: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 def main() -> int:
-    print(f"silicell {si.__version__}, GPU available: {si.gpu_available()}")
+    print(f"metalcyte {mc.__version__}, GPU available: {mc.gpu_available()}")
     print(f"scanpy {sc.__version__}")
 
     # ---------------------------------------------------------------- load the data
@@ -64,7 +64,7 @@ def main() -> int:
     print("\n=== 1. Read PBMC 3k")
     step(
         'adata = sc.read_10x_mtx("filtered_gene_bc_matrices/hg19/")',
-        "reading is scanpy's job; silicell writes no readers",
+        "reading is scanpy's job; metalcyte writes no readers",
     )
     adata = sc.datasets.pbmc3k()
     adata.var_names_make_unique()
@@ -74,7 +74,7 @@ def main() -> int:
     print("\n=== 2. Quality control")
     step(
         'sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)',
-        'si.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)',
+        'mc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], inplace=True)',
     )
     adata.var["mt"] = adata.var_names.str.startswith("MT-")
     timed(
@@ -90,14 +90,14 @@ def main() -> int:
     print("\n=== 3. Filter cells and genes")
     step(
         "sc.pp.filter_cells(adata, min_genes=200)",
-        "si.pp.filter_cells(adata, min_genes=200)",
+        "mc.pp.filter_cells(adata, min_genes=200)",
     )
-    timed("si.pp.filter_cells", si.pp.filter_cells, adata, min_genes=200)
+    timed("mc.pp.filter_cells", mc.pp.filter_cells, adata, min_genes=200)
     step(
         "sc.pp.filter_genes(adata, min_cells=3)",
-        "si.pp.filter_genes(adata, min_cells=3)",
+        "mc.pp.filter_genes(adata, min_cells=3)",
     )
-    timed("si.pp.filter_genes", si.pp.filter_genes, adata, min_cells=3)
+    timed("mc.pp.filter_genes", mc.pp.filter_genes, adata, min_cells=3)
 
     # The tutorial's mitochondrial cut, done with plain AnnData indexing in both
     # worlds: it is a boolean mask, not a library function.
@@ -108,22 +108,22 @@ def main() -> int:
     print("\n=== 4. Normalise and logarithmise")
     step(
         "sc.pp.normalize_total(adata, target_sum=1e4)",
-        "si.pp.normalize_total(adata, target_sum=1e4)",
+        "mc.pp.normalize_total(adata, target_sum=1e4)",
     )
-    timed("si.pp.normalize_total", si.pp.normalize_total, adata, target_sum=TARGET_SUM)
-    step("sc.pp.log1p(adata)", "si.pp.log1p(adata)")
-    timed("si.pp.log1p", si.pp.log1p, adata)
+    timed("mc.pp.normalize_total", mc.pp.normalize_total, adata, target_sum=TARGET_SUM)
+    step("sc.pp.log1p(adata)", "mc.pp.log1p(adata)")
+    timed("mc.pp.log1p", mc.pp.log1p, adata)
     adata.raw = adata
 
     # --------------------------------------------------------- highly variable genes
     print("\n=== 5. Highly variable genes")
     step(
         "sc.pp.highly_variable_genes(adata, n_top_genes=2000)",
-        "si.pp.highly_variable_genes(adata, n_top_genes=2000)",
+        "mc.pp.highly_variable_genes(adata, n_top_genes=2000)",
     )
     timed(
-        "si.pp.highly_variable_genes",
-        si.pp.highly_variable_genes,
+        "mc.pp.highly_variable_genes",
+        mc.pp.highly_variable_genes,
         adata,
         n_top_genes=N_TOP_GENES,
         flavor="seurat",
@@ -134,7 +134,7 @@ def main() -> int:
     print("\n=== 6. Regress out confounders")
     step(
         'sc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])',
-        'si.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])',
+        'mc.pp.regress_out(adata, ["total_counts", "pct_counts_mt"])',
     )
     print("          skipped: the tutorial's own text calls this step optional, and")
     print("          running it with scanpy here would dominate the timings below")
@@ -143,38 +143,38 @@ def main() -> int:
     print("\n=== 7. Scale and PCA")
     step(
         "sc.pp.scale(adata, max_value=10)",
-        "si.pp.scale(adata, max_value=10)",
+        "mc.pp.scale(adata, max_value=10)",
     )
-    timed("si.pp.scale", si.pp.scale, adata, zero_center=True, max_value=MAX_VALUE)
+    timed("mc.pp.scale", mc.pp.scale, adata, zero_center=True, max_value=MAX_VALUE)
     step(
         "sc.pp.pca(adata, n_comps=50, svd_solver='arpack')",
-        "si.pp.pca(adata, n_comps=50)",
+        "mc.pp.pca(adata, n_comps=50)",
     )
-    timed("si.pp.pca", si.pp.pca, adata, n_comps=N_COMPS, random_state=0)
+    timed("mc.pp.pca", mc.pp.pca, adata, n_comps=N_COMPS, random_state=0)
     print(f"          obsm['X_pca'] {adata.obsm['X_pca'].shape}")
 
     # ---------------------------------------------------------- neighbours and UMAP
     print("\n=== 8. Neighbourhood graph and UMAP")
     step(
         "sc.pp.neighbors(adata, n_neighbors=15, n_pcs=50)",
-        'si.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")',
+        'mc.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca")',
     )
-    timed("si.pp.neighbors", si.pp.neighbors, adata, n_neighbors=N_NEIGHBORS, use_rep="X_pca")
-    step("sc.tl.umap(adata)", "si.tl.umap(adata)")
-    timed("si.tl.umap", si.tl.umap, adata, random_state=0)
+    timed("mc.pp.neighbors", mc.pp.neighbors, adata, n_neighbors=N_NEIGHBORS, use_rep="X_pca")
+    step("sc.tl.umap(adata)", "mc.tl.umap(adata)")
+    timed("mc.tl.umap", mc.tl.umap, adata, random_state=0)
     print(f"          obsm['X_umap'] {adata.obsm['X_umap'].shape}")
 
-    step("sc.tl.tsne(adata)", "si.tl.tsne(adata)  # not in the tutorial; silicell has it")
-    print("          NOTE: silicell's t-SNE is exact O(n^2). It is ~4x slower than")
+    step("sc.tl.tsne(adata)", "mc.tl.tsne(adata)  # not in the tutorial; metalcyte has it")
+    print("          NOTE: metalcyte's t-SNE is exact O(n^2). It is ~4x slower than")
     print("          scanpy's Barnes-Hut at this size and 17x slower at 10 000 cells,")
     print("          and refuses above 20 000. Use sc.tl.tsne at scale.")
-    timed("si.tl.tsne", si.tl.tsne, adata, n_pcs=N_COMPS, perplexity=30.0, random_state=0)
+    timed("mc.tl.tsne", mc.tl.tsne, adata, n_pcs=N_COMPS, perplexity=30.0, random_state=0)
 
     # -------------------------------------------------------------------- clustering
     print("\n=== 9. Cluster the graph")
     step(
         "sc.tl.leiden(adata, resolution=1.0, key_added='leiden')",
-        "si.tl.leiden(adata, resolution=1.0, key_added='leiden')",
+        "mc.tl.leiden(adata, resolution=1.0, key_added='leiden')",
     )
     timed(
         "sc.tl.leiden",
@@ -192,14 +192,14 @@ def main() -> int:
     print("\n=== 10. Rank marker genes")
     step(
         'sc.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")',
-        'si.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")',
+        'mc.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")',
     )
     # The tutorial ranks on the log-normalised matrix, not the scaled one.
     ranked = adata.raw.to_adata()[:, adata.var_names].copy()
     ranked.obs["leiden"] = adata.obs["leiden"]
     timed(
-        "si.tl.rank_genes_groups",
-        si.tl.rank_genes_groups,
+        "mc.tl.rank_genes_groups",
+        mc.tl.rank_genes_groups,
         ranked,
         "leiden",
         method="wilcoxon",
@@ -208,34 +208,34 @@ def main() -> int:
 
     step(
         'sc.get.rank_genes_groups_df(adata, group="0").head()',
-        'si.get.rank_genes_groups_df(adata, group="0").head()',
+        'mc.get.rank_genes_groups_df(adata, group="0").head()',
     )
-    markers = si.get.rank_genes_groups_df(adata, group="0")
+    markers = mc.get.rank_genes_groups_df(adata, group="0")
     print(markers.head(5).to_string(index=False))
 
     # ------------------------------------------------------------------------- paga
     print("\n=== 11. Abstracted graph")
-    step('sc.tl.paga(adata, groups="leiden")', 'si.tl.paga(adata, groups="leiden")')
-    timed("si.tl.paga", si.tl.paga, adata, "leiden")
+    step('sc.tl.paga(adata, groups="leiden")', 'mc.tl.paga(adata, groups="leiden")')
+    timed("mc.tl.paga", mc.tl.paga, adata, "leiden")
     print(f"          uns['paga']['connectivities'] {adata.uns['paga']['connectivities'].shape}")
 
     # --------------------------------------------------------------------- accessors
     print("\n=== 12. Accessors")
     step(
         'sc.get.obs_df(adata, keys=["CST3", "leiden"]).head()',
-        'si.get.obs_df(adata, keys=["CST3", "leiden"]).head()',
+        'mc.get.obs_df(adata, keys=["CST3", "leiden"]).head()',
     )
     keys = [gene for gene in ("CST3", "NKG7", "PPBP") if gene in adata.var_names][:2]
-    print(si.get.obs_df(adata, keys=[*keys, "leiden"]).head(3).to_string())
+    print(mc.get.obs_df(adata, keys=[*keys, "leiden"]).head(3).to_string())
     step(
         'sc.get.aggregate(adata, by="leiden", func="mean")',
-        'si.get.aggregate(adata, by="leiden", func="mean")',
+        'mc.get.aggregate(adata, by="leiden", func="mean")',
     )
-    means = si.get.aggregate(adata, "leiden", "mean")
+    means = mc.get.aggregate(adata, "leiden", "mean")
     print(f"          aggregated to {means.shape[0]} groups x {means.shape[1]} genes")
 
     print("\n=== Done")
-    print("Steps run by silicell: filter_cells, filter_genes, normalize_total, log1p,")
+    print("Steps run by metalcyte: filter_cells, filter_genes, normalize_total, log1p,")
     print("highly_variable_genes, scale, pca, neighbors, umap, tsne, rank_genes_groups,")
     print("paga, and the get.* accessors.")
     print("Steps that had to fall back to scanpy: calculate_qc_metrics, leiden.")

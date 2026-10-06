@@ -17,7 +17,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
 
-from silicell_call import DEVICE, silicell_call
+from metalcyte_call import DEVICE, metalcyte_call
 
 
 def csr_args(matrix: sparse.csr_matrix):
@@ -30,10 +30,10 @@ def csr_args(matrix: sparse.csr_matrix):
     )
 
 
-def silicell_regress_out(matrix, covariates):
+def metalcyte_regress_out(matrix, covariates):
     return np.asarray(
-        silicell_call(
-            "_silicell.regress_out",
+        metalcyte_call(
+            "_metalcyte.regress_out",
             *csr_args(matrix),
             np.asarray(covariates, dtype=np.float32),
             DEVICE,
@@ -41,10 +41,10 @@ def silicell_regress_out(matrix, covariates):
     )
 
 
-def silicell_combat(matrix, batch, n_batches, covariates=None):
+def metalcyte_combat(matrix, batch, n_batches, covariates=None):
     return np.asarray(
-        silicell_call(
-            "_silicell.combat",
+        metalcyte_call(
+            "_metalcyte.combat",
             *csr_args(matrix),
             np.asarray(batch, dtype=np.uint32),
             n_batches,
@@ -54,10 +54,10 @@ def silicell_combat(matrix, batch, n_batches, covariates=None):
     )
 
 
-def silicell_autocorrelation(name, graph, matrix):
+def metalcyte_autocorrelation(name, graph, matrix):
     return np.asarray(
-        silicell_call(
-            f"_silicell.{name}",
+        metalcyte_call(
+            f"_metalcyte.{name}",
             graph.indptr.astype(np.uint32),
             graph.indices.astype(np.uint32),
             graph.data.astype(np.float32),
@@ -109,7 +109,7 @@ def test_regress_out_matches_scanpy(n_covariates):
         keys.append(f"c{i}")
     sc.pp.regress_out(adata, keys)
 
-    ours = silicell_regress_out(matrix, covariates)
+    ours = metalcyte_regress_out(matrix, covariates)
     np.testing.assert_allclose(ours, np.asarray(adata.X), rtol=1e-3, atol=1e-3)
 
 
@@ -125,7 +125,7 @@ def test_regress_out_leaves_a_residual_orthogonal_to_the_design():
     rng = np.random.default_rng(13)
     covariates = rng.normal(size=(matrix.shape[0], 2)).astype(np.float32)
 
-    residuals = silicell_regress_out(matrix, covariates)
+    residuals = metalcyte_regress_out(matrix, covariates)
     design = np.column_stack([np.ones(matrix.shape[0], dtype=np.float32), covariates])
     projected = design.T @ residuals
     scale = np.abs(residuals).max()
@@ -146,7 +146,7 @@ def test_regress_out_refuses_a_rank_deficient_design_as_scanpy_does():
     constant = np.full((matrix.shape[0], 1), 2.5, dtype=np.float32)
 
     with pytest.raises(ValueError, match="full column rank"):
-        silicell_regress_out(matrix, constant)
+        metalcyte_regress_out(matrix, constant)
 
     adata = AnnData(np.asarray(matrix.todense(), dtype=np.float32))
     adata.obs["c"] = np.full(matrix.shape[0], 2.5)
@@ -165,7 +165,7 @@ def test_regress_out_refuses_a_duplicated_covariate_too():
     duplicated = np.hstack([column, column])
 
     with pytest.raises(ValueError, match="full column rank"):
-        silicell_regress_out(matrix, duplicated)
+        metalcyte_regress_out(matrix, duplicated)
 
 
 # --------------------------------------------------------------------------------
@@ -190,7 +190,7 @@ def test_combat_matches_scanpy(n_batches):
     adata.obs["batch"] = adata.obs["batch"].astype("category")
     theirs = sc.pp.combat(adata, key="batch", inplace=False)
 
-    ours = silicell_combat(matrix, batch, n_batches)
+    ours = metalcyte_combat(matrix, batch, n_batches)
     np.testing.assert_allclose(ours, theirs, rtol=1e-3, atol=1e-3)
 
 
@@ -207,7 +207,7 @@ def test_combat_shrinks_the_between_batch_spread_it_was_given():
         return float(np.abs(x[batch == 0].mean(0) - x[batch == 1].mean(0)).mean())
 
     before = spread(dense)
-    after = spread(silicell_combat(matrix, batch, 2))
+    after = spread(metalcyte_combat(matrix, batch, 2))
     assert before > 2.5, "the fixture stopped carrying a batch effect"
     assert after < before / 10.0, f"batch effect {before:.3g} only came down to {after:.3g}"
 
@@ -223,7 +223,7 @@ def test_autocorrelation_matches_scanpy(name):
     graph = knn_graph(n_cells, seed=2)
     matrix = expression(n_cells=n_cells, n_genes=25, seed=29)
 
-    ours = silicell_autocorrelation(name, graph, matrix)
+    ours = metalcyte_autocorrelation(name, graph, matrix)
     reference = getattr(sc.metrics, name)(graph, matrix.T.tocsr())
     np.testing.assert_allclose(ours, np.asarray(reference), rtol=1e-4, atol=1e-5)
 
@@ -240,7 +240,7 @@ def test_a_gene_that_never_varies_has_no_autocorrelation_to_report(name):
     dense[:, 1] = 2.0
     matrix = sparse.csr_matrix(dense.astype(np.float32))
 
-    ours = silicell_autocorrelation(name, graph, matrix)
+    ours = metalcyte_autocorrelation(name, graph, matrix)
     theirs = np.asarray(getattr(sc.metrics, name)(graph, matrix.T.tocsr()))
     np.testing.assert_array_equal(np.isnan(ours), np.isnan(theirs))
     both = np.isfinite(ours) & np.isfinite(theirs)
@@ -264,7 +264,7 @@ def test_a_gene_perfectly_aligned_with_the_graph_scores_near_one():
     values[half:, 0] = 1.0
     matrix = sparse.csr_matrix(values)
 
-    morans = silicell_autocorrelation("morans_i", graph, matrix)[0]
-    gearys = silicell_autocorrelation("gearys_c", graph, matrix)[0]
+    morans = metalcyte_autocorrelation("morans_i", graph, matrix)[0]
+    gearys = metalcyte_autocorrelation("gearys_c", graph, matrix)[0]
     assert morans > 0.9, f"Moran's I should be near 1 for a graph-aligned gene, got {morans}"
     assert gearys < 0.1, f"Geary's C should be near 0 for a graph-aligned gene, got {gearys}"

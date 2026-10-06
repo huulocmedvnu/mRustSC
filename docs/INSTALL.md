@@ -1,13 +1,13 @@
-# Installing silicell
+# Installing metalcyte
 
-silicell is a compiled package: a Rust extension module (`silicell._silicell`) with a
+metalcyte is a compiled package: a Rust extension module (`metalcyte._metalcyte`) with a
 thin Python layer around it. Wheels are therefore platform-specific — there is
 no pure-Python fallback.
 
 ## From PyPI
 
 ```bash
-pip install silicell
+pip install metalcyte
 ```
 
 Wheels are published for **macOS 11+ on Apple silicon (arm64), CPython 3.11,
@@ -22,7 +22,7 @@ scanpy is not a dependency. Install it alongside if you want its plotting or its
 readers, which is how the examples are written:
 
 ```bash
-pip install silicell scanpy
+pip install metalcyte scanpy
 ```
 
 ## From source
@@ -35,8 +35,8 @@ Needed:
 - Python 3.11 or newer.
 
 ```bash
-git clone https://github.com/huulocmedvnu/silicell
-cd silicell
+git clone https://github.com/huulocmedvnu/metalcyte
+cd metalcyte
 python3 -m venv .venv
 .venv/bin/pip install maturin
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
@@ -75,7 +75,7 @@ CPU and want that margin.
 ## Verifying the install
 
 ```bash
-python -c "import silicell; print(silicell.__version__); print(silicell.gpu_available())"
+python -c "import metalcyte; print(metalcyte.__version__); print(metalcyte.gpu_available())"
 ```
 
 `gpu_available()` reports whether a Metal device was found and initialised:
@@ -100,12 +100,12 @@ A quick end-to-end check, without any dataset download:
 ```python
 import numpy as np, scipy.sparse as sp
 from anndata import AnnData
-import silicell as si
+import metalcyte as mc
 
 adata = AnnData(sp.random(500, 200, density=0.1, format="csr", dtype=np.float32))
-si.pp.normalize_total(adata)
-si.pp.log1p(adata)
-si.pp.pca(adata, n_comps=10)
+mc.pp.normalize_total(adata)
+mc.pp.log1p(adata)
+mc.pp.pca(adata, n_comps=10)
 print(adata.obsm["X_pca"].shape)
 ```
 
@@ -135,12 +135,12 @@ longer; CI gives them their own job with a cache.
 
 ### Which device the tests run against
 
-`SILICELL_TEST_DEVICE` (`tests/silicell_call.py`) names the device the audits pass
-into `_silicell`. It defaults to `"cpu"`; set it to `"auto"` to run the same suite
+`METALCYTE_TEST_DEVICE` (`tests/metalcyte_call.py`) names the device the audits pass
+into `_metalcyte`. It defaults to `"cpu"`; set it to `"auto"` to run the same suite
 on the GPU:
 
 ```bash
-SILICELL_TEST_DEVICE=auto PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
+METALCYTE_TEST_DEVICE=auto PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
 ```
 
 Both legs are worth running before a release, because `"auto"` is the device
@@ -158,8 +158,8 @@ The package ships a `py.typed` marker, so mypy and pyright use the inline
 annotations of the installed package with no stub package needed.
 
 ```bash
-pip install silicell mypy
-python -c "import silicell, pathlib; print((pathlib.Path(silicell.__file__).parent / 'py.typed').exists())"
+pip install metalcyte mypy
+python -c "import metalcyte, pathlib; print((pathlib.Path(metalcyte.__file__).parent / 'py.typed').exists())"
 ```
 
 ## Other platforms
@@ -167,8 +167,8 @@ python -c "import silicell, pathlib; print((pathlib.Path(silicell.__file__).pare
 The GPU path is Metal-only, and Metal is currently an unconditional dependency
 of the extension, through two routes now. The first is candle: the workspace pins
 `candle-core = { version = "0.9", features = ["metal"] }` with no
-`cfg(target_os = "macos")` around it, and `silicell-core` and `silicell-py` both take
-it from there. The second is `silicell-gpu`, which `silicell-py` now depends on for the
+`cfg(target_os = "macos")` around it, and `metalcyte-core` and `metalcyte-py` both take
+it from there. The second is `metalcyte-gpu`, which `metalcyte-py` now depends on for the
 wired `knn` kernel and which links the `metal` crate directly. Either route makes the
 build Apple-only. The practical consequences:
 

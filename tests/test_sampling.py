@@ -18,7 +18,7 @@ import pytest
 import scipy.sparse as sp
 from anndata import AnnData
 
-from silicell import _silicell, pp
+from metalcyte import _metalcyte, pp
 
 N_OBS = 8
 N_VARS = 5
@@ -171,7 +171,7 @@ def _csr_args(matrix: sp.csr_matrix):
 def _thin(counts: np.ndarray, target: int, *, replace: bool = False, seed: int = 0) -> np.ndarray:
     """Thin a dense count block through the compiled core, back to dense."""
     original = sp.csr_matrix(counts.astype(np.float32))
-    indptr, indices, values, _ = _silicell.downsample_counts(
+    indptr, indices, values, _ = _metalcyte.downsample_counts(
         *_csr_args(original), float(target), None, replace, seed
     )
     thinned = sp.csr_matrix((values, indices, indptr), shape=original.shape)
@@ -218,7 +218,7 @@ def test_with_replacement_a_gene_may_take_more_than_it_had() -> None:
 
 def test_total_counts_thins_the_whole_matrix() -> None:
     original = sp.csr_matrix(_rows())
-    indptr, _indices, values, _ = _silicell.downsample_counts(
+    indptr, _indices, values, _ = _metalcyte.downsample_counts(
         *_csr_args(original), None, 50.0, False, 0
     )
     assert values.sum() == 50.0
@@ -272,19 +272,19 @@ def test_a_cell_draws_the_same_counts_whatever_it_is_processed_with() -> None:
 
 
 def test_subsample_returns_the_right_cells() -> None:
-    kept = np.asarray(_silicell.subsample(100, 30, False, 0))
+    kept = np.asarray(_metalcyte.subsample(100, 30, False, 0))
     assert kept.shape == (30,)
     assert len(set(kept.tolist())) == 30
     assert kept.max() < 100
-    np.testing.assert_array_equal(kept, np.asarray(_silicell.subsample(100, 30, False, 0)))
-    assert not np.array_equal(kept, np.asarray(_silicell.subsample(100, 30, False, 1)))
+    np.testing.assert_array_equal(kept, np.asarray(_metalcyte.subsample(100, 30, False, 0)))
+    assert not np.array_equal(kept, np.asarray(_metalcyte.subsample(100, 30, False, 1)))
 
-    with_replacement = np.asarray(_silicell.subsample(5, 50, True, 0))
+    with_replacement = np.asarray(_metalcyte.subsample(5, 50, True, 0))
     assert with_replacement.shape == (50,)
     assert len(set(with_replacement.tolist())) < 50
 
     with pytest.raises(ValueError, match="n_keep"):
-        _silicell.subsample(10, 11, False, 0)
+        _metalcyte.subsample(10, 11, False, 0)
 
 
 # --- against scanpy ----------------------------------------------------------

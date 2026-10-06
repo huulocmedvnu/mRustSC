@@ -1,4 +1,4 @@
-"""Line-by-line audit of `crates/silicell-core/src/pca.rs` against its references.
+"""Line-by-line audit of `crates/metalcyte-core/src/pca.rs` against its references.
 
 The references are, in order of authority:
 
@@ -32,13 +32,13 @@ import scipy.sparse as sp
 from anndata import AnnData
 
 # The audit runs in a git worktree whose freshly built extension lives beside this
-# checkout, while the installed `silicell` .pth still points at the primary one.
+# checkout, while the installed `metalcyte` .pth still points at the primary one.
 # Prefer this tree so the tests exercise the code being audited.
 _LOCAL_PYTHON = Path(__file__).resolve().parents[1] / "python"
-if (_LOCAL_PYTHON / "silicell").is_dir():
+if (_LOCAL_PYTHON / "metalcyte").is_dir():
     sys.path.insert(0, str(_LOCAL_PYTHON))
 
-from silicell_call import silicell_call  # noqa: E402
+from metalcyte_call import metalcyte_call  # noqa: E402
 
 sc = pytest.importorskip("scanpy")
 sklearn_pca = pytest.importorskip("sklearn.decomposition")
@@ -87,9 +87,9 @@ def degenerate_counts(n_cells: int = 300, n_genes: int = 200) -> np.ndarray:
     return dense.astype(np.float32)
 
 
-def run_silicell(x: np.ndarray, n_comps: int, *, zero_center: bool = True) -> AnnData:
+def run_metalcyte(x: np.ndarray, n_comps: int, *, zero_center: bool = True) -> AnnData:
     adata = AnnData(sp.csr_matrix(x))
-    silicell_call("pp.pca", adata, n_comps=n_comps, zero_center=zero_center, random_state=0)
+    metalcyte_call("pp.pca", adata, n_comps=n_comps, zero_center=zero_center, random_state=0)
     return adata
 
 
@@ -132,7 +132,7 @@ def test_oversampling_is_earned_on_a_degenerate_spectrum():
     reference = sklearn_pca.PCA(n_components=n_comps, svd_solver="arpack", random_state=0)
     reference_scores = reference.fit_transform(dense)
 
-    ours = run_silicell(x, n_comps).obsm["X_pca"]
+    ours = run_metalcyte(x, n_comps).obsm["X_pca"]
 
     sklearn_default = extmath.randomized_svd(centred, n_comps, n_oversamples=10, random_state=0)[0]
 
@@ -161,7 +161,7 @@ def test_iteration_count_follows_the_sklearn_rule_in_both_branches():
     x, _ = known_spectrum(ratio=1e2)
     exact = exact_singular_values(x)
     for n_comps in (8, 60):
-        ours = reported_singular_values(run_silicell(x, n_comps))
+        ours = reported_singular_values(run_metalcyte(x, n_comps))
         error = np.max(np.abs(ours - exact[:n_comps]) / exact[:n_comps])
         assert error < 1e-3, f"n_comps={n_comps}: worst relative error {error:.2e}"
 
@@ -186,7 +186,7 @@ def test_range_finder_does_not_lose_rank():
     """
     x, _ = known_spectrum(ratio=1e4)
     n_comps = 20
-    ours = reported_singular_values(run_silicell(x, n_comps))
+    ours = reported_singular_values(run_metalcyte(x, n_comps))
     exact = exact_singular_values(x)[:n_comps]
 
     assert np.all(ours > 0), f"components returned as exact zero: {ours}"
@@ -245,7 +245,7 @@ def test_trailing_singular_values_survive_an_ill_conditioned_spectrum():
     exact = exact_singular_values(x)[:n_comps]
     centred = (x - x.mean(axis=0)).astype(np.float32)
 
-    ours = reported_singular_values(run_silicell(x, n_comps))
+    ours = reported_singular_values(run_metalcyte(x, n_comps))
     theirs = extmath.randomized_svd(centred, n_comps, random_state=0)[1]
 
     our_error = np.abs(ours - exact) / exact
@@ -286,8 +286,8 @@ def test_implicit_centring_equals_explicit_centring():
     centred = (x - x.mean(axis=0)).astype(np.float32)
     n_comps = 8
 
-    implicit = run_silicell(x, n_comps, zero_center=True)
-    explicit = run_silicell(centred, n_comps, zero_center=False)
+    implicit = run_metalcyte(x, n_comps, zero_center=True)
+    explicit = run_metalcyte(centred, n_comps, zero_center=False)
 
     scale = np.max(np.abs(implicit.obsm["X_pca"]))
     difference = np.max(np.abs(implicit.obsm["X_pca"] - explicit.obsm["X_pca"])) / scale
@@ -314,7 +314,7 @@ def test_loadings_are_right_singular_vectors_of_the_centred_matrix():
     """
     x, _ = known_spectrum(ratio=1e2, n_comps=10)
     n_comps = 8
-    adata = run_silicell(x, n_comps)
+    adata = run_metalcyte(x, n_comps)
     loadings = np.asarray(adata.varm["PCs"], dtype=np.float64)  # (n_genes, n_comps)
     dense = x.astype(np.float64)
     centred = dense - dense.mean(axis=0)
@@ -337,7 +337,7 @@ def test_loadings_are_right_singular_vectors_of_the_centred_matrix():
 def test_stored_keys_and_orientation_match_scanpy():
     x = degenerate_counts()
     n_comps = 6
-    ours = run_silicell(x, n_comps)
+    ours = run_metalcyte(x, n_comps)
     theirs = AnnData(sp.csr_matrix(x))
     sc.pp.pca(theirs, n_comps=n_comps, svd_solver="arpack", random_state=0)
 
@@ -360,7 +360,7 @@ def test_variance_ratio_denominator_is_the_total_variance_of_all_genes():
     """
     x = degenerate_counts()
     n_comps = 6
-    ours = run_silicell(x, n_comps)
+    ours = run_metalcyte(x, n_comps)
     total = np.var(x.astype(np.float64), axis=0, ddof=1).sum()
 
     variance = np.asarray(ours.uns["pca"]["variance"], dtype=np.float64)
@@ -387,7 +387,7 @@ def test_uncentred_reports_truncated_svd_statistics_not_pca_statistics():
     """
     x = degenerate_counts()
     n_comps = 8
-    ours = run_silicell(x, n_comps, zero_center=False)
+    ours = run_metalcyte(x, n_comps, zero_center=False)
     theirs = AnnData(sp.csr_matrix(x))
     sc.pp.pca(theirs, n_comps=n_comps, zero_center=False, svd_solver="arpack", random_state=0)
 
@@ -428,7 +428,7 @@ def test_sign_convention_is_svd_flip_on_the_loadings():
     """
     x = degenerate_counts()
     n_comps = 10
-    ours = run_silicell(x, n_comps)
+    ours = run_metalcyte(x, n_comps)
     loadings = np.asarray(ours.varm["PCs"], dtype=np.float64)  # (n_genes, n_comps)
     for i in range(n_comps):
         column = loadings[:, i]
@@ -454,7 +454,7 @@ def test_sign_agrees_with_scanpy_where_the_argmax_is_unambiguous():
     """
     x, _ = known_spectrum(ratio=1e2, n_comps=10)
     n_comps = 10
-    ours = run_silicell(x, n_comps)
+    ours = run_metalcyte(x, n_comps)
     theirs = AnnData(sp.csr_matrix(x))
     sc.pp.pca(theirs, n_comps=n_comps, svd_solver="arpack", random_state=0)
 

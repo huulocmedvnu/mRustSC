@@ -19,7 +19,7 @@ from anndata import AnnData
 from numpy.testing import assert_allclose
 from scipy import sparse
 
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 ELEMENTWISE = {"rtol": 1e-5, "atol": 1e-6}
 
@@ -65,7 +65,7 @@ def test_score_genes_matches_scanpy(
     lognorm: AnnData, record_property: Callable[[str, object], None]
 ) -> None:
     genes = gene_set(lognorm)
-    silicell_call("tl.score_genes", lognorm, genes, score_name="ours")
+    metalcyte_call("tl.score_genes", lognorm, genes, score_name="ours")
     expected = lognorm.copy()
     sc.tl.score_genes(expected, genes, score_name="theirs")
 
@@ -90,7 +90,7 @@ def test_a_constant_gene_set_scores_zero() -> None:
     adata.var_names = [f"gene{index}" for index in range(adata.n_vars)]
     genes = [f"gene{index}" for index in range(5)]
 
-    silicell_call("tl.score_genes", adata, genes, ctrl_size=10, score_name="ours")
+    metalcyte_call("tl.score_genes", adata, genes, ctrl_size=10, score_name="ours")
     sc.tl.score_genes(adata, genes, ctrl_size=10, score_name="theirs")
 
     assert_allclose(adata.obs["ours"].to_numpy(), np.zeros(adata.n_obs), atol=1e-6)
@@ -104,7 +104,7 @@ def test_score_genes_cell_cycle_assigns_the_same_phase(
     s_genes = [gene for gene in s_genes if gene in lognorm.var_names]
     g2m_genes = [gene for gene in g2m_genes if gene in lognorm.var_names]
 
-    silicell_call("tl.score_genes_cell_cycle", lognorm, s_genes=s_genes, g2m_genes=g2m_genes)
+    metalcyte_call("tl.score_genes_cell_cycle", lognorm, s_genes=s_genes, g2m_genes=g2m_genes)
     expected = lognorm.copy()
     sc.tl.score_genes_cell_cycle(expected, s_genes=s_genes, g2m_genes=g2m_genes)
 
@@ -147,7 +147,7 @@ REFERENCE_MARKERS = {
 def test_marker_gene_overlap_matches_scanpy(
     called_markers: AnnData, method: str, top_n_markers: int | None
 ) -> None:
-    ours = silicell_call(
+    ours = metalcyte_call(
         "tl.marker_gene_overlap",
         called_markers,
         REFERENCE_MARKERS,
@@ -168,7 +168,7 @@ def test_filter_rank_genes_groups_blanks_the_same_genes(lognorm: AnnData) -> Non
         "max_out_group_fraction": 0.5,
         "min_fold_change": 2.0,
     }
-    silicell_call("tl.filter_rank_genes_groups", lognorm, **thresholds)
+    metalcyte_call("tl.filter_rank_genes_groups", lognorm, **thresholds)
     expected = lognorm.copy()
     sc.tl.filter_rank_genes_groups(expected, **thresholds)
 
@@ -180,7 +180,7 @@ def test_filter_rank_genes_groups_blanks_the_same_genes(lognorm: AnnData) -> Non
 
 def test_filter_rank_genes_groups_keeps_the_rest_of_the_slot(lognorm: AnnData) -> None:
     sc.tl.rank_genes_groups(lognorm, "group", method="wilcoxon")
-    silicell_call("tl.filter_rank_genes_groups", lognorm)
+    metalcyte_call("tl.filter_rank_genes_groups", lognorm)
     filtered = lognorm.uns["rank_genes_groups_filtered"]
     assert set(filtered) == set(lognorm.uns["rank_genes_groups"])
     assert_allclose(
@@ -191,15 +191,15 @@ def test_filter_rank_genes_groups_keeps_the_rest_of_the_slot(lognorm: AnnData) -
 
 def test_an_empty_gene_set_is_rejected(lognorm: AnnData) -> None:
     with pytest.raises(ValueError, match="No valid genes"):
-        silicell_call("tl.score_genes", lognorm, [])
+        metalcyte_call("tl.score_genes", lognorm, [])
     with pytest.raises(ValueError, match="No valid genes"):
-        silicell_call("tl.score_genes", lognorm, ["not-a-gene"])
+        metalcyte_call("tl.score_genes", lognorm, ["not-a-gene"])
 
 
 def test_genes_missing_from_the_matrix_are_dropped_with_a_warning(lognorm: AnnData) -> None:
     genes = gene_set(lognorm)
     with pytest.warns(UserWarning, match="not in var_names"):
-        silicell_call("tl.score_genes", lognorm, [*genes, "not-a-gene"], score_name="ours")
+        metalcyte_call("tl.score_genes", lognorm, [*genes, "not-a-gene"], score_name="ours")
     expected = lognorm.copy()
     sc.tl.score_genes(expected, genes, score_name="theirs")
     assert_allclose(lognorm.obs["ours"], expected.obs["theirs"], **ELEMENTWISE)
@@ -209,14 +209,14 @@ def test_a_gene_set_covering_the_matrix_leaves_no_control(lognorm: AnnData) -> N
     """scanpy raises too: every gene is scored, so every bin empties out."""
     everything = [*lognorm.var_names, "not-a-gene"]
     with pytest.raises((ValueError, RuntimeError)):
-        silicell_call("tl.score_genes", lognorm, everything)
+        metalcyte_call("tl.score_genes", lognorm, everything)
 
 
 def test_ctrl_size_larger_than_a_bin_takes_the_whole_bin(lognorm: AnnData) -> None:
     """With more controls asked for than a bin holds, scanpy keeps the bin as it is."""
     genes = gene_set(lognorm)
     ctrl_size = lognorm.n_vars  # larger than any bin, so no sampling happens at all
-    silicell_call("tl.score_genes", lognorm, genes, ctrl_size=ctrl_size, score_name="ours")
+    metalcyte_call("tl.score_genes", lognorm, genes, ctrl_size=ctrl_size, score_name="ours")
     expected = lognorm.copy()
     sc.tl.score_genes(expected, genes, ctrl_size=ctrl_size, score_name="theirs")
     assert_allclose(lognorm.obs["ours"], expected.obs["theirs"], **ELEMENTWISE)

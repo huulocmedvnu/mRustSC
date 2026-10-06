@@ -1,5 +1,5 @@
 #!/bin/sh
-# Energy of the 117k-cell pipeline, scanpy against silicell, under powermetrics.
+# Energy of the 117k-cell pipeline, scanpy against metalcyte, under powermetrics.
 # Needs root for the power counters:
 #
 #     sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad
@@ -11,10 +11,10 @@ DATA="${1:?path to the counts .h5ad}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$HERE/.venv/bin/python"
 export PYTHONPATH="$HERE/python"
-for spec in "scanpy auto" "silicell auto" "silicell cpu"; do
+for spec in "scanpy auto" "metalcyte auto" "metalcyte cpu"; do
   set -- $spec
   lib=$1; dev=$2
-  tag="$lib"; [ "$lib" = silicell ] && tag="scrust_$([ "$dev" = auto ] && echo metal || echo cpu)"
+  tag="$lib"; [ "$lib" = metalcyte ] && tag="scrust_$([ "$dev" = auto ] && echo metal || echo cpu)"
   echo "== $tag"
   "$PY" "$HERE/benches/energy.py" "$DATA" --library "$lib" --device "$dev" --umap-parallel \
       --json "$HERE/benches/results/energy_bm117k_$tag.json"

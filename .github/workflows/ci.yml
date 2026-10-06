@@ -11,7 +11,7 @@ env:
   # The hosted macOS runners expose a virtual Metal device that allocates but miscomputes
   # and aborts the process in kernel compilation, so the whole suite runs on the CPU here.
   # GPU coverage is local only; see docs/API_CONTRACT.md "Devices".
-  SILICELL_DEVICE: cpu
+  METALCYTE_DEVICE: cpu
 
 jobs:
   # macos-14 is Apple silicon, so the Metal code compiles. GitHub's hosted macOS
@@ -23,7 +23,7 @@ jobs:
   # defaults to `auto`, which resolves to Metal on any machine that has one, so the
   # device most callers get is the one CI cannot test. `tests/test_device_parity.py`
   # compares the two devices and skips in its entirety here. The audits themselves run
-  # against `SILICELL_TEST_DEVICE`, which defaults to `cpu`; set it to `auto` to run the
+  # against `METALCYTE_TEST_DEVICE`, which defaults to `cpu`; set it to `auto` to run the
   # same suite the other way on hardware that has a GPU. Adding an `auto` leg to this
   # job would only run the CPU path twice.
   quality:
@@ -53,7 +53,7 @@ jobs:
           # `maturin develop` needs a virtualenv, which the runner's python is not:
           # build the wheel and install it like the reference job does.
           maturin build --release --out dist
-          pip install --find-links dist silicell
+          pip install --find-links dist metalcyte
 
       - run: ruff format --check python tests benches
       - run: ruff check python tests benches
@@ -82,7 +82,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install maturin
           maturin build --release --out dist
-          pip install --find-links dist silicell
+          pip install --find-links dist metalcyte
           pip install "scanpy>=1.10" "leidenalg>=0.10" "igraph>=0.11" pytest
 
       - run: pytest -m reference -rA

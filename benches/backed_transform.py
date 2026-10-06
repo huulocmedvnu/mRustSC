@@ -8,8 +8,8 @@ Run from the repo root:
 Both modes apply the same head of a single-cell pipeline -- normalise to 10 000 counts,
 then log1p -- and the only difference is how much of `X` is resident at once. The
 `whole` mode reads the `.h5ad` into memory and transforms it there, so its peak carries
-the entire matrix. The `streamed` mode opens the file backed and lets `si.pp.*` rewrite
-`X` a row block at a time (`silicell.settings.chunk_size`), so its peak carries one block.
+the entire matrix. The `streamed` mode opens the file backed and lets `mc.pp.*` rewrite
+`X` a row block at a time (`metalcyte.settings.chunk_size`), so its peak carries one block.
 
 Each mode runs in its own process on its own copy of the file (the streamed mode
 rewrites `X` in place), so a peak reading belongs to one mode and the two never collide.
@@ -70,13 +70,13 @@ def _checksum(matrix: Any) -> float:
 
 def run_whole(path: Path) -> dict[str, Any]:
     """Read the file into memory and transform it there: the baseline peak to beat."""
-    import silicell as si
+    import metalcyte as mc
 
     with PeakRss() as peak:
         started = time.perf_counter()
         adata = anndata.read_h5ad(path)
-        si.pp.normalize_total(adata, target_sum=1e4)
-        si.pp.log1p(adata)
+        mc.pp.normalize_total(adata, target_sum=1e4)
+        mc.pp.log1p(adata)
         checksum = _checksum(adata.X)
         elapsed = time.perf_counter() - started
     return {"seconds": elapsed, "peak_mb": (peak.peak_bytes or 0) / 1e6, "checksum": checksum}
@@ -84,14 +84,14 @@ def run_whole(path: Path) -> dict[str, Any]:
 
 def run_streamed(path: Path, block_size: int) -> dict[str, Any]:
     """The same transform, but backed and rewritten one row block at a time."""
-    import silicell as si
+    import metalcyte as mc
 
-    si.settings.chunk_size = block_size
+    mc.settings.chunk_size = block_size
     with PeakRss() as peak:
         started = time.perf_counter()
         adata = anndata.read_h5ad(path, backed="r")
-        si.pp.normalize_total(adata, target_sum=1e4)
-        si.pp.log1p(adata)
+        mc.pp.normalize_total(adata, target_sum=1e4)
+        mc.pp.log1p(adata)
         checksum = _checksum(adata.to_memory().X)
         elapsed = time.perf_counter() - started
     return {

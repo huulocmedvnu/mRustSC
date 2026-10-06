@@ -71,41 +71,41 @@ total: the same k nearest points, in the same graph.
 
 ## PCA — determined components and spectrum
 
-scanpy's default solver is deterministic `arpack`; silicell does a randomised SVD, the
+scanpy's default solver is deterministic `arpack`; metalcyte does a randomised SVD, the
 same algorithm class as scanpy's *randomised* solver. A component is "determined"
 when scanpy's own randomised solver reproduces its arpack result to correlation
 ≥ 0.99 — beyond those, the eigenvectors are free to rotate and per-component
 correlation measures nothing, so only the spectrum is asserted there.
 
-| dataset | components | determined | silicell matches (corr ≥ 0.99) | worst variance-ratio gap |
+| dataset | components | determined | metalcyte matches (corr ≥ 0.99) | worst variance-ratio gap |
 | --- | --- | --- | --- | --- |
 | synthetic | 50 | 31 | 48 | 0.003 |
 | PBMC 3k | 50 | 7 | 8 | 0.042 |
 
-The `7 of 50` on PBMC 3k is a property of the data's spectrum, not a silicell
+The `7 of 50` on PBMC 3k is a property of the data's spectrum, not a metalcyte
 weakness: past the 7th component the reference implementation cannot reproduce
-itself either. silicell matches every determined component and holds the variance
+itself either. metalcyte matches every determined component and holds the variance
 ratios within the tolerance a randomised SVD drifts on its own.
 
 ## UMAP — preservation band
 
 UMAP is stochastic and does not reproduce itself across seeds, so the bar is
-relative: silicell's neighbourhood preservation against scanpy must reach at least 85%
+relative: metalcyte's neighbourhood preservation against scanpy must reach at least 85%
 of the preservation scanpy reaches against itself reseeded (K_REF=15 in the
 reference layout, K_CAND=30 in the candidate).
 
-| dataset | silicell vs scanpy | scanpy vs itself (ceiling) | floor (0.85 × ceiling) | pass |
+| dataset | metalcyte vs scanpy | scanpy vs itself (ceiling) | floor (0.85 × ceiling) | pass |
 | --- | --- | --- | --- | --- |
 | synthetic | 0.564 | 0.623 | 0.530 | yes |
 | PBMC 3k | 0.456 | 0.511 | 0.434 | yes |
 
 The ceiling of ~0.51 on PBMC 3k is the headline: umap-learn agrees with *itself*, on
 its own output, on only about half of each cell's neighbourhood across a change of
-seed. silicell sits just under that ceiling, which is as close as a different
+seed. metalcyte sits just under that ceiling, which is as close as a different
 implementation can come to a target that unstable.
 
 On the `blobs` fixture — six clusters smaller than K_REF, so neighbour sets are
-seed-independent — the absolute 0.80 threshold *is* reachable, and silicell records
+seed-independent — the absolute 0.80 threshold *is* reachable, and metalcyte records
 **1.00**.
 
 This is exactly the shape of test the audits exist to supplement: a bar that a
@@ -115,18 +115,18 @@ compares term by term against a transcription of umap-learn's `layouts.py` inste
 ## t-SNE — the objective
 
 t-SNE has an explicit objective, so the test asks the direct question: is the KL
-divergence silicell reaches no worse than scanpy's (within 5% for f32 and a different
+divergence metalcyte reaches no worse than scanpy's (within 5% for f32 and a different
 random start)? Both libraries are given scikit-learn's `auto` learning rate, because
 scanpy's legacy default of 1000 costs scanpy itself an order of magnitude in KL at
-these sizes and would flatter silicell.
+these sizes and would flatter metalcyte.
 
-| dataset | silicell KL | scanpy KL | ratio | pass (≤ 1.05) |
+| dataset | metalcyte KL | scanpy KL | ratio | pass (≤ 1.05) |
 | --- | --- | --- | --- | --- |
 | synthetic | 0.985 | 0.971 | 1.014 | yes |
 | PBMC 3k | 2.028 | 2.076 | 0.977 | yes |
 | blobs | 0.170 | 0.180 | 0.943 | yes |
 
-On PBMC 3k and blobs silicell reaches a *lower* KL than scanpy — a better local
+On PBMC 3k and blobs metalcyte reaches a *lower* KL than scanpy — a better local
 optimum of the same objective — and on the synthetic set it is 1.4% higher, inside
 tolerance.
 
@@ -206,12 +206,12 @@ to check against.
 ## The device dimension
 
 `settings.device` defaults to `"auto"`, and `DeviceKind::Auto` resolves to
-`Device::new_metal(0).unwrap_or(Device::Cpu)` (`crates/silicell-core/src/device.rs`). On
+`Device::new_metal(0).unwrap_or(Device::Cpu)` (`crates/metalcyte-core/src/device.rs`). On
 any Mac with Metal, **a caller who names no device is on the GPU.** Which device a
 result came from is therefore a property of the machine, not of the code.
 
-The audits pin behaviour against scanpy on one device at a time. `SILICELL_TEST_DEVICE`
-(`tests/silicell_call.py`, default `"cpu"`) selects which; set it to `"auto"` to run the
+The audits pin behaviour against scanpy on one device at a time. `METALCYTE_TEST_DEVICE`
+(`tests/metalcyte_call.py`, default `"cpu"`) selects which; set it to `"auto"` to run the
 same suite the other way. Both legs pass on Apple silicon.
 
 Same candle source means the same algorithm, not bit-identical results: f32 addition is
@@ -221,7 +221,7 @@ which is a different question from either device against scanpy.
 
 Not every module has a device to differ on. `pca`, `neighbors` and `tsne` use the
 resolved `Device`; `umap` and `cluster` take it and ignore it (`_device` in
-`crates/silicell-core/src/umap.rs` and `cluster.rs`) and always run on the CPU.
+`crates/metalcyte-core/src/umap.rs` and `cluster.rs`) and always run on the CPU.
 
 ## What the audits found
 
@@ -236,7 +236,7 @@ the argument for this kind of testing, and it is worth being specific about.
   `(n_dims + 2) * f32::EPSILON * (|a|² + |b|²)` now snap to zero. On PBMC 3k's 50 PCs
   that floor is 0.049 against a *smallest* nearest-neighbour distance of 6.40: it snaps
   0 of 39 570 neighbours. Found only because the audit was re-run with
-  `SILICELL_TEST_DEVICE=auto`; every test naming `"cpu"` had passed.
+  `METALCYTE_TEST_DEVICE=auto`; every test naming `"cpu"` had passed.
 * **`paga` — stored zeros were dropped from the edge count.** `count_edges` skipped
   entries whose value was 0.0, citing a `nonzero()` in scanpy; scanpy binarises *first*
   (`ones.data = np.ones(len(ones.data))`, `_paga.py:182-183`), so every stored entry is
@@ -280,19 +280,19 @@ if the behaviour drifts, rather than an undocumented difference.
 
 **CI does not test the GPU path.** `tests/test_device_parity.py` skips in its entirety
 where `gpu_available()` is false, which includes GitHub's hosted macOS runners; the
-`cargo test` unit tests inside `crates/silicell-gpu` likewise return early when
-`MetalContext::new()` fails. The audits themselves run against `SILICELL_TEST_DEVICE`,
+`cargo test` unit tests inside `crates/metalcyte-gpu` likewise return early when
+`MetalContext::new()` fails. The audits themselves run against `METALCYTE_TEST_DEVICE`,
 which defaults to `cpu`. So the device most callers get — see "The device dimension"
 above — is the device CI never exercises. A green tick on `ci.yml` is evidence about the
 CPU path and nothing else; the GPU legs run on developer hardware and on a self-hosted
 Apple-silicon runner.
 
 **One Metal kernel, `knn`, is now reachable from Python; the other three are not.**
-`crates/silicell-py` depends on `silicell-gpu` and routes a Metal caller's k-NN to
-`knn_metal` (`silicell-py/src/embedding.rs`). It is validated two ways on Apple silicon: as
-a kernel, `cargo test -p silicell-gpu` holds it against a brute-force CPU reference (35 of
+`crates/metalcyte-py` depends on `metalcyte-gpu` and routes a Metal caller's k-NN to
+`knn_metal` (`metalcyte-py/src/embedding.rs`). It is validated two ways on Apple silicon: as
+a kernel, `cargo test -p metalcyte-gpu` holds it against a brute-force CPU reference (35 of
 35 pass), and end to end, `tests/test_device_parity.py` holds its neighbour lists equal
-to the candle CPU path (4 of 4, `SILICELL_TEST_DEVICE=auto`) — including a knot tighter
+to the candle CPU path (4 of 4, `METALCYTE_TEST_DEVICE=auto`) — including a knot tighter
 than `f32` can resolve, which both devices now collapse the same way because the kernel
 reproduces the CPU path's mean-centering and squared-distance snapping. `spmm`,
 `tsne_gradient` and `umap_sgd` remain unreachable — `spmm` has no plain sparse×dense
@@ -301,10 +301,10 @@ against their in-module CPU references, which is vacuous on a machine without Me
 other GPU work goes through candle.
 
 **`de/glm` and `de/dispersion` are not reachable from Python.** No pyfunction in
-`crates/silicell-py/src/` mentions `fit_negative_binomial`,
+`crates/metalcyte-py/src/` mentions `fit_negative_binomial`,
 `size_factors_median_of_ratios`, `dispersions_method_of_moments` or
-`shrink_towards_trend`, and `silicell._silicell` exports no entry point to them. (The
-`dispersions` that `_silicell.highly_variable_genes` reports come from `preprocess.rs`,
+`shrink_towards_trend`, and `metalcyte._metalcyte` exports no entry point to them. (The
+`dispersions` that `_metalcyte.highly_variable_genes` reports come from `preprocess.rs`,
 not from `de/dispersion.rs`.) `test_destats_audit.py` therefore does not validate that
 code: what it validates is the *reference data* `glm.rs`'s own unit tests are judged
 against, re-deriving the two hard-coded coefficient tables with statsmodels straight
@@ -339,17 +339,17 @@ scanpy or scipy equivalent to compare against, so their audits pin invariants in
 block-size invariance for `chunked`, and round-trip and validation behaviour for
 `sparse`, against `scipy.sparse.csr_matrix` where the two overlap.
 
-As of v0.2.0 **no entry point in `python/silicell/` raises `NotImplementedError`** —
+As of v0.2.0 **no entry point in `python/metalcyte/` raises `NotImplementedError`** —
 `tl.dpt(n_branchings > 0)`, the last one, now runs native branch detection (below). See
 [API.md](API.md) for the current implemented/not-implemented split.
 
 ## DPT branch detection — adjusted Rand index against scanpy
 
 `tl.dpt(n_branchings > 0)` used to raise `NotImplementedError`; v0.2.0 runs a native port
-of scanpy's Haghverdi 2016 branch detection (`silicell.tl._dpt_branching`) and writes
+of scanpy's Haghverdi 2016 branch detection (`metalcyte.tl._dpt_branching`) and writes
 `obs["dpt_groups"]`. Branch labels are arbitrary, so parity is the adjusted Rand index of
 the two partitions, per the clustering rule in [API_CONTRACT.md](API_CONTRACT.md). To test
-the *branching* alone, `tests/test_dpt_branching_audit.py` feeds silicell's port and scanpy's
+the *branching* alone, `tests/test_dpt_branching_audit.py` feeds metalcyte's port and scanpy's
 `dpt` the **same** diffusion map, so any difference is the branching logic, not the diffmap:
 
 | dataset | `n_branchings` | ARI vs scanpy | group sizes |
@@ -358,7 +358,7 @@ the *branching* alone, `tests/test_dpt_branching_audit.py` feeds silicell's port
 | PBMC 3k | 2 | **1.0000** | identical |
 
 The partition is identical, not merely similar — the group sizes match as multisets.
-End-to-end, with silicell computing its own diffmap, the ARI is also 1.0000, because silicell's
+End-to-end, with metalcyte computing its own diffmap, the ARI is also 1.0000, because metalcyte's
 diffmap agrees with scanpy's closely enough that the branch cut lands in the same place.
 Passes on cpu and Metal.
 
@@ -370,11 +370,11 @@ is instead batch mixing and convergence, measured in `tests/test_harmony_audit.p
 PBMC 3k with a batch shift injected into the PCA embedding:
 
 * **iLISI** (integration Local Inverse Simpson's Index) — the effective number of batches
-  in each cell's neighbourhood, 1 (separated) to 2 (mixed for two batches). silicell raises it
+  in each cell's neighbourhood, 1 (separated) to 2 (mixed for two batches). metalcyte raises it
   from **1.00 before correction to 1.90 after**; the test asserts iLISI ≥ 1.85.
 * **Objective convergence** — the harmony objective decreases and its final relative step
   is within the harmony tolerance (~1%); the test asserts this.
-* **Reference** — `harmonypy 2.0.0` is run on the same data as a black box; silicell is
+* **Reference** — `harmonypy 2.0.0` is run on the same data as a black box; metalcyte is
   asserted to mix batches at least as well (iLISI), and the cosine correlation with
   harmonypy is recorded (0.88), not asserted, since the two seed and converge differently.
 

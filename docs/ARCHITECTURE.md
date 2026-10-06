@@ -3,13 +3,13 @@
 ## Layers
 
 ```
-python/silicell/{pp,tl,get,metrics}   AnnData plumbing and defaults
+python/metalcyte/{pp,tl,get,metrics}   AnnData plumbing and defaults
         │
-crates/silicell-py                    PyO3: conversion only, no logic
+crates/metalcyte-py                    PyO3: conversion only, no logic
         │
-crates/silicell-core                  data types and every algorithm, written against candle
+crates/metalcyte-core                  data types and every algorithm, written against candle
         │
-        └── crates/silicell-gpu       Metal context and hand written kernels
+        └── crates/metalcyte-gpu       Metal context and hand written kernels
 ```
 
 Dependencies point downwards. Each layer is allowed to know only about the one
@@ -18,12 +18,12 @@ below it, and each has exactly one job:
 - **Python** owns defaults, argument names and where a result lands in an
   AnnData. It performs no arithmetic.
 - **Bindings** own conversion between numpy/scipy and Rust types, and the map
-  from `silicell_core::Error` to Python exceptions. They own no defaults, which is
+  from `metalcyte_core::Error` to Python exceptions. They own no defaults, which is
   why every binding argument is required.
 - **Core** owns the algorithms and the data types. It knows nothing about Python
   or AnnData.
 - **GPU** owns Metal: the device, the pipeline cache, and the kernels. It sits
-  *beside* the pipeline rather than under it — it depends on `silicell-core`. The
+  *beside* the pipeline rather than under it — it depends on `metalcyte-core`. The
   bindings now depend on it too, for the one kernel (`knn`) that is wired in; see
   below.
 
@@ -45,19 +45,19 @@ because their inner loops are graph or rank work rather than tensor algebra.
 Passing `device="gpu"` is a request, not a guarantee, and each of those modules
 says in its own docs why it declines.
 
-## `silicell-gpu` is a sidecar, not a layer
+## `metalcyte-gpu` is a sidecar, not a layer
 
-`silicell-gpu` holds four hand written Metal kernels — `knn`, `spmm`,
+`metalcyte-gpu` holds four hand written Metal kernels — `knn`, `spmm`,
 `tsne_gradient`, `umap_sgd` — for the loops candle cannot express: nearest
 neighbour *selection*, sparse products that would have to be densified first,
 and the fused attract/repel passes of t-SNE and UMAP. Expressing those with
 tensor ops would mean materialising an `(n, n)` matrix that only exists to be
 thrown away.
 
-**One of them, `knn`, is now reachable from Python.** `crates/silicell-py/Cargo.toml`
-depends on `silicell-gpu`, and the `embedding` binding dispatches a Metal caller's k-NN to
+**One of them, `knn`, is now reachable from Python.** `crates/metalcyte-py/Cargo.toml`
+depends on `metalcyte-gpu`, and the `embedding` binding dispatches a Metal caller's k-NN to
 `knn_metal`, falling back to the candle path on the CPU or where no Metal context builds
-(`silicell-py/src/embedding.rs`). To stay a drop-in for the CPU oracle it reproduces
+(`metalcyte-py/src/embedding.rs`). To stay a drop-in for the CPU oracle it reproduces
 `neighbors::knn`'s mean-centering and squared-distance snapping in the MSL, and
 `tests/test_device_parity.py` holds the two devices' neighbour lists equal.
 
@@ -96,7 +96,7 @@ transfers than on arithmetic.
   kernel documents a deliberate race, which must be stated in its module docs.
 - `snake_case` for functions and modules, `PascalCase` for types, names long
   enough to explain themselves.
-- Errors are `silicell_core::Error`. Nothing panics on user input.
+- Errors are `metalcyte_core::Error`. Nothing panics on user input.
 
 ## Correctness
 

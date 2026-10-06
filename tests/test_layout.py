@@ -28,7 +28,7 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.stats import gaussian_kde
 
 from reference_metrics import knn_indices
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 # Neighbourhood preservation, at the sizes `conftest` fixes for every embedding:
 # how much of a cell's K_REF nearest neighbours in one layout stays inside its
@@ -124,7 +124,7 @@ def test_dendrogram_matches_scipy_linkage() -> None:
     `sc.tl.dendrogram` passes when the caller does not say otherwise.
     """
     centroids = _hand_built_centroids()
-    linkage, leaves = silicell_call("_silicell.dendrogram", centroids)
+    linkage, leaves = metalcyte_call("_metalcyte.dendrogram", centroids)
 
     reference = sch.linkage(
         pdist(centroids.astype(np.float64), metric="correlation"), method="complete"
@@ -148,7 +148,7 @@ def test_dendrogram_leaf_order_matches_scanpy(
     """
     dataset = neighbored.uns["dataset_id"]
     ours = neighbored.copy()
-    silicell_call("tl.dendrogram", ours, "group")
+    metalcyte_call("tl.dendrogram", ours, "group")
     slot = ours.uns["dendrogram_group"]
 
     # scanpy's own default, with no `linkage_method` override. This used to pass
@@ -169,7 +169,7 @@ def test_dendrogram_leaf_order_matches_scanpy(
 
 def test_dendrogram_writes_the_slots_scanpy_plotting_reads(neighbored: AnnData) -> None:
     """`pl.dendrogram` and `pl.correlation_matrix` read these keys by name."""
-    silicell_call("tl.dendrogram", neighbored, "group")
+    metalcyte_call("tl.dendrogram", neighbored, "group")
     slot = neighbored.uns["dendrogram_group"]
     assert slot["groupby"] == ["group"]
     assert slot["cor_method"] == "pearson"
@@ -187,14 +187,14 @@ def test_dendrogram_rejects_a_single_group(neighbored: AnnData) -> None:
     neighbored.obs["only"] = "everyone"
     neighbored.obs["only"] = neighbored.obs["only"].astype("category")
     with pytest.raises(ValueError, match="2 are needed"):
-        silicell_call("tl.dendrogram", neighbored, "only")
+        metalcyte_call("tl.dendrogram", neighbored, "only")
 
 
 def test_dendrogram_rejects_a_non_categorical_groupby(neighbored: AnnData) -> None:
     """A continuous column has no groups to average, as scanpy also insists."""
     neighbored.obs["depth"] = np.arange(neighbored.n_obs, dtype=np.float64)
     with pytest.raises(ValueError, match="categorical"):
-        silicell_call("tl.dendrogram", neighbored, "depth")
+        metalcyte_call("tl.dendrogram", neighbored, "depth")
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ def test_dendrogram_rejects_a_non_categorical_groupby(neighbored: AnnData) -> No
 def test_draw_graph_keeps_cliques_apart() -> None:
     """Three cliques joined by single weak edges stay three clumps."""
     adata = _cliques(3, 20)
-    silicell_call("tl.draw_graph", adata, n_iterations=N_ITERATIONS)
+    metalcyte_call("tl.draw_graph", adata, n_iterations=N_ITERATIONS)
     positions = adata.obsm["X_draw_graph_fa"]
     assert positions.shape == (60, 2)
     assert np.isfinite(positions).all()
@@ -219,7 +219,7 @@ def test_draw_graph_keeps_real_groups_apart(
 ) -> None:
     """The same claim on the real neighbour graph and scanpy's own labels."""
     dataset = neighbored.uns["dataset_id"]
-    silicell_call("tl.draw_graph", neighbored, n_iterations=N_ITERATIONS)
+    metalcyte_call("tl.draw_graph", neighbored, n_iterations=N_ITERATIONS)
     within, between = _within_between(
         neighbored.obsm["X_draw_graph_fa"], neighbored.obs["group"].cat.codes.to_numpy()
     )
@@ -258,7 +258,7 @@ def test_draw_graph_reaches_the_band_the_reference_reaches_against_itself(
     ours = {}
     for seed in (0, 1):
         run = neighbored.copy()
-        silicell_call("tl.draw_graph", run, n_iterations=N_ITERATIONS, random_state=seed)
+        metalcyte_call("tl.draw_graph", run, n_iterations=N_ITERATIONS, random_state=seed)
         ours[seed] = np.asarray(run.obsm["X_draw_graph_fa"])
 
     band = _preservation(reference[0], reference[1])
@@ -289,7 +289,7 @@ def test_draw_graph_is_deterministic_at_a_fixed_seed() -> None:
     runs = []
     for seed in (3, 3, 4):
         run = adata.copy()
-        silicell_call("tl.draw_graph", run, n_iterations=50, random_state=seed)
+        metalcyte_call("tl.draw_graph", run, n_iterations=50, random_state=seed)
         runs.append(run.obsm["X_draw_graph_fa"])
     assert_allclose(runs[0], runs[1], rtol=0, atol=0)
     assert not np.array_equal(runs[0], runs[2])
@@ -297,7 +297,7 @@ def test_draw_graph_is_deterministic_at_a_fixed_seed() -> None:
 
 def test_draw_graph_writes_the_slots_scanpy_plotting_reads() -> None:
     adata = _cliques(2, 10)
-    silicell_call("tl.draw_graph", adata, n_iterations=20, random_state=5)
+    metalcyte_call("tl.draw_graph", adata, n_iterations=20, random_state=5)
     assert adata.obsm["X_draw_graph_fa"].dtype == np.float32
     assert adata.uns["draw_graph"]["params"] == {"layout": "fa", "random_state": 5}
 
@@ -306,12 +306,12 @@ def test_draw_graph_rejects_an_empty_graph() -> None:
     adata = AnnData(np.zeros((3, 1), dtype=np.float32))
     adata.obsp["connectivities"] = sparse.csr_matrix((3, 3), dtype=np.float32)
     with pytest.raises(ValueError, match="empty graph"):
-        silicell_call("tl.draw_graph", adata, n_iterations=10)
+        metalcyte_call("tl.draw_graph", adata, n_iterations=10)
 
 
 def test_draw_graph_rejects_an_unsupported_layout() -> None:
     with pytest.raises(ValueError, match="ForceAtlas2"):
-        silicell_call("tl.draw_graph", _cliques(2, 5), layout="fr")
+        metalcyte_call("tl.draw_graph", _cliques(2, 5), layout="fr")
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +331,7 @@ def test_embedding_density_matches_scanpy(
     dataset = neighbored.uns["dataset_id"]
     for groupby in (None, "group"):
         ours, theirs = neighbored.copy(), neighbored.copy()
-        silicell_call("tl.embedding_density", ours, basis="pca", groupby=groupby)
+        metalcyte_call("tl.embedding_density", ours, basis="pca", groupby=groupby)
         sc.tl.embedding_density(theirs, basis="pca", groupby=groupby)
 
         key = "pca_density" if groupby is None else f"pca_density_{groupby}"
@@ -358,7 +358,7 @@ def test_embedding_density_ranks_a_tight_cluster_above_an_isolated_point() -> No
     embedding = np.vstack([rng.normal(scale=0.1, size=(60, 2)), [[8.0, 8.0]]]).astype(np.float32)
     adata = AnnData(np.zeros((61, 1), dtype=np.float32))
     adata.obsm["X_umap"] = embedding
-    silicell_call("tl.embedding_density", adata)
+    metalcyte_call("tl.embedding_density", adata)
 
     density = np.asarray(adata.obs["umap_density"], dtype=np.float64)
     assert density.argmin() == 60, "the isolated point must be the sparsest"
@@ -373,8 +373,8 @@ def test_embedding_density_is_deterministic() -> None:
     adata = AnnData(np.zeros((200, 1), dtype=np.float32))
     adata.obsm["X_umap"] = rng.normal(size=(200, 2)).astype(np.float32)
     first, second = adata.copy(), adata.copy()
-    silicell_call("tl.embedding_density", first)
-    silicell_call("tl.embedding_density", second)
+    metalcyte_call("tl.embedding_density", first)
+    metalcyte_call("tl.embedding_density", second)
     assert_allclose(first.obs["umap_density"], second.obs["umap_density"], rtol=0, atol=0)
 
 
@@ -382,8 +382,8 @@ def test_embedding_density_rejects_a_mismatched_embedding() -> None:
     """A basis that is not there, and one that is not two-dimensional."""
     adata = AnnData(np.zeros((10, 1), dtype=np.float32))
     with pytest.raises(KeyError, match="X_umap"):
-        silicell_call("tl.embedding_density", adata)
+        metalcyte_call("tl.embedding_density", adata)
 
     adata.obsm["X_umap"] = np.arange(10, dtype=np.float32).reshape(10, 1)
     with pytest.raises(ValueError, match="2 are needed"):
-        silicell_call("tl.embedding_density", adata)
+        metalcyte_call("tl.embedding_density", adata)

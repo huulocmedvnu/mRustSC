@@ -21,7 +21,7 @@ from scipy import sparse
 from scipy.stats import spearmanr
 
 from reference_metrics import component_correlations
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 N_COMPS = 15
 N_DCS = 10
@@ -75,7 +75,7 @@ def test_diffmap_matches_scanpy(
 ) -> None:
     label = neighbored.uns["dataset_id"]
     ours = neighbored.copy()
-    silicell_call("tl.diffmap", ours, n_comps=N_COMPS)
+    metalcyte_call("tl.diffmap", ours, n_comps=N_COMPS)
 
     reference = _scanpy_diffmap(neighbored)
     ceiling_run = _scanpy_diffmap(neighbored, random_state=7)
@@ -117,8 +117,8 @@ def test_dpt_orders_cells_like_scanpy(
     neighbored.uns["iroot"] = 0
 
     ours = neighbored.copy()
-    silicell_call("tl.diffmap", ours, n_comps=N_COMPS)
-    silicell_call("tl.dpt", ours, n_dcs=N_DCS)
+    metalcyte_call("tl.diffmap", ours, n_comps=N_COMPS)
+    metalcyte_call("tl.dpt", ours, n_dcs=N_DCS)
 
     reference = _scanpy_diffmap(neighbored)
     sc.tl.dpt(reference, n_dcs=N_DCS)
@@ -151,7 +151,7 @@ def test_path_graph_gives_a_monotone_component_and_pseudotime() -> None:
     """
     n = 60
     adata = _path_graph(n)
-    silicell_call("tl.diffmap", adata, n_comps=6)
+    metalcyte_call("tl.diffmap", adata, n_comps=6)
 
     component = np.asarray(adata.obsm["X_diffmap"][:, 1], dtype=np.float64)
     steps = np.diff(component)
@@ -160,7 +160,7 @@ def test_path_graph_gives_a_monotone_component_and_pseudotime() -> None:
     )
 
     adata.uns["iroot"] = 0
-    silicell_call("tl.dpt", adata, n_dcs=6)
+    metalcyte_call("tl.dpt", adata, n_dcs=6)
     pseudotime = np.asarray(adata.obs["dpt_pseudotime"], dtype=np.float64)
     assert pseudotime[0] == 0.0
     assert np.all(np.diff(pseudotime) > 0), (
@@ -171,18 +171,18 @@ def test_path_graph_gives_a_monotone_component_and_pseudotime() -> None:
 
 def test_diffmap_is_deterministic() -> None:
     first, second = _path_graph(60), _path_graph(60)
-    silicell_call("tl.diffmap", first, n_comps=8)
-    silicell_call("tl.diffmap", second, n_comps=8)
+    metalcyte_call("tl.diffmap", first, n_comps=8)
+    metalcyte_call("tl.diffmap", second, n_comps=8)
     np.testing.assert_array_equal(first.obsm["X_diffmap"], second.obsm["X_diffmap"])
     np.testing.assert_array_equal(first.uns["diffmap_evals"], second.uns["diffmap_evals"])
 
 
 def test_cpu_and_gpu_agree() -> None:
-    if not silicell_call("gpu_available"):
+    if not metalcyte_call("gpu_available"):
         pytest.skip("no Metal device on this machine")
     cpu, gpu = _path_graph(90), _path_graph(90)
-    silicell_call("tl.diffmap", cpu, n_comps=8, device="cpu")
-    silicell_call("tl.diffmap", gpu, n_comps=8, device="gpu")
+    metalcyte_call("tl.diffmap", cpu, n_comps=8, device="cpu")
+    metalcyte_call("tl.diffmap", gpu, n_comps=8, device="gpu")
     # f32 accumulation orders differ between the backends, so the map agrees to f32
     # precision rather than bit for bit.
     assert_allclose(cpu.uns["diffmap_evals"], gpu.uns["diffmap_evals"], rtol=1e-4)
@@ -192,33 +192,33 @@ def test_cpu_and_gpu_agree() -> None:
 
     for adata in (cpu, gpu):
         adata.uns["iroot"] = 0
-        silicell_call("tl.dpt", adata, n_dcs=8)
+        metalcyte_call("tl.dpt", adata, n_dcs=8)
     assert_allclose(cpu.obs["dpt_pseudotime"], gpu.obs["dpt_pseudotime"], rtol=1e-3, atol=1e-5)
 
 
 def test_a_disconnected_graph_is_refused() -> None:
     adata = _disconnected_graph(40)
     with pytest.raises(ValueError, match="connected"):
-        silicell_call("tl.diffmap", adata, n_comps=4)
+        metalcyte_call("tl.diffmap", adata, n_comps=4)
 
 
 def test_too_many_components_are_refused() -> None:
     adata = _path_graph(12)
     with pytest.raises(ValueError, match="n_comps"):
-        silicell_call("tl.diffmap", adata, n_comps=13)
+        metalcyte_call("tl.diffmap", adata, n_comps=13)
 
 
 def test_a_root_outside_the_data_is_refused() -> None:
     adata = _path_graph(30)
-    silicell_call("tl.diffmap", adata, n_comps=5)
+    metalcyte_call("tl.diffmap", adata, n_comps=5)
     adata.uns["iroot"] = 30
     with pytest.raises(ValueError, match="root"):
-        silicell_call("tl.dpt", adata, n_dcs=5)
+        metalcyte_call("tl.dpt", adata, n_dcs=5)
 
 
 def test_more_components_than_the_map_holds_are_refused() -> None:
     adata = _path_graph(30)
-    silicell_call("tl.diffmap", adata, n_comps=5)
+    metalcyte_call("tl.diffmap", adata, n_comps=5)
     adata.uns["iroot"] = 0
     with pytest.raises(ValueError, match="n_dcs"):
-        silicell_call("tl.dpt", adata, n_dcs=6)
+        metalcyte_call("tl.dpt", adata, n_dcs=6)

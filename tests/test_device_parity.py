@@ -1,7 +1,7 @@
 """The CPU and the GPU have to agree, because callers do not choose between them.
 
 `settings.device` defaults to `"auto"`, and `DeviceKind::Auto` resolves to Metal
-wherever one exists (crates/silicell-core/src/device.rs). So the device a caller gets is
+wherever one exists (crates/metalcyte-core/src/device.rs). So the device a caller gets is
 a property of their machine, not of their code, and any quantity that differs between
 the two is a result that changes when the code moves.
 
@@ -21,15 +21,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from silicell_call import silicell_call
+from metalcyte_call import metalcyte_call
 
 
 def _gpu_available() -> bool:
     try:
-        import silicell
+        import metalcyte
     except ImportError:
         return False
-    return bool(silicell._silicell.gpu_available())
+    return bool(metalcyte._metalcyte.gpu_available())
 
 
 pytestmark = pytest.mark.skipif(
@@ -44,7 +44,7 @@ def embedding(n_cells: int, n_dims: int, seed: int) -> np.ndarray:
 
 
 def knn(x: np.ndarray, k: int, device: str):
-    return [np.asarray(v) for v in silicell_call("_silicell.knn", x.astype(np.float32), k, device)]
+    return [np.asarray(v) for v in metalcyte_call("_metalcyte.knn", x.astype(np.float32), k, device)]
 
 
 def test_duplicate_cells_are_at_distance_zero_on_both_devices():

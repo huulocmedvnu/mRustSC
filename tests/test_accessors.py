@@ -1,6 +1,6 @@
 """The accessor layer and the runtime settings, against scanpy and against hand maths.
 
-`silicell.get` is pure AnnData plumbing, so unlike the algorithm branches every
+`metalcyte.get` is pure AnnData plumbing, so unlike the algorithm branches every
 assertion here can be exact: scanpy's frames are compared column by column with
 their dtypes, and `aggregate` is compared both to scanpy and to values worked out
 by hand on a matrix small enough to read.
@@ -21,17 +21,17 @@ import scanpy as sc
 import scipy.sparse as sp
 from anndata import AnnData
 
-# `silicell/__init__.py` imports the extension eagerly, so this file needs one to be
+# `metalcyte/__init__.py` imports the extension eagerly, so this file needs one to be
 # collectible without a compiled core. Nothing under test calls into it.
 try:
-    import silicell._silicell  # noqa: F401
+    import metalcyte._metalcyte  # noqa: F401
 except ImportError:
-    _PLACEHOLDER = types.ModuleType("silicell._silicell")
+    _PLACEHOLDER = types.ModuleType("metalcyte._metalcyte")
     _PLACEHOLDER.gpu_available = lambda: False
-    sys.modules["silicell._silicell"] = _PLACEHOLDER
+    sys.modules["metalcyte._metalcyte"] = _PLACEHOLDER
 
-from silicell import get
-from silicell.settings import Settings, Verbosity
+from metalcyte import get
+from metalcyte.settings import Settings, Verbosity
 
 N_OBS = 8
 N_VARS = 5
@@ -375,7 +375,7 @@ def fresh_settings() -> Settings:
 
 def test_defaults_are_quiet_and_device_agnostic(fresh_settings: Settings) -> None:
     assert fresh_settings.verbosity == Verbosity.warning
-    assert fresh_settings.device == os.environ.get("SILICELL_DEVICE", "auto")
+    assert fresh_settings.device == os.environ.get("METALCYTE_DEVICE", "auto")
     assert fresh_settings.max_memory_gb > 0
     assert (fresh_settings.n_jobs, fresh_settings.chunk_size) == (0, 0)
 
@@ -449,8 +449,8 @@ def test_log_always_reports_warnings_and_errors(
     assert capsys.readouterr().err == "WARNING: empty cells dropped\n"
 
 
-def test_importing_silicell_creates_the_singleton_without_side_effects() -> None:
-    import silicell
+def test_importing_metalcyte_creates_the_singleton_without_side_effects() -> None:
+    import metalcyte
 
-    assert isinstance(silicell.settings, Settings)
-    assert silicell.settings.verbosity == Verbosity.warning
+    assert isinstance(metalcyte.settings, Settings)
+    assert metalcyte.settings.verbosity == Verbosity.warning

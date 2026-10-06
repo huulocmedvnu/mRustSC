@@ -1,16 +1,16 @@
-"""Audit of `crates/silicell-core/src/chunked.rs` — the block-streaming layer.
+"""Audit of `crates/metalcyte-core/src/chunked.rs` — the block-streaming layer.
 
 There is no scanpy equivalent to cross-check against, so this file pins the one
 property streaming has to have: **the answer does not depend on the block size**.
 
-A note on reach, established by reading `crates/silicell-py/src/*.rs`: *nothing*
-in `chunked.rs` is bound to Python. `crates/silicell-py/src/lib.rs` registers
+A note on reach, established by reading `crates/metalcyte-py/src/*.rs`: *nothing*
+in `chunked.rs` is bound to Python. `crates/metalcyte-py/src/lib.rs` registers
 thirteen submodules and none of them is `chunked`; `RowBlocks`, `CsrRowBlocks`,
 `rows_per_block`, `streaming_gene_statistics` and `streaming_cell_totals` are
-reachable only from Rust. What *is* reachable is `python/silicell/_backed.py`,
+reachable only from Rust. What *is* reachable is `python/metalcyte/_backed.py`,
 which re-implements the same block iteration and the same cost model in Python
-(its own comment says it mirrors `silicell_core::chunked::rows_per_block`), plus
-the in-memory kernels in `silicell._silicell` that a chunked pass would call per
+(its own comment says it mirrors `metalcyte_core::chunked::rows_per_block`), plus
+the in-memory kernels in `metalcyte._metalcyte` that a chunked pass would call per
 block. So the tests below split three ways:
 
 * the cost model — `block_size_for` against an independent transcription of
@@ -37,10 +37,10 @@ import scipy.sparse as sp
 from anndata import AnnData
 from numpy.testing import assert_allclose
 
-from silicell import _silicell
-from silicell._backed import block_size_for, open_backed
-from silicell.settings import settings
-from silicell_call import silicell_call
+from metalcyte import _metalcyte
+from metalcyte._backed import block_size_for, open_backed
+from metalcyte.settings import settings
+from metalcyte_call import metalcyte_call
 
 N_OBS, N_VARS = 240, 60
 
@@ -61,7 +61,7 @@ BYTES_PER_GB = 1024**3
 
 
 def rust_rows_per_block(n_cols: int, density: float, budget_bytes: int) -> int:
-    """`silicell_core::chunked::rows_per_block`, transcribed line for line.
+    """`metalcyte_core::chunked::rows_per_block`, transcribed line for line.
 
     The Rust is not callable from Python, so agreement with the Python mirror
     can only be checked against a hand transcription. Kept deliberately literal.
@@ -193,16 +193,16 @@ def read_blocks(path, block_size: int) -> list[sp.csr_matrix]:
 def test_no_part_of_chunked_rs_is_bound_to_python():
     """Pins the premise of this audit: the Rust streaming layer has no binding.
 
-    `crates/silicell-py/src/lib.rs` registers no `chunked` module, so every name in
+    `crates/metalcyte-py/src/lib.rs` registers no `chunked` module, so every name in
     `chunked.rs` is dead from Python's point of view and the Python mirror in
-    `silicell._backed` is the only streaming code a user can reach. If a binding is
+    `metalcyte._backed` is the only streaming code a user can reach. If a binding is
     ever added this fails, which is the signal to test the Rust directly instead
     of its transcription.
     """
-    bound = [name for name in CHUNKED_NAMES if hasattr(_silicell, name)]
+    bound = [name for name in CHUNKED_NAMES if hasattr(_metalcyte, name)]
     assert bound == [], f"chunked.rs is now bound as {bound}; audit the binding, not the mirror"
     # The mirror exists and is pure Python, not a re-export of the extension.
-    assert block_size_for.__module__ == "silicell._backed"
+    assert block_size_for.__module__ == "metalcyte._backed"
 
 
 # --------------------------------------------------------------------------
@@ -381,11 +381,11 @@ def test_per_cell_qc_metrics_do_not_depend_on_the_block_size(h5ad, block_size):
     grand total, say — would fail here at every block size but the last.
     """
     path, matrix = h5ad
-    whole, _ = silicell_call(
+    whole, _ = metalcyte_call(
         "pp.calculate_qc_metrics", AnnData(matrix), percent_top=(5, 20), inplace=False
     )
     frames = [
-        silicell_call("pp.calculate_qc_metrics", AnnData(block), percent_top=(5, 20), inplace=False)[
+        metalcyte_call("pp.calculate_qc_metrics", AnnData(block), percent_top=(5, 20), inplace=False)[
             0
         ]
         for block in read_blocks(path, block_size)
@@ -405,7 +405,7 @@ def test_per_gene_qc_totals_reassemble_from_the_blocks(h5ad, block_size):
     the block means — the same merge `GeneMoments` performs for the first moment.
     """
     path, matrix = h5ad
-    _, whole = silicell_call(
+    _, whole = metalcyte_call(
         "pp.calculate_qc_metrics", AnnData(matrix), percent_top=(5, 20), inplace=False
     )
     totals = np.zeros(N_VARS)
@@ -413,7 +413,7 @@ def test_per_gene_qc_totals_reassemble_from_the_blocks(h5ad, block_size):
     weighted_mean = np.zeros(N_VARS)
     n_rows = 0
     for block in read_blocks(path, block_size):
-        _, genes = silicell_call(
+        _, genes = metalcyte_call(
             "pp.calculate_qc_metrics", AnnData(block), percent_top=(5, 20), inplace=False
         )
         totals += genes["total_counts"].to_numpy(dtype=np.float64)
@@ -440,9 +440,9 @@ def test_log1p_is_identical_block_by_block(h5ad, block_size):
     else in the suite.
     """
     path, matrix = h5ad
-    whole = silicell_call("pp.log1p", AnnData(matrix), inplace=False)
+    whole = metalcyte_call("pp.log1p", AnnData(matrix), inplace=False)
     parts = [
-        silicell_call("pp.log1p", AnnData(block), inplace=False)
+        metalcyte_call("pp.log1p", AnnData(block), inplace=False)
         for block in read_blocks(path, block_size)
     ]
     streamed = sp.vstack(parts).toarray()
@@ -465,18 +465,18 @@ def test_normalize_total_streams_only_with_an_explicit_target(h5ad, block_size):
     path, matrix = h5ad
     blocks = read_blocks(path, block_size)
 
-    exact = silicell_call("pp.normalize_total", AnnData(matrix), target_sum=1e4, inplace=False)
+    exact = metalcyte_call("pp.normalize_total", AnnData(matrix), target_sum=1e4, inplace=False)
     streamed = sp.vstack(
         [
-            silicell_call("pp.normalize_total", AnnData(block), target_sum=1e4, inplace=False)
+            metalcyte_call("pp.normalize_total", AnnData(block), target_sum=1e4, inplace=False)
             for block in blocks
         ]
     )
     assert_allclose(streamed.toarray(), exact.toarray(), rtol=1e-6)
 
-    median = silicell_call("pp.normalize_total", AnnData(matrix), inplace=False)
+    median = metalcyte_call("pp.normalize_total", AnnData(matrix), inplace=False)
     median_streamed = sp.vstack(
-        [silicell_call("pp.normalize_total", AnnData(block), inplace=False) for block in blocks]
+        [metalcyte_call("pp.normalize_total", AnnData(block), inplace=False) for block in blocks]
     )
     gap = np.abs(median_streamed.toarray() - median.toarray()).max()
     assert gap > 1e-3, (
@@ -503,7 +503,7 @@ def test_streamed_gene_statistics_match_the_crates_in_memory_scale(h5ad, block_s
     demonstrates the test's power: with ddof = 0 the same comparison fails.
     """
     path, matrix = h5ad
-    scaled = silicell_call("pp.scale", AnnData(matrix), max_value=None, inplace=False)
+    scaled = metalcyte_call("pp.scale", AnnData(matrix), max_value=None, inplace=False)
     crate_mean, crate_deviation = recover_mean_and_deviation(matrix, scaled)
 
     mean, variance = stream_gene_statistics(read_blocks(path, block_size))
@@ -537,7 +537,7 @@ def test_the_streamed_merge_survives_a_mean_a_sum_of_squares_cannot(tmp_path):
     _, streamed = stream_gene_statistics(blocks)
     assert_allclose(streamed, reference, rtol=1e-9)
 
-    scaled = silicell_call("pp.scale", AnnData(matrix), max_value=None, inplace=False)
+    scaled = metalcyte_call("pp.scale", AnnData(matrix), max_value=None, inplace=False)
     _, crate_deviation = recover_mean_and_deviation(matrix, scaled)
     assert_allclose(np.sqrt(streamed), crate_deviation, rtol=5e-2)
 

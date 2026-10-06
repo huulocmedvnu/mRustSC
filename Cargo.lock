@@ -1229,7 +1229,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "silicell-core"
+name = "metalcyte-core"
 version = "0.2.0"
 dependencies = [
  "blas-src",
@@ -1241,7 +1241,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "silicell-gpu"
+name = "metalcyte-gpu"
 version = "0.2.0"
 dependencies = [
  "blas-src",
@@ -1249,19 +1249,19 @@ dependencies = [
  "metal",
  "ndarray",
  "rand 0.8.7",
- "silicell-core",
+ "metalcyte-core",
 ]
 
 [[package]]
-name = "silicell-py"
+name = "metalcyte-py"
 version = "0.2.0"
 dependencies = [
  "candle-core",
  "ndarray",
  "numpy",
  "pyo3",
- "silicell-core",
- "silicell-gpu",
+ "metalcyte-core",
+ "metalcyte-gpu",
 ]
 
 [[package]]
