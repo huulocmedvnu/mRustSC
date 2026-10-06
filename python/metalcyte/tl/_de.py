@@ -106,6 +106,17 @@ def _compare(
 ) -> dict:
     """Dispatch one method to the core, which returns per-group statistics in gene order."""
     extension = _extension()
+    if (
+        method == "wilcoxon"
+        and isinstance(matrix, np.ndarray)
+        and matrix.ndim == 2
+        and hasattr(extension, "rank_genes_groups_wilcoxon_dense")
+    ):
+        # A scaled matrix is dense; ranking it through CSR would cost three dense copies.
+        dense = np.ascontiguousarray(matrix, dtype=np.float32)
+        return extension.rank_genes_groups_wilcoxon_dense(
+            dense, codes, n_labels, reference_index, _TIE_CORRECT
+        )
     csr = _csr_args(matrix)
     if method == "wilcoxon":
         return extension.rank_genes_groups_wilcoxon(

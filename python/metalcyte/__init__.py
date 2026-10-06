@@ -1,7 +1,8 @@
 """Single-cell analysis with a Rust core running on the Apple GPU.
 
-`pp` holds preprocessing, `tl` the tools, `metrics` and `get` the accessors. Functions take
-an `AnnData` and write their results into its standard slots. Functions take an `AnnData` and write their results
+`pp` holds preprocessing, `tl` the tools, `metrics` and `get` the accessors.
+Functions take an `AnnData` and write their results into its standard slots. Functions take an
+`AnnData` and write their results
 into the slots scanpy uses, so existing code and plotting keep working.
 """
 

@@ -68,6 +68,131 @@ pub fn rank_genes_groups_wilcoxon(
     Ok(assemble(scores, &means, reference, n_genes))
 }
 
+/// One ranking to run: the slot of every cell, the slot sizes, how many cells take
+/// part, and which group's rank sum is the statistic (`None`: every group against the rest).
+type Comparison = (Vec<u32>, Vec<usize>, usize, Option<usize>);
+
+/// Genes per block in [`rank_genes_groups_wilcoxon_dense`]: a `64 x n_cells` f32
+/// gene-major slab is 250 MB at a million cells, and that slab is the whole
+/// working set beyond the per-thread sort scratch.
+const DENSE_GENE_BLOCK: usize = 64;
+
+/// [`rank_genes_groups_wilcoxon`] for a dense row-major `(n_cells, n_genes)` matrix,
+/// which is what `pp.scale` leaves in `adata.X`.
+///
+/// Routing a scaled matrix through the CSR path costs three dense copies (the CSR
+/// itself, the core's copy and the gene-major transpose): 6.5 GB at 116 000 cells,
+/// 25 GB at 476 000. Here the matrix is ranked a block of genes at a time: the block's
+/// columns are gathered into one gene-major slab, every gene of the slab is ranked in
+/// parallel with the same `rank_gene` the sparse path uses (an explicit zero joins the
+/// zero block there too, so the statistics are identical to the sparse path on the
+/// same values), and the slab is reused for the next block.
+pub fn rank_genes_groups_wilcoxon_dense(
+    data: &[f32],
+    n_cells: usize,
+    n_genes: usize,
+    group_labels: &[u32],
+    n_groups: usize,
+    reference: Option<u32>,
+    tie_correct: bool,
+) -> Result<GroupComparison> {
+    if data.len() != n_cells * n_genes {
+        return Err(Error::shape(
+            format!("{} values", n_cells * n_genes),
+            format!("{} values", data.len()),
+        ));
+    }
+    validate(group_labels, n_cells, n_groups, reference)?;
+    let group_sizes = group_sizes(group_labels, n_groups);
+    let means =
+        GroupMeans::compute_dense(data, n_cells, n_genes, group_labels, n_groups, &group_sizes);
+    let all_cells: Vec<u32> = (0..n_cells as u32).collect();
+
+    // Per comparison: the slot of every cell, the slot sizes, the number compared and
+    // which slot's rank sum is the statistic.
+    let comparisons: Vec<Comparison> = match reference {
+        None => vec![(group_labels.to_vec(), group_sizes.clone(), n_cells, None)],
+        Some(reference) => (0..n_groups)
+            .map(|group| {
+                let slot_of_cell: Vec<u32> = group_labels
+                    .iter()
+                    .map(|&label| {
+                        if label as usize == group {
+                            ACTIVE_SLOT as u32
+                        } else if label == reference {
+                            1
+                        } else {
+                            NO_SLOT
+                        }
+                    })
+                    .collect();
+                let sizes = vec![group_sizes[group], group_sizes[reference as usize]];
+                let compared = sizes[0] + sizes[1];
+                (slot_of_cell, sizes, compared, Some(group))
+            })
+            .collect(),
+    };
+
+    let mut scores = vec![vec![0f64; n_genes]; n_groups];
+    let mut slab = vec![0f32; DENSE_GENE_BLOCK * n_cells];
+    let mut start = 0;
+    while start < n_genes {
+        let width = DENSE_GENE_BLOCK.min(n_genes - start);
+        // Gather: row-major reads of a `width`-wide strip, written column by column.
+        slab[..width * n_cells]
+            .par_chunks_mut(n_cells)
+            .enumerate()
+            .for_each(|(offset, column)| {
+                let gene = start + offset;
+                for (cell, slot) in column.iter_mut().enumerate() {
+                    *slot = data[cell * n_genes + gene];
+                }
+            });
+        for (slot_of_cell, sizes, compared, active) in &comparisons {
+            if let Some(group) = active {
+                if *group as u32 == reference.unwrap_or(u32::MAX) {
+                    continue; // the reference against itself has no test
+                }
+            }
+            let block_scores: Vec<Vec<f64>> = slab[..width * n_cells]
+                .par_chunks(n_cells)
+                .map_init(Vec::new, |stored, column| {
+                    let ranks =
+                        rank_gene(&all_cells, column, slot_of_cell, sizes, *compared, stored);
+                    let coefficient = tie_coefficient(ranks.tie_sum, *compared, tie_correct);
+                    match active {
+                        None => ranks
+                            .sums
+                            .iter()
+                            .zip(sizes)
+                            .map(|(&sum, &size)| standardised(sum, size, *compared, coefficient))
+                            .collect(),
+                        Some(_) => vec![standardised(
+                            ranks.sums[ACTIVE_SLOT],
+                            sizes[ACTIVE_SLOT],
+                            *compared,
+                            coefficient,
+                        )],
+                    }
+                })
+                .collect();
+            for (offset, gene_scores) in block_scores.iter().enumerate() {
+                match active {
+                    None => {
+                        for (group, &score) in gene_scores.iter().enumerate() {
+                            scores[group][start + offset] = score;
+                        }
+                    }
+                    Some(group) => scores[*group][start + offset] = gene_scores[0],
+                }
+            }
+        }
+        start += width;
+    }
+
+    Ok(assemble(scores, &means, reference, n_genes))
+}
+
 fn validate(
     group_labels: &[u32],
     n_cells: usize,
@@ -373,6 +498,24 @@ struct GroupMeans {
 }
 
 impl GroupMeans {
+    fn compute_dense(
+        data: &[f32],
+        n_cells: usize,
+        n_genes: usize,
+        group_labels: &[u32],
+        n_groups: usize,
+        group_sizes: &[usize],
+    ) -> Self {
+        let mut sums = vec![vec![0f64; n_genes]; n_groups];
+        for (cell, row) in data.chunks_exact(n_genes).enumerate() {
+            let target = &mut sums[group_labels[cell] as usize];
+            for (acc, &value) in target.iter_mut().zip(row) {
+                *acc += value as f64;
+            }
+        }
+        Self::from_sums(sums, n_cells, group_sizes)
+    }
+
     fn compute(
         matrix: &CsrMatrix,
         group_labels: &[u32],
@@ -390,6 +533,12 @@ impl GroupMeans {
             }
         }
 
+        Self::from_sums(sums, n_cells, group_sizes)
+    }
+
+    fn from_sums(sums: Vec<Vec<f64>>, n_cells: usize, group_sizes: &[usize]) -> Self {
+        let n_genes = sums.first().map_or(0, Vec::len);
+        let n_groups = sums.len();
         let mut totals = vec![0f64; n_genes];
         for row in &sums {
             for (total, &sum) in totals.iter_mut().zip(row) {
@@ -6014,4 +6163,60 @@ mod tests {
         230, 68, 248, 267, 136, 28, 239, 147, 98, 155, 34, 70, 53, 202, 91, 46, 83, 233, 205, 250,
         45, 290, 176, 199, 291, 12, 78, 79, 206, 284, 72, 73, 152, 158, 180, 150, 29, 6, 271, 3, 2,
     ];
+
+    #[test]
+    fn the_dense_path_matches_the_sparse_path() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(5);
+        let (n_cells, n_genes, n_groups) = (300usize, 150usize, 4usize);
+        let dense: Vec<f32> = (0..n_cells * n_genes)
+            .map(|_| {
+                if rng.gen::<f32>() < 0.3 {
+                    0.0
+                } else {
+                    rng.gen_range(-2.0..2.0)
+                }
+            })
+            .collect();
+        let labels: Vec<u32> = (0..n_cells)
+            .map(|_| rng.gen_range(0..n_groups as u32))
+            .collect();
+        let matrix = CsrMatrix::from_dense(&dense, n_cells, n_genes).unwrap();
+        for reference in [None, Some(1u32)] {
+            let sparse = rank_genes_groups_wilcoxon(
+                &matrix,
+                &labels,
+                n_groups,
+                reference,
+                true,
+                &Device::Cpu,
+            )
+            .unwrap();
+            let block = rank_genes_groups_wilcoxon_dense(
+                &dense, n_cells, n_genes, &labels, n_groups, reference, true,
+            )
+            .unwrap();
+            let worst = sparse
+                .scores
+                .iter()
+                .zip(block.scores.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            assert!(worst < 1e-5, "scores differ by {worst}");
+            let worst_p = sparse
+                .p_values
+                .iter()
+                .zip(block.p_values.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f64, f64::max);
+            assert!(worst_p < 1e-12, "p-values differ by {worst_p}");
+            let worst_f = sparse
+                .log2_fold_changes
+                .iter()
+                .zip(block.log2_fold_changes.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            assert!(worst_f < 1e-5, "fold changes differ by {worst_f}");
+        }
+    }
 }

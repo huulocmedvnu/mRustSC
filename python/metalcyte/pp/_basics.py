@@ -81,9 +81,12 @@ def filter_cells(
     """Filter out cells below `min_genes` expressed genes or `min_counts` total counts."""
     if min_genes is None and min_counts is None:
         raise ValueError("provide at least one of min_genes or min_counts")
-    mask = np.asarray(
-        _extension().filter_cells(*_csr_args(adata.X), min_genes, min_counts), dtype=bool
-    )
+    ext = _extension()
+    if _fast_path(ext, "filter_cells_mask") and sp.isspmatrix_csr(adata.X):
+        values = np.ascontiguousarray(adata.X.data, dtype=np.float32)
+        mask = np.asarray(ext.filter_cells_mask(adata.X.indptr, values, min_genes, min_counts))
+    else:
+        mask = np.asarray(ext.filter_cells(*_csr_args(adata.X), min_genes, min_counts), dtype=bool)
     if not inplace:
         return mask
     adata._inplace_subset_obs(mask)
@@ -100,9 +103,15 @@ def filter_genes(
     """Filter out genes seen in fewer than `min_cells` cells or below `min_counts` counts."""
     if min_cells is None and min_counts is None:
         raise ValueError("provide at least one of min_cells or min_counts")
-    mask = np.asarray(
-        _extension().filter_genes(*_csr_args(adata.X), min_cells, min_counts), dtype=bool
-    )
+    ext = _extension()
+    if _fast_path(ext, "filter_genes_mask") and sp.isspmatrix_csr(adata.X):
+        x = adata.X
+        values = np.ascontiguousarray(x.data, dtype=np.float32)
+        mask = np.asarray(
+            ext.filter_genes_mask(x.indptr, x.indices, values, x.shape[1], min_cells, min_counts)
+        )
+    else:
+        mask = np.asarray(ext.filter_genes(*_csr_args(adata.X), min_cells, min_counts), dtype=bool)
     if not inplace:
         return mask
     adata._inplace_subset_var(mask)

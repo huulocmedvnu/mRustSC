@@ -3,17 +3,17 @@
   "device": "metal",
   "umap_parallel": true,
   "tuned": false,
-  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
   "input_shape": [
     117308,
     25574
   ],
-  "load_seconds": 0.38626458402723074,
+  "load_seconds": 0.40131487511098385,
   "steps": [
     {
       "step": "pp.calculate_qc_metrics",
-      "seconds": 0.8618480409495533,
-      "added_mb": 1856.9232025146484,
+      "seconds": 1.0070537498686463,
+      "added_mb": 1856.9075775146484,
       "shape": [
         117308,
         25574
@@ -21,8 +21,8 @@
     },
     {
       "step": "pp.filter_cells",
-      "seconds": 0.6427665841765702,
-      "added_mb": 2415.673614501953,
+      "seconds": 0.7218350840266794,
+      "added_mb": 2476.4861602783203,
       "shape": [
         115868,
         25574
@@ -30,8 +30,8 @@
     },
     {
       "step": "pp.filter_genes",
-      "seconds": 1.0101890000514686,
-      "added_mb": 2405.0173873901367,
+      "seconds": 0.9791051249485463,
+      "added_mb": 2493.283172607422,
       "shape": [
         115868,
         25574
@@ -39,8 +39,8 @@
     },
     {
       "step": "pp.normalize_total",
-      "seconds": 0.11558166705071926,
-      "added_mb": 1237.6415634155273,
+      "seconds": 0.2135712499730289,
+      "added_mb": 1238.9227447509766,
       "shape": [
         115868,
         25574
@@ -48,8 +48,8 @@
     },
     {
       "step": "pp.log1p",
-      "seconds": 0.12083241692744195,
-      "added_mb": 1237.1883926391602,
+      "seconds": 0.1502779999282211,
+      "added_mb": 1237.1727676391602,
       "shape": [
         115868,
         25574
@@ -57,8 +57,8 @@
     },
     {
       "step": "pp.highly_variable_genes",
-      "seconds": 0.25267983390949667,
-      "added_mb": 1861.4701919555664,
+      "seconds": 0.30711166607216,
+      "added_mb": 1922.0169296264648,
       "shape": [
         115868,
         25574
@@ -66,8 +66,8 @@
     },
     {
       "step": "subset",
-      "seconds": 0.552338375011459,
-      "added_mb": 3697.658905029297,
+      "seconds": 0.8546045408584177,
+      "added_mb": 3763.908950805664,
       "shape": [
         115868,
         2000
@@ -75,8 +75,8 @@
     },
     {
       "step": "pp.scale",
-      "seconds": 0.02321579190902412,
-      "added_mb": 828.3600158691406,
+      "seconds": 0.09845170797780156,
+      "added_mb": 872.5162658691406,
       "shape": [
         115868,
         2000
@@ -84,8 +84,8 @@
     },
     {
       "step": "pp.pca",
-      "seconds": 1.095923125045374,
-      "added_mb": 1293.6730651855469,
+      "seconds": 1.1837982088327408,
+      "added_mb": 1304.6574172973633,
       "shape": [
         115868,
         2000
@@ -93,8 +93,8 @@
     },
     {
       "step": "pp.neighbors",
-      "seconds": 1.967794792028144,
-      "added_mb": 54.35926055908203,
+      "seconds": 1.9807847910560668,
+      "added_mb": 39.061927795410156,
       "shape": [
         115868,
         2000
@@ -102,8 +102,8 @@
     },
     {
       "step": "tl.umap",
-      "seconds": 4.80372295784764,
-      "added_mb": 111.7031478881836,
+      "seconds": 4.759119582828134,
+      "added_mb": 106.87504577636719,
       "shape": [
         115868,
         2000
@@ -111,8 +111,8 @@
     },
     {
       "step": "tl.leiden",
-      "seconds": 0.6597526669502258,
-      "added_mb": 119.79694366455078,
+      "seconds": 0.6269732909277081,
+      "added_mb": 157.39069366455078,
       "shape": [
         115868,
         2000
@@ -120,19 +120,19 @@
     },
     {
       "step": "tl.rank_genes_groups",
-      "seconds": 7.613160333829001,
-      "added_mb": 6247.691917419434,
+      "seconds": 0.43908670800738037,
+      "added_mb": 9.046875,
       "shape": [
         115868,
         2000
       ]
     }
   ],
-  "total_seconds": 19.719805585686117,
+  "total_seconds": 13.321773705305532,
   "n_clusters": 36,
   "versions": {
     "scanpy": "1.12.4",
-    "metalcyte": "0.2.0",
+    "metalcyte": "0.3.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }
