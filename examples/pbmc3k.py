@@ -55,7 +55,7 @@ def timed(label: str, function: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 def main() -> int:
-    print(f"silicell {sr.__version__}, GPU available: {si.gpu_available()}")
+    print(f"silicell {si.__version__}, GPU available: {si.gpu_available()}")
     print(f"scanpy {sc.__version__}")
 
     # ---------------------------------------------------------------- load the data
