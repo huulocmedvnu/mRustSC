@@ -202,7 +202,50 @@ sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_
 
 RESULTS_ENERGY
 
-## 5. Against the NVIDIA-GPU alternative
+## 5. Ablation: what each Apple-specific choice is worth
+
+`benches/results/ablation_bm117k.json`, from `benches/ablation.py` on the 117 308-cell
+atlas, scrust with the parallel UMAP. One knob off per row; seconds per step. Run-to-run
+noise on this machine is about ±2 s on the whole pipeline (the rank-sum step alone moves
+between 6.3 and 8.9 s with nothing changed), so differences under that are not differences.
+
+| configuration | what is off | whole | PCA | neighbours | UMAP | Leiden | markers | scale | normalise |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `all` | nothing | 23.3 | 1.37 | 2.08 | 5.04 | 0.94 | 8.88 | 0.05 | 0.15 |
+| `no_metal` | the GPU (`device="cpu"`) | 19.1 | 1.01 | 2.04 | 4.87 | 0.66 | 6.83 | 0.03 | 0.12 |
+| `no_accelerate` | Apple's BLAS, AMX (wheel built without the feature) | 20.4 | 0.92 | 2.13 | 4.76 | 0.63 | 7.84 | 0.03 | 0.14 |
+| `p_cores_only` | the 6 efficiency cores (`RAYON_NUM_THREADS=5`) | 22.8 | 0.85 | 2.12 | 7.49 | 0.77 | 7.66 | 0.02 | 0.14 |
+| `one_core` | every core but one (`RAYON_NUM_THREADS=1`) | 49.9 | 0.99 | 2.07 | 33.38 | 0.69 | 8.10 | 0.09 | 0.21 |
+| `no_zero_copy` | the in-place numpy borrows (`SCRUST_FORCE_COPY=1`) | 25.1 | 4.83 | 1.99 | 4.73 | 0.63 | 6.32 | 1.59 | 0.85 |
+| `sequential_umap` | the Hogwild optimiser | 46.6 | 0.89 | 2.08 | 31.33 | 0.65 | 7.71 | 0.03 | 0.12 |
+
+What the table says, plainly:
+
+- **At this size neither the GPU nor the AMX units buy anything measurable.** Switching
+  Metal off is 4 s *faster* (the GPU path pays for pipeline compilation and command-buffer
+  round trips that a 2 000-gene problem does not amortise), and the pure-Rust BLAS is
+  within noise of Accelerate. The 5x to 11x over scanpy on this atlas comes from the Rust
+  core: fused single passes, `f32` throughout, and work spread over every core.
+- **The cores are what count, and all eleven of them.** UMAP's Hogwild sweep is 6.6x faster
+  on 11 threads than on 1 and 1.5x faster than on the 5 performance cores alone: the
+  efficiency cores are not idle ballast, they carry a third of the epochs. Everything else
+  that scales with threads (`scale`, `normalise`, HVG) is already under half a second.
+- **Zero-copy buys 4.5 s** on this run: PCA from the dense buffer scanpy's `scale` would
+  have made (4.8 s) against PCA straight from the in-place result (1.4 s), and the
+  elementwise steps 10x to 30x.
+- **Two steps ignore the thread count and are the next targets.** `pp.neighbors` and
+  `tl.rank_genes_groups` take the same 2 s and 8 s on one core as on eleven. The neighbour
+  search runs through Accelerate or Metal whichever way rayon is set, so this knob never
+  reached it; the rank-sum test is rayon-parallel in Rust, so its 8 s must be spent in the
+  Python assembly of the result (structured arrays, DataFrames), which a profile will show.
+- **The Apple-silicon case is therefore not "the GPU makes the steps faster" at 10⁵ cells.**
+  It is (i) unified memory, which lets a million cells stream off the disk through buffers
+  the CPU and GPU both read without a copy (section 3), (ii) a laptop package that runs the
+  whole pipeline on every core at under 30 W (section 4), and (iii) at 10⁶ cells, the matrix
+  units for the neighbour search once it is written for them (`docs/PLAN_APPLE_SILICON.md`,
+  2.1). The 1 M-cell ablation in the plan will say whether (iii) holds before that rewrite.
+
+## 6. Against the NVIDIA-GPU alternative
 
 rapids-singlecell (Dicks et al., "GPU-accelerated single-cell analysis at scale with
 rapids-singlecell", 2026, arXiv 2603.02402; NVIDIA developer blog, 12 June 2025) is the

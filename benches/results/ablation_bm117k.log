@@ -1,0 +1,23 @@
+== all:  
+   total 23.3 s
+== no_metal:  --device cpu
+   total 19.1 s
+== p_cores_only: RAYON_NUM_THREADS=5 
+   total 22.8 s
+== one_core: RAYON_NUM_THREADS=1 
+   total 49.9 s
+== no_zero_copy: SCRUST_FORCE_COPY=1 
+   total 25.1 s
+== no_accelerate:  
+   failed: ModuleNotFoundError: No module named 'scanpy'
+== sequential_umap:  --no-umap-parallel
+   total 46.6 s
+
+configuration        total s   vs all
+all                      23.3    1.00x
+no_metal                 19.1    0.82x
+p_cores_only             22.8    0.98x
+one_core                 49.9    2.14x
+no_zero_copy             25.1    1.08x
+no_accelerate        failed
+sequential_umap          46.6    2.00x
