@@ -115,7 +115,7 @@ def main() -> int:
     print("scanpy ...", flush=True)
     a_sc, b_sc, hv_sc, key = run_library(sc, counts, "scanpy")
     print("silicell ...", flush=True)
-    _a_sr, b_sr, hv_sr, _ = run_library(sr, counts, "silicell")
+    _a_sr, b_sr, hv_sr, _ = run_library(si, counts, "silicell")
     assert (b_sc.obs_names == b_sr.obs_names).all()
 
     report = {"file": str(args.h5ad), "n_cells": int(b_sc.n_obs)}
