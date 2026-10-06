@@ -9,6 +9,7 @@ by hand on a matrix small enough to read.
 from __future__ import annotations
 
 import contextlib
+import os
 import sys
 import types
 import warnings
