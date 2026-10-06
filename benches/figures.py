@@ -27,30 +27,30 @@ pio.templates.default = "plotly_white"
 COLORS = pio.templates["plotly"].layout.colorway  # the default colorway
 # Plain words for the figures: readers need the step, not the function name.
 STEP_LABELS = {
-    "pp.calculate_qc_metrics": "QC metrics",
-    "pp.filter_cells": "filter cells",
-    "pp.filter_genes": "filter genes",
-    "pp.normalize_total": "normalise",
-    "pp.log1p": "log transform",
-    "pp.highly_variable_genes": "variable genes",
-    "subset": "subset to variable genes",
-    "pp.scale": "scale",
+    "pp.calculate_qc_metrics": "Quality-control metrics",
+    "pp.filter_cells": "Cell filter",
+    "pp.filter_genes": "Gene filter",
+    "pp.normalize_total": "Normalisation",
+    "pp.log1p": "Log transform",
+    "pp.highly_variable_genes": "Variable genes",
+    "subset": "Subset to variable genes",
+    "pp.scale": "Scaling",
     "pp.pca": "PCA",
-    "pp.neighbors": "neighbour graph",
+    "pp.neighbors": "Neighbour graph",
     "tl.umap": "UMAP",
     "tl.leiden": "Leiden",
-    "tl.rank_genes_groups": "marker genes",
-    "pp.preprocess_backed": "out-of-core head",
-    "whole pipeline": "whole pipeline",
+    "tl.rank_genes_groups": "Marker test",
+    "pp.preprocess_backed": "Out-of-core head",
+    "whole pipeline": "Whole pipeline",
 }
 CONFIG_LABELS = {
-    "all": "everything on",
-    "no_metal": "no GPU",
-    "no_accelerate": "no Accelerate",
-    "p_cores_only": "performance cores only",
-    "one_core": "one core",
-    "no_zero_copy": "no zero-copy",
-    "sequential_umap": "sequential UMAP",
+    "all": "All features",
+    "no_metal": "GPU disabled",
+    "no_accelerate": "Accelerate disabled",
+    "p_cores_only": "Performance cores only",
+    "one_core": "One core",
+    "no_zero_copy": "Zero-copy disabled",
+    "sequential_umap": "Sequential UMAP",
 }
 
 
@@ -72,6 +72,8 @@ def save(fig: go.Figure, name: str, width: int, height: int) -> None:
     else:
         fig.update_layout(margin=dict(l=20, r=20, t=50, b=20))
     fig.update_layout(font=FONT)
+    fig.update_xaxes(showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside")
+    fig.update_yaxes(showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside")
     for ext in ("svg", "png"):
         fig.write_image(
             out / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
@@ -363,11 +365,11 @@ def f4_ablation():
             marker_line_width=0,
         )
     other = [r["total_seconds"] - sum(r["steps"].get(s, 0) for s in steps) for r in rows]
-    fig.add_bar(name="everything else", x=[r["config"] for r in rows], y=other, marker_line_width=0)
+    fig.add_bar(name="Other stages", x=[CONFIG_LABELS.get(r["config"], r["config"]) for r in rows], y=other, marker_line_width=0)
     fig.update_layout(
         barmode="stack",
         title="F4. Ablation on the 117k atlas: seconds with one Apple-specific choice switched off",
-        yaxis_title="seconds (whole pipeline)",
+        yaxis_title="Wall time of the whole pipeline (s)",
         legend_title="",
     )
     save(fig, "F4_ablation", 1000, 560)
@@ -398,7 +400,7 @@ def f6_pipeline_117k():
     fig.update_layout(
         barmode="group",
         yaxis_type="log",
-        yaxis_title="seconds (log)",
+        yaxis_title="Wall time (s)",
         title="F6. The 117 308-cell bone-marrow atlas, step by step<br><sup>whole pipeline: "
         + ", ".join(f"{names[k]} {r['total_seconds']:.0f} s" for k, r in runs.items())
         + "</sup>",
@@ -415,16 +417,18 @@ def f7_energy():
         print("F7 skipped: no energy_bm117k_*.json (run benches/run_energy.sh under sudo)")
         return
     fig = go.Figure()
+    run_labels = {"scanpy": "scanpy (defaults)", "metalcyte_metal": "Metalcyte (GPU)", "metalcyte_cpu": "Metalcyte (CPU)"}
+    rail_labels = {"CPU": "CPU", "GPU": "GPU", "ANE": "Neural engine"}
     for rail in ("CPU", "GPU", "ANE"):
         fig.add_bar(
-            name=f"{rail} rail",
-            x=list(runs),
+            name=rail_labels[rail],
+            x=[run_labels.get(k, k) for k in runs],
             y=[r["net_joules"].get(rail, 0) for r in runs.values()],
             marker_line_width=0,
         )
     fig.update_layout(
         barmode="stack",
-        yaxis_title="net joules per pipeline run",
+        yaxis_title="Net energy per run (J)",
         title="F7. Energy of the 117k pipeline (idle draw subtracted)",
     )
     save(fig, "F7_energy", 900, 520)
@@ -443,8 +447,8 @@ def f9_parity():
     )
     fig.update_layout(
         title="F9. Streamed PCA against scanpy's exact covariance solver, 19 770 cells: subspace agreement by component count",  # noqa: E501
-        xaxis_title="leading components compared",
-        yaxis_title="smallest canonical correlation",
+        xaxis_title="Leading components compared",
+        yaxis_title="Smallest canonical correlation",
         yaxis_range=[0.999, 1.00002],
     )
     save(fig, "F9_parity", 900, 480)
@@ -523,9 +527,9 @@ def f8_utilisation():
     for row, (path, _) in enumerate(logs, start=1):
         t, p, e, g, cpu_w, _gpu_w = _residency(path)
         for y, name, col in (
-            (p, "P cores active %", COLORS[0]),
-            (e, "E cores active %", COLORS[1]),
-            (g, "GPU active %", COLORS[2]),
+            (p, "Performance cluster", COLORS[0]),
+            (e, "Efficiency cluster", COLORS[1]),
+            (g, "GPU", COLORS[2]),
         ):
             fig.add_scatter(
                 x=t,
@@ -540,15 +544,15 @@ def f8_utilisation():
         fig.add_scatter(
             x=t,
             y=[w * 10 for w in cpu_w],
-            name="CPU power (W x10)",
+            name="CPU power (W × 10)",
             mode="lines",
             line=dict(width=1, color=COLORS[3], dash="dot"),
             row=row,
             col=1,
             showlegend=row == 1,
         )
-        fig.update_xaxes(title_text="seconds", row=row, col=1)
-        fig.update_yaxes(title_text="%", range=[0, 105], row=row, col=1)
+        fig.update_xaxes(title_text="Time (s)", row=row, col=1)
+        fig.update_yaxes(title_text="Active residency (%)", range=[0, 105], row=row, col=1)
     fig.update_layout(
         title="F8. Who is busy: cluster and GPU active residency through the 117k pipeline"
         "<br><sup>powermetrics, 100 ms samples</sup>"
@@ -604,21 +608,9 @@ def f5_scaling():
                 row=1,
                 col=col,
             )
-        dead = [p for p in data["points"] if p["config"] == key and p["outcome"] != "ok"]
-        if dead:
-            d = dead[0]
-            fig.add_annotation(
-                x=np.log10(d["size"]),
-                y=np.log10(max(pts[-1]["total_seconds"], 1) * 2),
-                text=f"{label}: {d['outcome'].split(':')[0]} at {d['size']:,}",
-                showarrow=False,
-                font=dict(size=10, color=COLORS[i]),
-                row=1,
-                col=1,
-            )
-    fig.update_xaxes(type="log", title_text="cells")
+    fig.update_xaxes(type="log", title_text="Cells", tickvals=[1e4, 1e5, 1e6], ticktext=["10k", "100k", "1M"], range=[3.9, 6.1])
     fig.update_yaxes(type="log")
-    fig.update_yaxes(title_text="seconds", row=1, col=1)
+    fig.update_yaxes(title_text="Wall time (s)", row=1, col=1)
     fig.update_layout(
         title="F5. Seconds against cells on random subsamples of the 1 M-cell embryo atlas (log-log)"  # noqa: E501
     )
@@ -682,25 +674,25 @@ def f11_agreement():
     from plotly.subplots import make_subplots
 
     fig = make_subplots(
-        rows=1, cols=3, subplot_titles=["intermediates", "Leiden", "marker genes per cell type"]
+        rows=1, cols=3, subplot_titles=["Intermediate results", "Leiden clustering", "Marker genes per cell type"]
     )
     left = {
-        "HVG Jaccard": data["hvg_jaccard"],
-        "PCA canonical (top 10)": data["pca_canonical_min_top10"],
-        "PCA canonical (top 30)": data["pca_canonical_min_top30"],
-        "PCA canonical (top 50)": data["pca_canonical_min_top50"],
-        "15-NN overlap, own PCA": data["knn_overlap_own_pca"],
-        "15-NN overlap, same PCA": data["knn_overlap_common_pca"],
+        "Variable genes, Jaccard": data["hvg_jaccard"],
+        "PCA, canonical correlation (10)": data["pca_canonical_min_top10"],
+        "PCA, canonical correlation (30)": data["pca_canonical_min_top30"],
+        "PCA, canonical correlation (50)": data["pca_canonical_min_top50"],
+        "Neighbour overlap, own PCA": data["knn_overlap_own_pca"],
+        "Neighbour overlap, same PCA": data["knn_overlap_common_pca"],
     }
     fig.add_bar(
         x=list(left), y=list(left.values()), marker_line_width=0, showlegend=False, row=1, col=1
     )
     ld = data["leiden"]
     mid = {
-        "ARI scanpy vs metalcyte": ld["ari_scanpy_vs_metalcyte"],
-        "NMI scanpy vs metalcyte": ld["nmi_scanpy_vs_metalcyte"],
-        "NMI scanpy vs cell type": ld["nmi_scanpy_vs_celltype"],
-        "NMI metalcyte vs cell type": ld["nmi_metalcyte_vs_celltype"],
+        "ARI, scanpy against Metalcyte": ld["ari_scanpy_vs_metalcyte"],
+        "NMI, scanpy against Metalcyte": ld["nmi_scanpy_vs_metalcyte"],
+        "NMI, scanpy against cell type": ld["nmi_scanpy_vs_celltype"],
+        "NMI, Metalcyte against cell type": ld["nmi_metalcyte_vs_celltype"],
     }
     fig.add_bar(
         x=list(mid), y=list(mid.values()), marker_line_width=0, showlegend=False, row=1, col=2
@@ -709,7 +701,7 @@ def f11_agreement():
     fig.add_bar(
         x=groups,
         y=[data["markers"][g]["spearman"] for g in groups],
-        name="Spearman of scores",
+        name="Spearman correlation of scores",
         marker_line_width=0,
         row=1,
         col=3,
@@ -717,7 +709,7 @@ def f11_agreement():
     fig.add_bar(
         x=groups,
         y=[data["markers"][g]["top50_overlap"] for g in groups],
-        name="top-50 overlap",
+        name="Overlap of the top 50 genes",
         marker_line_width=0,
         row=1,
         col=3,
