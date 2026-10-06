@@ -142,60 +142,64 @@ def blank_axes(fig, w, h):
 
 
 def f1_chip_and_library():
-    """The M3 Pro as blocks and the metalcyte layer that drives each one."""
+    """What runs where: the Metalcyte layers, and the unit of the package each step runs on."""
     fig = go.Figure()
-    blank_axes(fig, 100, 62)
+    blank_axes(fig, 100, 68)
     c = COLORS
-    # software stack, left column
-    box(fig, 3, 50, 30, 58, "<b>Python</b><br>scanpy-shaped API, AnnData", c[0])
-    box(fig, 3, 39, 30, 47, "<b>PyO3 bindings</b><br>borrow numpy buffers, release the GIL", c[0])
-    box(fig, 3, 28, 30, 36, "<b>Rust core</b><br>rayon work-stealing, f32 kernels", c[1])
-    box(fig, 3, 17, 30, 25, "<b>candle + Accelerate</b><br>matmul, eigen, projection", c[1])
-    box(fig, 3, 6, 30, 14, "<b>Metal kernels (MSL)</b><br>k-NN tiles, SpMM, UMAP SGD", c[1])
-    arrow(fig, 16.5, 50, 16.5, 47)
-    arrow(fig, 16.5, 39, 16.5, 36)
-    arrow(fig, 16.5, 28, 16.5, 25)
-    arrow(fig, 16.5, 17, 16.5, 14)
-    # the chip, right block
-    fig.add_shape(
-        type="rect", x0=38, y0=3, x1=97, y1=59, line=dict(color="#888", width=1.5, dash="dot")
-    )
-    fig.add_annotation(
-        x=67.5, y=57, text="<b>Apple M3 Pro</b> (one package)", showarrow=False, font=dict(size=14)
-    )
-    # P cores
-    for i in range(5):
-        box(fig, 41 + i * 5.2, 44, 45.6 + i * 5.2, 52, f"P{i}", c[2], size=11)
-    fig.add_annotation(
-        x=53, y=53.5, text="5 performance cores", showarrow=False, font=dict(size=11)
-    )
-    # E cores
-    for i in range(6):
-        box(fig, 68 + i * 4.6, 44, 72 + i * 4.6, 52, f"E{i}", c[4], size=11)
-    fig.add_annotation(x=81, y=53.5, text="6 efficiency cores", showarrow=False, font=dict(size=11))
-    box(fig, 41, 33, 66, 41, "<b>AMX</b> matrix units<br>(Accelerate BLAS)", c[3])
-    box(fig, 68, 33, 95, 41, "<b>GPU</b> 14 cores<br>(Metal)", c[5])
-    box(
-        fig,
-        41,
-        20,
-        95,
-        30,
-        "<b>Unified memory</b> 18 GB, 150 GB/s<br>CPU, AMX and GPU read the same buffer: no copy to a device",  # noqa: E501
-        c[6],
-    )
-    box(
-        fig, 41, 8, 95, 16, "<b>SSD</b> ~3 GB/s: a million cells stream through in row blocks", c[7]
-    )
-    arrow(fig, 95, 20, 95, 16)
-    arrow(fig, 41, 16, 41, 20)
-    # software → hardware arrows
-    arrow(fig, 30, 32, 41, 48, "all 11 cores", c[1], at=0.62)
-    arrow(fig, 30, 21, 41, 37, "sgemm, ssyrk", c[1], at=0.3)
-    arrow(fig, 30, 10, 68, 37, "command buffers", c[1], at=0.3)
-    arrow(fig, 30, 43, 41, 25, "numpy's own bytes", c[0], at=0.15)
-    fig.update_layout(title="F1. What runs where: the metalcyte stack on an Apple silicon package")
-    save(fig, "F1_chip_and_library", 1100, 700)
+    # the software, one row
+    box(fig, 2, 59, 31, 66, "<b>Python interface</b><br>AnnData in, AnnData out", c[0])
+    box(fig, 35.5, 59, 64.5, 66, "<b>Zero-copy bindings</b><br>borrow the numpy buffers as they are", c[0])
+    box(fig, 69, 59, 98, 66, "<b>Rust core</b><br>every step, on every unit below", c[1])
+    arrow(fig, 31, 62.5, 35.5, 62.5)
+    arrow(fig, 64.5, 62.5, 69, 62.5)
+    # the hardware, one column each
+    units = [
+        ("<b>Performance cores</b><br>5", c[2]),
+        ("<b>Efficiency cores</b><br>6", c[4]),
+        ("<b>Matrix coprocessor</b><br>through Accelerate", c[3]),
+        ("<b>GPU</b><br>14 cores, Metal kernels", c[5]),
+        ("<b>Drive</b><br>row blocks of the counts", c[7]),
+    ]
+    xs = [38, 51, 64, 77, 90]
+    for (label, color), x in zip(units, xs):
+        box(fig, x - 6.2, 50, x + 6.2, 56, label, color, size=12)
+    # the pipeline, one row each; filled = default on the GPU path, open = when the GPU is off
+    steps = [
+        ("Quality control, normalise, log transform", "PPE--D"),
+        ("Variable genes", "PPE--D"),
+        ("Scaling", "PPE--D"),
+        ("PCA", "PPEoGD"),
+        ("Neighbour graph", "oo-G-"),
+        ("UMAP", "PPE--"),
+        ("Leiden", "PPE--"),
+        ("Marker test", "PPE--"),
+    ]
+    y0 = 47
+    for i, (label, code) in enumerate(steps):
+        y = y0 - i * 4.3
+        if i % 2 == 0:
+            fig.add_shape(type="rect", x0=2, y0=y - 2.1, x1=98, y1=y + 2.1,
+                          fillcolor="#000", opacity=0.03, line=dict(width=0), layer="below")
+        fig.add_annotation(x=2.5, y=y, text=label, showarrow=False, xanchor="left", font=dict(size=12))
+        cols = [ch for ch in code.replace("PPE", "PE")]
+        for ch, x, (_, color) in zip(cols, xs, units):
+            if ch == "-":
+                continue
+            filled = ch != "o"
+            fig.add_trace(go.Scatter(
+                x=[x], y=[y], mode="markers", showlegend=False, hoverinfo="skip",
+                marker=dict(size=15, color=color if filled else "white",
+                            line=dict(color=color, width=2.5)),
+            ))
+    # what the units share
+    box(fig, 31.8, 2, 83.2, 9,
+        "<b>Unified memory</b> 18 GB<br>cores, coprocessor and GPU read the same buffer, no copy to a device",
+        c[6], size=12)
+    box(fig, 83.8, 2, 96.2, 9, "<b>Out-of-core head</b><br>one block at a time", c[7], size=12)
+    fig.add_annotation(x=2.5, y=11.5, xanchor="left", showarrow=False, font=dict(size=11, color="#555"),
+                       text="filled: used by default, open: used when the GPU is switched off")
+    fig.update_layout(title="F1. What runs where: the Metalcyte layers and the unit each step runs on")
+    save(fig, "F1_chip_and_library", 1100, 750)
 
 
 # ----------------------------------------------------------------------------- F2
