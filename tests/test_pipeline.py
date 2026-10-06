@@ -15,6 +15,7 @@ from anndata import AnnData
 from numpy.testing import assert_allclose, assert_array_equal
 
 from conftest import CEILING_FRACTION, K_CAND, K_REF, check_pca_agreement
+from metalcyte_call import metalcyte_call
 from reference_metrics import (
     DE_TOLERANCES,
     as_dense,
@@ -24,7 +25,6 @@ from reference_metrics import (
     preservation_band,
     set_overlap,
 )
-from metalcyte_call import metalcyte_call
 
 # The pipeline's own settings, shared by the run under test and the ceiling run.
 _N_COMPS = 50

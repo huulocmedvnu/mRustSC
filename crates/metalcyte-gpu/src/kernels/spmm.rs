@@ -25,9 +25,9 @@
 use std::ffi::c_void;
 
 use metal::{ComputePipelineState, MTLCommandBufferStatus, MTLSize, NSUInteger};
-use ndarray::Array2;
 use metalcyte_core::error::{Error, Result};
 use metalcyte_core::sparse::CsrMatrix;
+use ndarray::Array2;
 
 use crate::context::MetalContext;
 

@@ -8,9 +8,9 @@
 //! lists are long by design.
 #![allow(clippy::too_many_arguments)]
 
+use metalcyte_core::cluster::{self as core_cluster, Partition};
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
-use metalcyte_core::cluster::{self as core_cluster, Partition};
 
 use crate::convert::{csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

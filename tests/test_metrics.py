@@ -168,7 +168,9 @@ def test_confusion_matrix_matches_scanpy(neighbored: AnnData, normalize: bool) -
         },
         index=neighbored.obs_names,
     )
-    ours = metalcyte_call("metrics.confusion_matrix", "group", "coarse", labels, normalize=normalize)
+    ours = metalcyte_call(
+        "metrics.confusion_matrix", "group", "coarse", labels, normalize=normalize
+    )
     reference = sc.metrics.confusion_matrix("group", "coarse", labels, normalize=normalize)
     pd.testing.assert_frame_equal(ours, reference, check_dtype=False)
 

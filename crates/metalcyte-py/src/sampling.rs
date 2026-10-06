@@ -1,8 +1,8 @@
 //! Bindings: sampling. Owned by feat/sampling.
 
+use metalcyte_core::sampling;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
-use metalcyte_core::sampling;
 
 use crate::convert::{csr_from_py, csr_to_py, PyCsr};
 use crate::to_py_error;

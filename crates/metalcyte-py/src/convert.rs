@@ -2,12 +2,12 @@
 //! Owned by feat/bindings.
 
 use candle_core::{Device, Tensor};
+use metalcyte_core::sparse::CsrMatrix;
+use metalcyte_core::{DeviceKind, Error, Result};
 use ndarray::Array2;
 use numpy::{dtype, Element, PyArray1, PyArray2, PyArrayMethods, ToPyArray};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use metalcyte_core::sparse::CsrMatrix;
-use metalcyte_core::{DeviceKind, Error, Result};
 
 /// A sparse result as it crosses back into Python: the three CSR arrays plus
 /// the column count, the same shape sparse input arrives in.

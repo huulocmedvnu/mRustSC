@@ -733,6 +733,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "metalcyte-core"
+version = "0.3.0"
+dependencies = [
+ "blas-src",
+ "candle-core",
+ "ndarray",
+ "rand 0.8.7",
+ "rayon",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "metalcyte-gpu"
+version = "0.3.0"
+dependencies = [
+ "blas-src",
+ "candle-core",
+ "metal",
+ "metalcyte-core",
+ "ndarray",
+ "rand 0.8.7",
+]
+
+[[package]]
+name = "metalcyte-py"
+version = "0.3.0"
+dependencies = [
+ "candle-core",
+ "metalcyte-core",
+ "metalcyte-gpu",
+ "ndarray",
+ "numpy",
+ "pyo3",
+]
+
+[[package]]
 name = "ndarray"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1226,42 +1262,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "metalcyte-core"
-version = "0.2.0"
-dependencies = [
- "blas-src",
- "candle-core",
- "ndarray",
- "rand 0.8.7",
- "rayon",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "metalcyte-gpu"
-version = "0.2.0"
-dependencies = [
- "blas-src",
- "candle-core",
- "metal",
- "ndarray",
- "rand 0.8.7",
- "metalcyte-core",
-]
-
-[[package]]
-name = "metalcyte-py"
-version = "0.2.0"
-dependencies = [
- "candle-core",
- "ndarray",
- "numpy",
- "pyo3",
- "metalcyte-core",
- "metalcyte-gpu",
 ]
 
 [[package]]

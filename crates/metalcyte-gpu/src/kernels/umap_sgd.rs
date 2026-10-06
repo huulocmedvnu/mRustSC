@@ -1,6 +1,6 @@
-use ndarray::Array2;
 use metalcyte_core::error::{Error, Result};
 use metalcyte_core::umap::{fit_ab_params, UmapParams};
+use ndarray::Array2;
 
 use crate::context::MetalContext;
 

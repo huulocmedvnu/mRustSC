@@ -44,7 +44,9 @@ def embedding(n_cells: int, n_dims: int, seed: int) -> np.ndarray:
 
 
 def knn(x: np.ndarray, k: int, device: str):
-    return [np.asarray(v) for v in metalcyte_call("_metalcyte.knn", x.astype(np.float32), k, device)]
+    return [
+        np.asarray(v) for v in metalcyte_call("_metalcyte.knn", x.astype(np.float32), k, device)
+    ]
 
 
 def test_duplicate_cells_are_at_distance_zero_on_both_devices():

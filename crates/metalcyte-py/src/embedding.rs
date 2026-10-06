@@ -7,14 +7,14 @@
 use std::cell::RefCell;
 
 use candle_core::Device;
-use ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2, PyArrayMethods};
-use pyo3::prelude::*;
 use metalcyte_core::neighbors::{self, KnnGraph};
 use metalcyte_core::tsne::{self as core_tsne, TsneParams};
 use metalcyte_core::umap::{self as core_umap, UmapParams};
 use metalcyte_core::Error;
 use metalcyte_gpu::{kernels::knn::knn_metal, MetalContext};
+use ndarray::Array2;
+use numpy::{IntoPyArray, PyArray2, PyArrayMethods};
+use pyo3::prelude::*;
 
 use crate::convert::{array2_from_py, csr_from_py, csr_to_py, device_from_py, PyCsr, PyKnn};
 use crate::to_py_error;

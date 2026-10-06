@@ -385,9 +385,9 @@ def test_per_cell_qc_metrics_do_not_depend_on_the_block_size(h5ad, block_size):
         "pp.calculate_qc_metrics", AnnData(matrix), percent_top=(5, 20), inplace=False
     )
     frames = [
-        metalcyte_call("pp.calculate_qc_metrics", AnnData(block), percent_top=(5, 20), inplace=False)[
-            0
-        ]
+        metalcyte_call(
+            "pp.calculate_qc_metrics", AnnData(block), percent_top=(5, 20), inplace=False
+        )[0]
         for block in read_blocks(path, block_size)
     ]
     streamed = np.concatenate([frame.to_numpy() for frame in frames])

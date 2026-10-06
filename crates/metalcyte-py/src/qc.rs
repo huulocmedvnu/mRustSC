@@ -3,10 +3,10 @@
 //! Conversion only: the metric definitions live in `metalcyte_core::qc`, and the
 //! column names and defaults in `metalcyte.pp._qc`.
 
+use metalcyte_core::qc;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use metalcyte_core::qc;
 
 use crate::convert::{csr_from_py, csr_to_py, vec_from_py, PyCsr};
 use crate::to_py_error;

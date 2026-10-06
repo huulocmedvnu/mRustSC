@@ -4,10 +4,10 @@
 //! lists are long by design.
 #![allow(clippy::too_many_arguments)]
 
+use metalcyte_core::de::wilcoxon;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use metalcyte_core::de::wilcoxon;
 
 use crate::convert::{csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

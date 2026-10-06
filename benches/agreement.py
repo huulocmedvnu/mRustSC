@@ -133,7 +133,9 @@ def main() -> int:
         canonical(b_sr.obsm["X_pca"], shared.obsm["X_pca"], 30).min()
     )
     report["pca_canonical_min_top50"] = float(cc.min())
-    report["pca_variance_ratio_metalcyte"] = [float(v) for v in b_sr.uns["pca"]["variance_ratio"][:10]]
+    report["pca_variance_ratio_metalcyte"] = [
+        float(v) for v in b_sr.uns["pca"]["variance_ratio"][:10]
+    ]
     report["pca_variance_ratio_scanpy_eigh"] = [
         float(v) for v in shared.uns["pca"]["variance_ratio"][:10]
     ]

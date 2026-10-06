@@ -30,6 +30,7 @@ from conftest import (
     check_pca_agreement,
     n_top_genes,
 )
+from metalcyte_call import metalcyte_call
 from reference_metrics import (
     as_dense,
     de_comparison,
@@ -40,7 +41,6 @@ from reference_metrics import (
     set_overlap,
     tsne_kl_divergence,
 )
-from metalcyte_call import metalcyte_call
 
 # t-SNE has an explicit objective, so it is judged on reaching one no worse
 # than the reference's, with room for f32 and a different random start.

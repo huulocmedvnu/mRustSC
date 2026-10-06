@@ -1,8 +1,8 @@
 //! Bindings: partition-based graph abstraction. Owned by feat/paga.
 
+use metalcyte_core::paga as core_paga;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
-use metalcyte_core::paga as core_paga;
 
 use crate::convert::{csr_from_py, vec_from_py};
 use crate::to_py_error;

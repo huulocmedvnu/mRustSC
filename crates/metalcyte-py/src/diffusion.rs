@@ -2,9 +2,9 @@
 //!
 //! `lib.rs` belongs to `main` and already calls `register` from here.
 
+use metalcyte_core::diffusion::{self as core_diffusion, DiffusionMap};
 use numpy::{IntoPyArray, PyArray1, PyArray2};
 use pyo3::prelude::*;
-use metalcyte_core::diffusion::{self as core_diffusion, DiffusionMap};
 
 use crate::convert::{array2_from_py, csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

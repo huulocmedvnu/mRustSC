@@ -33,8 +33,8 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse, stats
 
-from reference_metrics import de_comparison, set_overlap
 from metalcyte_call import metalcyte_call
+from reference_metrics import de_comparison, set_overlap
 
 TOP_N_GENES = 100
 

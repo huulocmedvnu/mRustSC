@@ -189,7 +189,9 @@ def test_the_seed_does_nothing_until_a_bin_is_larger_than_the_control_size():
     gene_set = list(range(10, 30))
 
     small = expression(n_genes=300, seed=6)  # about 12 genes per bin, under ctrl_size
-    assert np.allclose(metalcyte_score(small, gene_set, seed=0), metalcyte_score(small, gene_set, seed=7))
+    assert np.allclose(
+        metalcyte_score(small, gene_set, seed=0), metalcyte_score(small, gene_set, seed=7)
+    )
     assert np.allclose(scanpy_score(small, gene_set, seed=0), scanpy_score(small, gene_set, seed=7))
 
     large = expression(n_genes=2000, seed=6)  # about 83 genes per bin, over it

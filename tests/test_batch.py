@@ -17,8 +17,8 @@ from anndata import AnnData
 from numpy.testing import assert_allclose
 from scipy import sparse
 
-from reference_metrics import as_dense
 from metalcyte_call import metalcyte_call
+from reference_metrics import as_dense
 
 # scanpy accumulates the residual in f32 as we do, but forms the coefficients in
 # f64; a relative 1e-4 is what that difference leaves on log-normalised data.

@@ -1,6 +1,6 @@
 use metal::{MTLSize, NSUInteger};
-use ndarray::Array2;
 use metalcyte_core::error::{Error, Result};
+use ndarray::Array2;
 
 use crate::context::MetalContext;
 

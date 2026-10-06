@@ -20,8 +20,8 @@ from numpy.testing import assert_allclose
 from scipy import sparse
 from scipy.stats import spearmanr
 
-from reference_metrics import component_correlations
 from metalcyte_call import metalcyte_call
+from reference_metrics import component_correlations
 
 N_COMPS = 15
 N_DCS = 10

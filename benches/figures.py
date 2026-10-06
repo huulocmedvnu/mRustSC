@@ -364,7 +364,9 @@ def f6_pipeline_117k():
 
 
 def f7_energy():
-    runs = {k: _load(f"energy_bm117k_{k}.json") for k in ("scanpy", "metalcyte_metal", "metalcyte_cpu")}
+    runs = {
+        k: _load(f"energy_bm117k_{k}.json") for k in ("scanpy", "metalcyte_metal", "metalcyte_cpu")
+    }
     runs = {k: v for k, v in runs.items() if v}
     if not runs:
         print("F7 skipped: no energy_bm117k_*.json (run benches/run_energy.sh under sudo)")
@@ -584,7 +586,9 @@ def f5_scaling():
 def f10_umap_1m():
     path = RESULTS / "embryo1m_metalcyte_metal.h5ad"
     if not path.exists():
-        print("F10 skipped: run pipeline_1m.py --save benches/results/embryo1m_metalcyte_metal.h5ad")
+        print(
+            "F10 skipped: run pipeline_1m.py --save benches/results/embryo1m_metalcyte_metal.h5ad"
+        )
         return
     import anndata
 

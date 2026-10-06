@@ -423,7 +423,9 @@ def test_glm_and_dispersion_are_not_reachable_from_python():
     }
     assert glm_like == set(), f"a GLM/dispersion binding now exists: {sorted(glm_like)}"
 
-    py_sources = (Path(__file__).resolve().parents[1] / "crates" / "metalcyte-py" / "src").glob("*.rs")
+    py_sources = (Path(__file__).resolve().parents[1] / "crates" / "metalcyte-py" / "src").glob(
+        "*.rs"
+    )
     mentions = [
         p.name for p in py_sources if re.search(r"\bde::glm\b|\bde::dispersion\b", p.read_text())
     ]

@@ -46,11 +46,15 @@ def metalcyte_qc(matrix, percent_top=(50,), subsets=()):
 
 
 def metalcyte_filter_cells(matrix, *, min_genes=None, min_counts=None):
-    return np.asarray(metalcyte_call("_metalcyte.filter_cells", *csr_args(matrix), min_genes, min_counts))
+    return np.asarray(
+        metalcyte_call("_metalcyte.filter_cells", *csr_args(matrix), min_genes, min_counts)
+    )
 
 
 def metalcyte_filter_genes(matrix, *, min_cells=None, min_counts=None):
-    return np.asarray(metalcyte_call("_metalcyte.filter_genes", *csr_args(matrix), min_cells, min_counts))
+    return np.asarray(
+        metalcyte_call("_metalcyte.filter_genes", *csr_args(matrix), min_cells, min_counts)
+    )
 
 
 def counts(n_cells=120, n_genes=80, seed=0, sparsity=0.7):

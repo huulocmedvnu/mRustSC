@@ -4,12 +4,12 @@
 //! lists are long by design.
 #![allow(clippy::too_many_arguments)]
 
-use numpy::{IntoPyArray, PyArray1, PyArray2};
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use metalcyte_core::preprocess::hvg::{self, HvgFlavor};
 use metalcyte_core::preprocess::{filter, normalize, scale as core_scale};
 use metalcyte_core::{pca as core_pca, Error};
+use numpy::{IntoPyArray, PyArray1, PyArray2};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::convert::{csr_from_py, csr_to_py, device_from_py, tensor_to_array2, PyCsr};
 use crate::to_py_error;

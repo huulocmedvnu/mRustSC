@@ -36,7 +36,9 @@ import pytest
 from numpy.testing import assert_array_equal
 from scipy import sparse
 
-_metalcyte = pytest.importorskip("metalcyte._metalcyte", reason="the metalcyte extension is not built")
+_metalcyte = pytest.importorskip(
+    "metalcyte._metalcyte", reason="the metalcyte extension is not built"
+)
 
 DEVICE = "cpu"
 

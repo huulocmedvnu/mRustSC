@@ -1,8 +1,8 @@
 //! Bindings: scoring. Owned by feat/scoring.
 
+use metalcyte_core::scoring;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
-use metalcyte_core::scoring;
 
 use crate::convert::{csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

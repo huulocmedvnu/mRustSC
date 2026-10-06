@@ -5,11 +5,11 @@
 //! place or the dense result is written into an array numpy allocated. The GIL is
 //! released while the kernels run, and nothing is copied across the boundary.
 
+use metalcyte_core::preprocess::inplace::{self, Offset};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use metalcyte_core::preprocess::inplace::{self, Offset};
 
 use crate::to_py_error;
 
@@ -461,7 +461,14 @@ fn pca_from_scatter<'py>(
     let device = crate::convert::device_from_py(device)?;
     let (components, variance, ratio) = py
         .allow_threads(|| {
-            metalcyte_core::pca::pca_from_scatter(slice, n_genes, n_cells, n_components, seed, &device)
+            metalcyte_core::pca::pca_from_scatter(
+                slice,
+                n_genes,
+                n_cells,
+                n_components,
+                seed,
+                &device,
+            )
         })
         .map_err(to_py_error)?;
     let result = PyDict::new(py);

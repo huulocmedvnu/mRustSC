@@ -27,8 +27,8 @@ from scipy import sparse
 from scipy.spatial.distance import pdist, squareform
 from scipy.stats import gaussian_kde
 
-from reference_metrics import knn_indices
 from metalcyte_call import metalcyte_call
+from reference_metrics import knn_indices
 
 # Neighbourhood preservation, at the sizes `conftest` fixes for every embedding:
 # how much of a cell's K_REF nearest neighbours in one layout stays inside its

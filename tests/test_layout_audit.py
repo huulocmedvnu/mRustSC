@@ -294,7 +294,9 @@ def test_draw_graph_honours_edge_weights() -> None:
     adjacency[:size, :size] = _clique_block(size, 6.0)
     adjacency[size:, size:] = _clique_block(size, 0.4)
 
-    positions = np.asarray(metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 200, 0, DEVICE))
+    positions = np.asarray(
+        metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 200, 0, DEVICE)
+    )
     heavy = _mean_pairwise(positions[:size])
     light = _mean_pairwise(positions[size:])
     assert light > 2.0 * heavy, (heavy, light)
@@ -308,9 +310,15 @@ def test_draw_graph_is_reproducible_from_its_seed_and_moves_with_it() -> None:
     the first: a layout that ignored the seed would still be "deterministic".
     """
     adjacency = _path_graph(12)
-    first = np.asarray(metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
-    again = np.asarray(metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE))
-    other = np.asarray(metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 8, DEVICE))
+    first = np.asarray(
+        metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE)
+    )
+    again = np.asarray(
+        metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 7, DEVICE)
+    )
+    other = np.asarray(
+        metalcyte_call("_metalcyte.draw_graph", *_csr_args(adjacency), 60, 8, DEVICE)
+    )
 
     assert np.array_equal(first, again)
     assert not np.allclose(first, other, atol=1e-3)
@@ -346,7 +354,9 @@ def test_draw_graph_reads_edges_whichever_triangle_they_are_stored_in() -> None:
         return float(distance[same].mean()), float(distance[~same].mean())
 
     layouts = {
-        name: np.asarray(metalcyte_call("_metalcyte.draw_graph", *_csr_args(stored), 100, 0, DEVICE))
+        name: np.asarray(
+            metalcyte_call("_metalcyte.draw_graph", *_csr_args(stored), 100, 0, DEVICE)
+        )
         for name, stored in (
             ("symmetric", adjacency),
             ("lower", np.tril(adjacency)),

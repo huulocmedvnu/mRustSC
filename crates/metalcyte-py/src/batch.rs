@@ -4,13 +4,13 @@
 //! lists are long by design.
 #![allow(clippy::too_many_arguments)]
 
-use ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2};
-use pyo3::prelude::*;
 use metalcyte_core::batch;
 use metalcyte_core::harmony;
 use metalcyte_core::sparse::CsrMatrix;
 use metalcyte_core::{Error, Result};
+use ndarray::Array2;
+use numpy::{IntoPyArray, PyArray2};
+use pyo3::prelude::*;
 
 use crate::convert::{array2_from_py, csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

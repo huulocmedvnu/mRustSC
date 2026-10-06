@@ -3,9 +3,9 @@
 //! A CSR matrix arrives as four arguments, so the layout call is long by design.
 #![allow(clippy::too_many_arguments)]
 
+use metalcyte_core::layout as core_layout;
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, ToPyArray};
 use pyo3::prelude::*;
-use metalcyte_core::layout as core_layout;
 
 use crate::convert::{array2_from_py, csr_from_py, device_from_py};
 use crate::to_py_error;

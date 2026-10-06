@@ -3,10 +3,10 @@
 //! Registered from `lib.rs`, which `main` owns: two lines there, `mod metrics`
 //! and `metrics::register` — see the branch report, it is a known conflict point.
 
-use numpy::{IntoPyArray, PyArray1};
-use pyo3::prelude::*;
 use metalcyte_core::autocorrelation;
 use metalcyte_core::cluster;
+use numpy::{IntoPyArray, PyArray1};
+use pyo3::prelude::*;
 
 use crate::convert::{csr_from_py, device_from_py, vec_from_py};
 use crate::to_py_error;

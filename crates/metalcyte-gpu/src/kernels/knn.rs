@@ -1,9 +1,9 @@
 use std::ffi::c_void;
 
 use metal::{MTLCommandBufferStatus, MTLSize};
-use ndarray::{Array2, ArrayView2};
 use metalcyte_core::error::{Error, Result};
 use metalcyte_core::neighbors::KnnGraph;
+use ndarray::{Array2, ArrayView2};
 
 use crate::context::MetalContext;
 
