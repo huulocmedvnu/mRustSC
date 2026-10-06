@@ -4,7 +4,7 @@
 #
 #     sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad
 #
-# Writes benches/results/energy_bm117k_{scanpy,scrust_metal,scrust_cpu}.json and prints
+# Writes benches/results/energy_bm117k_{scanpy,metalcyte_metal,metalcyte_cpu}.json and prints
 # the net joules of each run. Nothing else should be running on the machine.
 set -eu
 DATA="${1:?path to the counts .h5ad}"

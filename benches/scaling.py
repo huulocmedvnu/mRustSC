@@ -31,8 +31,8 @@ SIZES = (10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000)
 CONFIGS = {
     "scanpy": ["--library", "scanpy"],
     "scanpy_tuned": ["--library", "scanpy", "--tuned"],
-    "scrust_cpu": ["--library", "metalcyte", "--device", "cpu", "--umap-parallel"],
-    "scrust_metal": ["--library", "metalcyte", "--device", "auto", "--umap-parallel"],
+    "metalcyte_cpu": ["--library", "metalcyte", "--device", "cpu", "--umap-parallel"],
+    "metalcyte_metal": ["--library", "metalcyte", "--device", "auto", "--umap-parallel"],
 }
 
 
@@ -143,7 +143,7 @@ def main() -> int:
                     "--json",
                     str(out),
                 ]
-                cmd += ["--device", "cpu" if name == "scrust_cpu" else "auto", "--umap-parallel"]
+                cmd += ["--device", "cpu" if name == "metalcyte_cpu" else "auto", "--umap-parallel"]
             else:
                 cmd = [
                     sys.executable,
