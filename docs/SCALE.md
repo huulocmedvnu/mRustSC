@@ -226,7 +226,12 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
   been busy); the net figures subtract each run's own idle.
 
 Figure F8 (`docs/figures/F8_utilisation.png`) is the P-cluster, E-cluster and GPU active residency
-over the scrust run from the raw samples.
+over both runs from the raw samples. In the scrust trace the three phases are legible to the eye:
+the GPU pinned at 100% for the three seconds of PCA and the neighbour search, both clusters at
+100% through the parallel UMAP (the efficiency cores are saturated, not idle), and the P cluster
+alone through the rank-sum test. In the scanpy trace the P cluster sits at 100% for 230 s with
+one core busy, and the 20 to 50% GPU residency during its first 150 s is the display (Preview
+windows were open on the machine), not the analysis, which is why its net GPU energy is zero.
 
 ## 5. Ablation: what each Apple-specific choice is worth
 

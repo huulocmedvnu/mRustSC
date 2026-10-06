@@ -426,10 +426,6 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 # ----------------------------------------------------------------------------- F8
 
 
@@ -512,3 +508,7 @@ def f8_utilisation():
 
 
 FIGURES["F8"] = f8_utilisation
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
