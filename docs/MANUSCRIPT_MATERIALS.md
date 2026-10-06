@@ -3,14 +3,14 @@
 A checklist for writing the paper, kept next to the results so nothing is claimed that
 was not measured. Target: an application note or methods paper (Bioinformatics,
 Nature Methods brief communication style, or IEEE TCBB), one main figure set of six and
-a supplement. Working title: *metalcyte: a Rust single-cell engine with a scanpy-compatible interface that puts
+a supplement. Working title: *metalcyte: a Rust single-cell engine that puts
 a million cells through the standard pipeline on an Apple silicon laptop.*
 
 ## 1. What the paper claims, and the evidence behind each claim
 
 | claim | evidence | file | status |
 |---|---|---|---|
-| scanpy-compatible interface, no scanpy dependency, same answers | parity tests per algorithm (neighbours exact, UMAP ref. preservation, Leiden modularity = leidenalg quality, HVG, DE, PCA 50/50 components vs `covariance_eigh`) | `docs/VALIDATION.md`, `tests/*_audit.py`, `tests/test_streaming.py`, F9 | done |
+| Same answers as scanpy | parity tests per algorithm (neighbours exact, UMAP ref. preservation, Leiden modularity = leidenalg quality, HVG, DE, PCA 50/50 components vs `covariance_eigh`) | `docs/VALIDATION.md`, `tests/*_audit.py`, `tests/test_streaming.py`, F9 | done |
 | Same biology on a real atlas | HVG overlap, PCA subspace, k-NN overlap, Leiden ARI, marker-gene rank agreement, metalcyte vs scanpy on the 117k atlas | `benches/agreement.py` → `benches/results/agreement_bm117k.json`, figure F11 | **to do** |
 | 5 to 11x faster than scanpy defaults, 3 to 4x than scanpy tuned, on a real atlas | 117k end-to-end, 5 configurations | `docs/SCALE.md` §2, F6 | done (single runs; repeat x3 for mean ± sd: **to do**) |
 | A million cells on 18 GB, scanpy cannot | 1M streamed head + graph; scanpy killed at scale/PCA | `docs/SCALE.md` §3, F3 | done |

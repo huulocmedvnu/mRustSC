@@ -1,8 +1,7 @@
 """Single-cell analysis with a Rust core running on the Apple GPU.
 
-The interface follows the conventions scanpy users know (`pp` for preprocessing, `tl`
-for tools, `metrics` and `get` for the accessors) without depending on scanpy: Metalcyte
-imports only numpy, scipy, pandas and AnnData. Functions take an `AnnData` and write their results
+`pp` holds preprocessing, `tl` the tools, `metrics` and `get` the accessors. Functions take
+an `AnnData` and write their results into its standard slots. Functions take an `AnnData` and write their results
 into the slots scanpy uses, so existing code and plotting keep working.
 """
 

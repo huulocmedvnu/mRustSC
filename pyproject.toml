@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "metalcyte"
 version = "0.3.0"
-description = "Single-cell analysis engine for Apple silicon: a Rust core, Metal kernels and an out-of-core head, with a scanpy-compatible interface and no scanpy dependency"
+description = "Single-cell analysis engine for Apple silicon: a Rust core, Metal kernels and an out-of-core head for million-cell atlases"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "huulocmedvnu" }]
