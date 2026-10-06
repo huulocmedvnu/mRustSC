@@ -246,7 +246,7 @@ between 6.3 and 8.9 s with nothing changed), so differences under that are not d
 | configuration | what is off | whole | PCA | neighbours | UMAP | Leiden | markers | scale | normalise |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | `all` | nothing | 23.3 | 1.37 | 2.08 | 5.04 | 0.94 | 8.88 | 0.05 | 0.15 |
-| `no_metal` | the GPU (`device="cpu"`, re-measured after the fix) | 98.9 | 2.54 | 78.98 | 4.66 | 0.64 | 7.52 | 0.04 | 0.14 |
+| `no_metal` | the GPU (`device="cpu"`, after the fix and the parallel CPU search) | 29.2 | 3.08 | 4.87 | 4.95 | 0.73 | 10.09 | 0.10 | 0.20 |
 | `no_accelerate` | Apple's BLAS, AMX (wheel built without the feature) | 20.4 | 0.92 | 2.13 | 4.76 | 0.63 | 7.84 | 0.03 | 0.14 |
 | `p_cores_only` | the 6 efficiency cores (`RAYON_NUM_THREADS=5`) | 22.8 | 0.85 | 2.12 | 7.49 | 0.77 | 7.66 | 0.02 | 0.14 |
 | `one_core` | every core but one (`RAYON_NUM_THREADS=1`) | 49.9 | 0.99 | 2.07 | 33.38 | 0.69 | 8.10 | 0.09 | 0.21 |
@@ -255,12 +255,12 @@ between 6.3 and 8.9 s with nothing changed), so differences under that are not d
 
 What the table says, plainly:
 
-- **The GPU is worth 79 s of a 99 s run, all of it in one step.** The brute-force neighbour
-  search is 2 s on Metal and 79 s on the CPU; PCA is 1.4 s against 2.5 s; nothing else moves.
-  (The first pass of this table had `no_metal` at 19 s, *faster* than `all`: that run was still
-  on Metal because `pp.neighbors` and four other functions ignored `settings.device`, the bug the
-  energy trace exposed. The row above is the re-measurement.) The AMX units through Accelerate
-  are within noise of the pure-Rust BLAS at this size: the matmuls here are too small to show it.
+- **The GPU is worth 2.5x on the one quadratic step, once the CPU is given a fair run.** The
+  brute-force neighbour search is 4.9 s on all eleven cores through Accelerate and 2.0 s on
+  Metal; PCA is 3.1 s against 1.4 s; nothing else moves. At a million cells the same two
+  numbers are 307 s and 120 s (section 3). An earlier version of this row read 99 s, with the
+  search at 79 s: that was the CPU search before it was parallelised, on effectively one
+  core. The AMX units through Accelerate are within noise of the pure-Rust BLAS at this size.
 - **The cores are what count, and all eleven of them.** UMAP's Hogwild sweep is 6.6x faster
   on 11 threads than on 1 and 1.5x faster than on the 5 performance cores alone: the
   efficiency cores are not idle ballast, they carry a third of the epochs. Everything else
@@ -274,8 +274,8 @@ What the table says, plainly:
   reached it; the rank-sum test is rayon-parallel in Rust, so its 8 s must be spent in the
   Python assembly of the result (structured arrays, DataFrames), which a profile will show.
 - **The Apple-silicon case, in order of what the table shows:** (i) the GPU for the one
-  quadratic step, 40x on the neighbour search, which is what keeps a million cells at two
-  minutes instead of an hour and a half; (ii) all eleven cores for the optimiser and the
+  quadratic step, 2.5x on the neighbour search against all eleven cores, which is the
+  difference between 2 and 5 minutes at a million cells; (ii) all eleven cores for the optimiser and the
   elementwise passes; (iii) unified memory, which lets a million cells stream off the disk
   through buffers the CPU and GPU both read without a copy (section 3); (iv) a package that
   does all of this at under 10 W (section 4). The AMX units do not show at 2 000 genes; the
