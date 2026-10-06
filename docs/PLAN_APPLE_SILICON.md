@@ -11,21 +11,22 @@ Tick items off here as they land; `docs/SCALE.md` holds the numbers.
 | area | state |
 |---|---|
 | per-operation benchmark to 100 000 cells | done, `benches/results/benchmark_100k_m3pro.txt` |
-| real 117k atlas end to end, scanpy vs scrust (CPU, Metal, parallel UMAP) | done, 233 s / 47 s / 47 s / 21.5 s |
+| real 117k atlas end to end, scanpy vs scrust (CPU, Metal, parallel UMAP) | done, 233 s / 99 s / 47 s / 20 s |
 | scanpy with its fastest settings (`--tuned`) as a fourth column | done, 86.1 s |
-| 1 M cells on 18 GB through `pp.preprocess_backed` | done, 210 s Metal, 214 s CPU |
+| 1 M cells on 18 GB through `pp.preprocess_backed` | done, 210 s Metal; CPU-only being re-measured (the first "CPU" run was Metal) |
 | scanpy on 1 M cells on the same machine | did not finish: `scale` needed 21.9 GB, PCA swapped, killed at 15 min |
 | streamed PCA held to scanpy's exact solver | done, `tests/test_streaming.py` and 50/50 components on real data |
-| energy per run (`benches/energy.py`, `benches/run_energy.sh`) | script ready, needs one `sudo` run |
+| energy per run (`benches/energy.py`, `benches/run_energy.sh`) | done: scanpy 974 J, scrust Metal 195 J |
 | placement against rapids-singlecell | written from their published numbers, `docs/SCALE.md` section 5 |
 | Rust unit tests | 267 pass; Python suite not yet re-run in full after today's changes |
 | CI on `main` | red: `clippy -D warnings` and 3 scanpy-1.12.4 median tests (pre-existing) |
 
-The one finding that changes the message: **on an M3 Pro the CPU path through Accelerate
-(AMX) matches the Metal path to within 2% on both the 117k and the 1 M runs.** The speed
-is the whole chip (every core, the AMX units, the GPU, one memory), not the GPU alone.
-The claim to prove is therefore "optimised for Apple silicon", and the proof is an
-ablation, not a scanpy comparison.
+The finding that shapes the message, after the `settings.device` bug was found and fixed:
+**the GPU is worth 40x on the neighbour search and nothing measurable elsewhere; the cores
+are worth 6.6x on the UMAP optimiser; the AMX units do not show at 2 000 genes.** The claim
+is "optimised for Apple silicon" as a package (GPU for the quadratic step, every core for the
+rest, unified memory for the out-of-core head, under 10 W), and the proof is the ablation in
+`docs/SCALE.md` section 5, not a scanpy comparison.
 
 ## 1. Evidence: the experiments that prove the claim
 

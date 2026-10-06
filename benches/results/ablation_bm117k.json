@@ -30,22 +30,23 @@
         "--device",
         "cpu"
       ],
-      "total_seconds": 19.14675308391452,
+      "total_seconds": 98.89998104097322,
       "steps": {
-        "pp.calculate_qc_metrics": 0.8812447499949485,
-        "pp.filter_cells": 0.6336897918954492,
-        "pp.filter_genes": 1.0500215000938624,
-        "pp.normalize_total": 0.11694175004959106,
-        "pp.log1p": 0.13135854108259082,
-        "pp.highly_variable_genes": 0.2711004999000579,
-        "subset": 0.6217008749954402,
-        "pp.scale": 0.032822499983012676,
-        "pp.pca": 1.006080084014684,
-        "pp.neighbors": 2.044315333943814,
-        "tl.umap": 4.870648457901552,
-        "tl.leiden": 0.6616012500599027,
-        "tl.rank_genes_groups": 6.825227749999613
-      }
+        "pp.calculate_qc_metrics": 1.2228417908772826,
+        "pp.filter_cells": 0.8527056670282036,
+        "pp.filter_genes": 1.0925406250171363,
+        "pp.normalize_total": 0.14021874987520278,
+        "pp.log1p": 0.1548428339883685,
+        "pp.highly_variable_genes": 0.3092921250499785,
+        "subset": 0.7585638340096921,
+        "pp.scale": 0.0390155001077801,
+        "pp.pca": 2.5373869170434773,
+        "pp.neighbors": 78.9814501251094,
+        "tl.umap": 4.655966666061431,
+        "tl.leiden": 0.6383444159291685,
+        "tl.rank_genes_groups": 7.5168117908760905
+      },
+      "note": "re-measured after the settings.device fix; the first run was a Metal run"
     },
     {
       "config": "no_accelerate",

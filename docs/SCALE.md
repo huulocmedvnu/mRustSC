@@ -78,22 +78,22 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117
 
 `benches/results/bm117k_*.json`. Seconds per step; 115 868 cells pass the filter, 2 000 variable genes, 36 or 37 Leiden clusters.
 
-| step | scanpy | scanpy (tuned) | scrust CPU | scrust Metal | scrust Metal, `umap(parallel=True)` |
+| step | scanpy | scanpy (tuned) | scrust CPU, parallel UMAP | scrust Metal | scrust Metal, `umap(parallel=True)` |
 |---|---:|---:|---:|---:|---:|
-| `pp.calculate_qc_metrics` | 1.46 | 1.40 | 0.95 | 0.97 | 0.92 |
-| `pp.filter_cells` | 0.69 | 0.69 | 1.98 | 2.07 | 1.20 |
-| `pp.filter_genes` | 1.10 | 1.12 | 1.08 | 1.09 | 1.03 |
-| `pp.normalize_total` | 1.18 | 1.25 | 0.13 | 0.14 | 0.11 |
-| `pp.log1p` | 0.34 | 0.35 | 0.15 | 0.15 | 0.13 |
-| `pp.highly_variable_genes` | 1.34 | 1.37 | 0.31 | 0.30 | 0.27 |
-| `subset` | 0.68 | 0.59 | 0.65 | 0.73 | 0.58 |
-| `pp.scale` | 1.00 | 0.53 | 0.03 | 0.03 | 0.03 |
-| `pp.pca` | 13.61 | 3.70 | 0.95 | 0.96 | 0.87 |
-| `pp.neighbors` | 17.85 | 18.20 | 2.07 | 2.13 | 2.09 |
-| `tl.umap` | 46.82 | 46.13 | 30.79 | 30.42 | 4.77 |
-| `tl.leiden` | 135.40 | 2.49 | 0.65 | 0.64 | 0.63 |
-| `tl.rank_genes_groups` | 11.83 | 8.29 | 7.20 | 7.33 | 8.87 |
-| **whole pipeline** | **233.3** | **86.1** | **46.9** | **47.0** | **21.5** |
+| `pp.calculate_qc_metrics` | 1.46 | 1.40 | 1.22 | 0.97 | 0.86 |
+| `pp.filter_cells` | 0.69 | 0.69 | 0.85 | 2.07 | 0.64 |
+| `pp.filter_genes` | 1.10 | 1.12 | 1.09 | 1.09 | 1.01 |
+| `pp.normalize_total` | 1.18 | 1.25 | 0.14 | 0.14 | 0.12 |
+| `pp.log1p` | 0.34 | 0.35 | 0.15 | 0.15 | 0.12 |
+| `pp.highly_variable_genes` | 1.34 | 1.37 | 0.31 | 0.30 | 0.25 |
+| `subset` | 0.68 | 0.59 | 0.76 | 0.73 | 0.55 |
+| `pp.scale` | 1.00 | 0.53 | 0.04 | 0.03 | 0.02 |
+| `pp.pca` | 13.61 | 3.70 | 2.54 | 0.96 | 1.10 |
+| `pp.neighbors` | 17.85 | 18.20 | 78.98 | 2.13 | 1.97 |
+| `tl.umap` | 46.82 | 46.13 | 4.66 | 30.42 | 4.80 |
+| `tl.leiden` | 135.40 | 2.49 | 0.64 | 0.64 | 0.66 |
+| `tl.rank_genes_groups` | 11.83 | 8.29 | 7.52 | 7.33 | 7.61 |
+| **whole pipeline** | **233.3** | **86.1** | **98.9** | **47.0** | **19.7** |
 
 - **Against scanpy's defaults the pipeline is 5x faster on the same laptop, 11x with the
   parallel UMAP; against scanpy tuned (`covariance_eigh` PCA, `igraph` Leiden with two
@@ -102,10 +102,13 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117
   (9.7x with the Hogwild optimiser; umap-learn's own parallel path did not engage through
   scanpy, 46 s either way), PCA (4x) and Leiden (3.9x against `igraph`, 210x against the
   default `leidenalg` run to convergence).
-- **CPU and Metal give the same times here.** At 2 000 genes and 116 000 cells PCA and the
-  neighbour search are each about a second on either device, so the win over scanpy on this
-  dataset comes from the Rust core using every core, not from the GPU. The GPU earns its
-  place one step up in size (section 3), where the scatter products stop fitting a CPU budget.
+- **The GPU is the neighbour search.** With `settings.device="cpu"` honoured (a bug fixed on this
+  branch: sixteen functions used to ignore it), the brute-force k-NN takes 79 s on the CPU through
+  Accelerate and 2.0 s on Metal, a 40x gap on the one step that is quadratic in cells; PCA is 2.5x
+  faster on Metal. Everything else is the same on either device, so on this atlas the whole
+  pipeline is 99 s CPU-only against 20 s with the GPU. The scrust CPU column still beats scanpy's
+  defaults (233 s) and is level with scanpy tuned (86 s); the GPU is what pulls it to 4x under
+  the tuned figure.
 - **The elementwise head is at parity or a little ahead**, as at 100 000 cells. `filter_cells`
   is slower in scrust (it copies the matrix once more than scanpy); it is 2 s of a 47 s run.
 - **The rank-sum test is 1.3x to 1.6x here**, not the 73x of section 1: 2 000 genes by 37
@@ -207,7 +210,7 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
 |---|---:|---:|---:|---:|---:|---:|
 | scanpy (defaults) | 229 | 980 | 0 | **974** | 6.0 | 8 |
 | scrust, Metal, parallel UMAP | 20 | 159 | 72 | **195** | 9.5 | 2 |
-| scrust, `settings.device="cpu"` (see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
+| scrust, run labelled "cpu" (was a Metal run, see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
 
 - **scrust does the same analysis for one fifth of the energy**: 195 J against 974 J, because it is
   done 12x sooner while drawing only 1.6x the power (9.5 W against 6.0 W: scanpy keeps one core
@@ -216,12 +219,13 @@ package subtracted) for the whole 117k pipeline; the pipeline ran as the user, p
   92 s for a million cells; an L40S is rated at 300 W and the EPYC host at 200 W, so even at half
   load that is roughly 20 to 45 kJ for the same work: the laptop is one order of magnitude cheaper
   in energy and one order of magnitude slower in time.
-- **The GPU rail is a quarter of scrust's energy** (72 J) and it was drawn in the "cpu" run as well.
-  That run was not CPU-only: at the time of the measurement `pp.neighbors`, `pp.pca`, `tl.umap`,
-  `tl.leiden` and `tl.rank_genes_groups` defaulted to `device="auto"` in their own signatures and
-  ignored `settings.device`, a bug the energy trace exposed and this branch fixes (every function
-  now resolves `device=None` through `settings`). The CPU row will be re-measured; until then the
-  "CPU and Metal are level" statements in sections 2, 3 and 5 are statements about two Metal runs.
+- **The GPU rail is a quarter of scrust's energy** (72 J) and it was drawn in the "cpu" run as
+  well, which is how the measurement caught a bug: `pp.neighbors`, `pp.pca`, `tl.umap`, `tl.leiden`,
+  `tl.rank_genes_groups` and eleven other functions defaulted to `device="auto"` in their own
+  signatures and ignored `settings.device`. Fixed on this branch (every function now resolves
+  `device=None` through `settings`); the third row is therefore a second Metal run, and the true
+  CPU-only pipeline is 99 s (section 2), which at the same 8 W would be about 800 J, close to
+  scanpy's. The energy saving comes with the GPU; a re-measured CPU row needs one more `sudo` run.
 - Idle draw was 1.8 W before the scanpy run and 0.6 W before the scrust runs (the machine had
   been busy); the net figures subtract each run's own idle.
 
@@ -243,7 +247,7 @@ between 6.3 and 8.9 s with nothing changed), so differences under that are not d
 | configuration | what is off | whole | PCA | neighbours | UMAP | Leiden | markers | scale | normalise |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | `all` | nothing | 23.3 | 1.37 | 2.08 | 5.04 | 0.94 | 8.88 | 0.05 | 0.15 |
-| `no_metal` | the GPU (`device="cpu"`) | 19.1 | 1.01 | 2.04 | 4.87 | 0.66 | 6.83 | 0.03 | 0.12 |
+| `no_metal` | the GPU (`device="cpu"`, re-measured after the fix) | 98.9 | 2.54 | 78.98 | 4.66 | 0.64 | 7.52 | 0.04 | 0.14 |
 | `no_accelerate` | Apple's BLAS, AMX (wheel built without the feature) | 20.4 | 0.92 | 2.13 | 4.76 | 0.63 | 7.84 | 0.03 | 0.14 |
 | `p_cores_only` | the 6 efficiency cores (`RAYON_NUM_THREADS=5`) | 22.8 | 0.85 | 2.12 | 7.49 | 0.77 | 7.66 | 0.02 | 0.14 |
 | `one_core` | every core but one (`RAYON_NUM_THREADS=1`) | 49.9 | 0.99 | 2.07 | 33.38 | 0.69 | 8.10 | 0.09 | 0.21 |
@@ -252,11 +256,12 @@ between 6.3 and 8.9 s with nothing changed), so differences under that are not d
 
 What the table says, plainly:
 
-- **At this size neither the GPU nor the AMX units buy anything measurable.** Switching
-  Metal off is 4 s *faster* (the GPU path pays for pipeline compilation and command-buffer
-  round trips that a 2 000-gene problem does not amortise), and the pure-Rust BLAS is
-  within noise of Accelerate. The 5x to 11x over scanpy on this atlas comes from the Rust
-  core: fused single passes, `f32` throughout, and work spread over every core.
+- **The GPU is worth 79 s of a 99 s run, all of it in one step.** The brute-force neighbour
+  search is 2 s on Metal and 79 s on the CPU; PCA is 1.4 s against 2.5 s; nothing else moves.
+  (The first pass of this table had `no_metal` at 19 s, *faster* than `all`: that run was still
+  on Metal because `pp.neighbors` and four other functions ignored `settings.device`, the bug the
+  energy trace exposed. The row above is the re-measurement.) The AMX units through Accelerate
+  are within noise of the pure-Rust BLAS at this size: the matmuls here are too small to show it.
 - **The cores are what count, and all eleven of them.** UMAP's Hogwild sweep is 6.6x faster
   on 11 threads than on 1 and 1.5x faster than on the 5 performance cores alone: the
   efficiency cores are not idle ballast, they carry a third of the epochs. Everything else
@@ -269,12 +274,13 @@ What the table says, plainly:
   search runs through Accelerate or Metal whichever way rayon is set, so this knob never
   reached it; the rank-sum test is rayon-parallel in Rust, so its 8 s must be spent in the
   Python assembly of the result (structured arrays, DataFrames), which a profile will show.
-- **The Apple-silicon case is therefore not "the GPU makes the steps faster" at 10⁵ cells.**
-  It is (i) unified memory, which lets a million cells stream off the disk through buffers
-  the CPU and GPU both read without a copy (section 3), (ii) a laptop package that runs the
-  whole pipeline on every core at under 30 W (section 4), and (iii) at 10⁶ cells, the matrix
-  units for the neighbour search once it is written for them (`docs/PLAN_APPLE_SILICON.md`,
-  2.1). The 1 M-cell ablation in the plan will say whether (iii) holds before that rewrite.
+- **The Apple-silicon case, in order of what the table shows:** (i) the GPU for the one
+  quadratic step, 40x on the neighbour search, which is what keeps a million cells at two
+  minutes instead of an hour and a half; (ii) all eleven cores for the optimiser and the
+  elementwise passes; (iii) unified memory, which lets a million cells stream off the disk
+  through buffers the CPU and GPU both read without a copy (section 3); (iv) a package that
+  does all of this at under 10 W (section 4). The AMX units do not show at 2 000 genes; the
+  plan's neighbour-search rewrite (`docs/PLAN_APPLE_SILICON.md`, 2.1) is where they would.
 
 ## 6. Against the NVIDIA-GPU alternative
 
