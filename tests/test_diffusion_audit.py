@@ -1,4 +1,4 @@
-"""Audit of `crates/scrust-core/src/diffusion.rs` against `sc.tl.diffmap` / `sc.tl.dpt`.
+"""Audit of `crates/metalcyte-core/src/diffusion.rs` against `sc.tl.diffmap` / `sc.tl.dpt`.
 
 Every test here drives scanpy on the *same* input rather than transcribing its code. The
 two exceptions are marked in their own docstrings: `_dense_transition_spectrum`, which
@@ -6,13 +6,13 @@ needs the spectrum of scanpy's own `transitions_sym` matrix and so calls
 `numpy.linalg.eigvalsh` on the matrix scanpy built, and `_extreme_signs`, which is a
 one-line summary of an array.
 
-Where scrust and scanpy genuinely differ the divergence is pinned with the size of the
+Where metalcyte and scanpy genuinely differ the divergence is pinned with the size of the
 gap, not hidden behind a loose tolerance. Four such divergences are pinned below:
 
 * `tl.dpt` returns 0 where scanpy returns NaN when every cell coincides with the root;
 * `tl.dpt` returns a finite pseudotime for cells with no path to the root, where scanpy
   returns `inf` (reachable by feeding a scanpy `X_diffmap` of a disconnected graph into
-  `scrust.tl.dpt`, since scrust's own `tl.diffmap` refuses such a graph outright);
+  `metalcyte.tl.dpt`, since metalcyte's own `tl.diffmap` refuses such a graph outright);
 * `tl.diffmap` raises for `n_comps >= n_cells` where scanpy silently clamps to
   `n_cells - 1`, and accepts `n_comps <= 2` where scanpy refuses;
 * `tl.diffmap` fixes the sign of every component; scanpy leaves it arbitrary.
@@ -35,9 +35,9 @@ import scipy.sparse as sp
 from anndata import AnnData
 from numpy.testing import assert_allclose
 
-from scrust_call import DEVICE, scrust_call
+from metalcyte_call import DEVICE, metalcyte_call
 
-# scanpy stores the map as f32 and computes the DPT row sum in f32; scrust accumulates
+# scanpy stores the map as f32 and computes the DPT row sum in f32; metalcyte accumulates
 # the same sum in f64 and rounds once at the end. On every fixture below the two agree to
 # a few units in the last f32 place, so the pseudotime comparisons are held at f32 eps
 # scaled by the [0, 1] range rather than at some negotiated tolerance.
@@ -159,7 +159,7 @@ def test_transition_spectrum_matches_scanpy_on_an_irregular_weighted_graph() -> 
     """
     graph = _irregular_graph()
     ours = _neighbored(graph)
-    scrust_call("tl.diffmap", ours, n_comps=10, device=DEVICE)
+    metalcyte_call("tl.diffmap", ours, n_comps=10, device=DEVICE)
     ours_evals = np.asarray(ours.uns["diffmap_evals"], dtype=np.float64)
 
     reference = _neighbored(graph)
@@ -198,7 +198,7 @@ def test_the_leading_eigenvector_is_the_analytic_stationary_state() -> None:
 
     graph = _irregular_graph()
     ours = _neighbored(graph)
-    scrust_call("tl.diffmap", ours, n_comps=10, device=DEVICE)
+    metalcyte_call("tl.diffmap", ours, n_comps=10, device=DEVICE)
 
     dpt = DPT(_neighbored(graph))
     dpt.compute_transitions()
@@ -228,7 +228,7 @@ def test_dpt_reproduces_scanpy_on_the_same_diffusion_basis() -> None:
 
     The eigenvectors of a k-NN diffusion map are only determined where the spectrum is
     not degenerate, so comparing two independently computed maps confuses a pseudotime
-    bug with a harmless rotation. This test removes that: it takes *scrust's* map and
+    bug with a harmless rotation. This test removes that: it takes *metalcyte's* map and
     hands the identical `X_diffmap` and `diffmap_evals` to both implementations, so any
     difference is the pseudotime formula and nothing else. It is asserted at f32 epsilon.
 
@@ -239,12 +239,12 @@ def test_dpt_reproduces_scanpy_on_the_same_diffusion_basis() -> None:
     """
     adata = _knn_graph()
     ours = adata.copy()
-    scrust_call("tl.diffmap", ours, n_comps=15, device=DEVICE)
+    metalcyte_call("tl.diffmap", ours, n_comps=15, device=DEVICE)
     basis = np.ascontiguousarray(ours.obsm["X_diffmap"], dtype=np.float32)
     evals = np.ascontiguousarray(ours.uns["diffmap_evals"], dtype=np.float32)
 
     ours.uns["iroot"] = 0
-    scrust_call("tl.dpt", ours, n_dcs=10, device=DEVICE)
+    metalcyte_call("tl.dpt", ours, n_dcs=10, device=DEVICE)
     ours_time = np.asarray(ours.obs["dpt_pseudotime"], dtype=np.float64)
 
     reference = adata.copy()
@@ -296,15 +296,15 @@ def test_dpt_uses_scanpys_stationary_cutoff_of_0_9994() -> None:
         adata.obsm["X_diffmap"] = basis.copy()
         adata.uns["diffmap_evals"] = np.ascontiguousarray(values, dtype=np.float32)
         adata.uns["iroot"] = 0
-        if engine == "scrust":
-            scrust_call("tl.dpt", adata, n_dcs=3, device=DEVICE)
+        if engine == "metalcyte":
+            metalcyte_call("tl.dpt", adata, n_dcs=3, device=DEVICE)
         else:
             sc.tl.dpt(adata, n_dcs=3)
         return np.asarray(adata.obs["dpt_pseudotime"], dtype=np.float64)
 
     reference = pseudotime(evals, engine="scanpy")
     assert_allclose(
-        pseudotime(evals, engine="scrust"),
+        pseudotime(evals, engine="metalcyte"),
         reference,
         rtol=0,
         atol=F32_EPS,
@@ -328,7 +328,7 @@ def test_dpt_ignores_the_sign_of_a_diffusion_component() -> None:
     that summed signed contributions across components.
     """
     adata = _knn_graph(n=200, seed=3)
-    scrust_call("tl.diffmap", adata, n_comps=8, device=DEVICE)
+    metalcyte_call("tl.diffmap", adata, n_comps=8, device=DEVICE)
     basis = np.ascontiguousarray(adata.obsm["X_diffmap"], dtype=np.float32)
     evals = np.ascontiguousarray(adata.uns["diffmap_evals"], dtype=np.float32)
 
@@ -337,7 +337,7 @@ def test_dpt_ignores_the_sign_of_a_diffusion_component() -> None:
         run.obsm["X_diffmap"] = np.ascontiguousarray(embedding, dtype=np.float32)
         run.uns["diffmap_evals"] = evals
         run.uns["iroot"] = 7
-        scrust_call("tl.dpt", run, n_dcs=8, device=DEVICE)
+        metalcyte_call("tl.dpt", run, n_dcs=8, device=DEVICE)
         return np.asarray(run.obs["dpt_pseudotime"], dtype=np.float64)
 
     plain = pseudotime(basis)
@@ -349,7 +349,7 @@ def test_dpt_ignores_the_sign_of_a_diffusion_component() -> None:
 
 
 def test_component_signs_are_fixed_where_scanpy_leaves_them_arbitrary() -> None:
-    """DIVERGENCE. scrust orients every diffusion component so that its largest-magnitude
+    """DIVERGENCE. metalcyte orients every diffusion component so that its largest-magnitude
     entry is positive; scanpy publishes whatever `eigsh` returned.
 
     This is deliberate in the Rust (`fix_component_signs`) and is invisible to `tl.dpt`,
@@ -360,13 +360,13 @@ def test_component_signs_are_fixed_where_scanpy_leaves_them_arbitrary() -> None:
     """
     graph = _path_graph(40)
     ours = _neighbored(graph)
-    scrust_call("tl.diffmap", ours, n_comps=6, device=DEVICE)
+    metalcyte_call("tl.diffmap", ours, n_comps=6, device=DEVICE)
     reference = _neighbored(graph)
     sc.tl.diffmap(reference, n_comps=6)
 
     ours_signs = _extreme_signs(ours.obsm["X_diffmap"])
     reference_signs = _extreme_signs(reference.obsm["X_diffmap"])
-    assert ours_signs == [1.0] * 6, f"scrust must orient every component, got {ours_signs}"
+    assert ours_signs == [1.0] * 6, f"metalcyte must orient every component, got {ours_signs}"
     assert reference_signs != ours_signs, (
         "scanpy happens to agree on every sign here, so this fixture no longer "
         f"demonstrates the divergence: {reference_signs}"
@@ -386,11 +386,11 @@ def test_component_signs_are_fixed_where_scanpy_leaves_them_arbitrary() -> None:
 
 def test_dpt_returns_zero_where_scanpy_returns_nan_for_a_coincident_basis() -> None:
     """DIVERGENCE. When every cell sits exactly on the root in the components used,
-    scrust reports pseudotime 0 for all cells and scanpy reports NaN for all cells.
+    metalcyte reports pseudotime 0 for all cells and scanpy reports NaN for all cells.
 
     scanpy's `_set_pseudotime` divides the distance row by its own maximum; when that
     maximum is exactly 0 the division is 0/0. The Rust guards it (`if farthest > 0.0`) and
-    leaves the distances at zero. scrust's answer is the defensible one, but it is a
+    leaves the distances at zero. metalcyte's answer is the defensible one, but it is a
     difference in output that a caller checking `isnan` would notice, so it is pinned with
     both sides asserted rather than only ours.
 
@@ -405,7 +405,7 @@ def test_dpt_returns_zero_where_scanpy_returns_nan_for_a_coincident_basis() -> N
     ours.obsm["X_diffmap"] = basis.copy()
     ours.uns["diffmap_evals"] = evals
     ours.uns["iroot"] = 0
-    scrust_call("tl.dpt", ours, n_dcs=2, device=DEVICE)
+    metalcyte_call("tl.dpt", ours, n_dcs=2, device=DEVICE)
     ours_time = np.asarray(ours.obs["dpt_pseudotime"], dtype=np.float64)
 
     reference = _neighbored(_path_graph(n))
@@ -415,7 +415,7 @@ def test_dpt_returns_zero_where_scanpy_returns_nan_for_a_coincident_basis() -> N
     sc.tl.dpt(reference, n_dcs=2)
     reference_time = np.asarray(reference.obs["dpt_pseudotime"], dtype=np.float64)
 
-    assert np.all(ours_time == 0.0), f"scrust changed its 0-0 answer: {ours_time}"
+    assert np.all(ours_time == 0.0), f"metalcyte changed its 0-0 answer: {ours_time}"
     assert np.all(np.isnan(reference_time)), (
         f"scanpy no longer returns NaN here, so the divergence has moved: {reference_time}"
     )
@@ -423,13 +423,13 @@ def test_dpt_returns_zero_where_scanpy_returns_nan_for_a_coincident_basis() -> N
 
 def test_dpt_gives_finite_pseudotime_to_unreachable_cells_where_scanpy_gives_inf() -> None:
     """DIVERGENCE, and the sharper edge of it. On a disconnected graph scanpy marks every
-    cell outside the root's component with `inf`; scrust returns an ordinary finite
+    cell outside the root's component with `inf`; metalcyte returns an ordinary finite
     number for them, indistinguishable from a genuinely reachable cell.
 
-    scrust's own `tl.diffmap` refuses a disconnected graph outright (asserted below), so
-    this cannot arise from a pure-scrust pipeline. It arises from a mixed one: scanpy
-    computes the map, scrust computes the pseudotime, which is exactly what
-    `scrust.tl.dpt` does when `X_diffmap` is already present. The Rust `dpt` never sees
+    metalcyte's own `tl.diffmap` refuses a disconnected graph outright (asserted below), so
+    this cannot arise from a pure-metalcyte pipeline. It arises from a mixed one: scanpy
+    computes the map, metalcyte computes the pseudotime, which is exactly what
+    `metalcyte.tl.dpt` does when `X_diffmap` is already present. The Rust `dpt` never sees
     the graph and has no way to know, so the fix would have to be in the wrapper; it is
     documented here, not fixed.
 
@@ -462,10 +462,10 @@ def test_dpt_gives_finite_pseudotime_to_unreachable_cells_where_scanpy_gives_inf
         reference.uns["diffmap_evals"], dtype=np.float32
     )
     ours.uns["iroot"] = 0
-    scrust_call("tl.dpt", ours, n_dcs=6, device=DEVICE)
+    metalcyte_call("tl.dpt", ours, n_dcs=6, device=DEVICE)
     ours_time = np.asarray(ours.obs["dpt_pseudotime"], dtype=np.float64)
 
-    assert np.all(np.isfinite(ours_time)), "scrust started reporting inf; update this test"
+    assert np.all(np.isfinite(ours_time)), "metalcyte started reporting inf; update this test"
     assert ours_time[unreachable].max() > 0.5, (
         "the unreachable cells are given a large finite pseudotime, not something a "
         f"caller could spot as a sentinel: {ours_time[unreachable].max()}"
@@ -479,7 +479,7 @@ def test_dpt_gives_finite_pseudotime_to_unreachable_cells_where_scanpy_gives_inf
     )
 
     with pytest.raises(ValueError, match="connected"):
-        scrust_call("tl.diffmap", _neighbored(graph), n_comps=6, device=DEVICE)
+        metalcyte_call("tl.diffmap", _neighbored(graph), n_comps=6, device=DEVICE)
 
 
 def test_an_explicit_zero_does_not_defeat_the_connectivity_guard() -> None:
@@ -528,9 +528,9 @@ def test_an_explicit_zero_does_not_defeat_the_connectivity_guard() -> None:
     # Both spellings of the same disconnected graph are refused, whether the bridge is
     # absent or merely weightless.
     with pytest.raises(ValueError, match="connected"):
-        scrust_call("tl.diffmap", _neighbored(truly_split), n_comps=4, device=DEVICE)
+        metalcyte_call("tl.diffmap", _neighbored(truly_split), n_comps=4, device=DEVICE)
     with pytest.raises(ValueError, match="connected"):
-        scrust_call("tl.diffmap", _neighbored(bridged), n_comps=4, device=DEVICE)
+        metalcyte_call("tl.diffmap", _neighbored(bridged), n_comps=4, device=DEVICE)
 
     # And scanpy, reading the pattern alone, still produces the degenerate map: two
     # eigenvalues at 1, which is what refusing the graph avoids.
@@ -547,11 +547,11 @@ def test_an_explicit_zero_does_not_defeat_the_connectivity_guard() -> None:
     # simply become "refuse anything with a stored zero".
     weighted = bridged.copy()
     weighted.data[weighted.data == 0.0] = 0.5
-    scrust_call("tl.diffmap", _neighbored(weighted), n_comps=4, device=DEVICE)
+    metalcyte_call("tl.diffmap", _neighbored(weighted), n_comps=4, device=DEVICE)
 
 
 def test_n_comps_at_the_cell_count_is_refused_where_scanpy_clamps() -> None:
-    """DIVERGENCE in validation. `n_comps >= n_cells` raises in scrust; scanpy silently
+    """DIVERGENCE in validation. `n_comps >= n_cells` raises in metalcyte; scanpy silently
     returns `n_cells - 1` components instead of the number asked for.
 
     Both are defensible -- the last eigenpair of an `n x n` operator is not determined by
@@ -567,13 +567,13 @@ def test_n_comps_at_the_cell_count_is_refused_where_scanpy_clamps() -> None:
     assert len(reference.uns["diffmap_evals"]) == 11
 
     with pytest.raises(ValueError, match="n_comps"):
-        scrust_call("tl.diffmap", _neighbored(graph), n_comps=13, device=DEVICE)
+        metalcyte_call("tl.diffmap", _neighbored(graph), n_comps=13, device=DEVICE)
     with pytest.raises(ValueError, match="n_comps"):
-        scrust_call("tl.diffmap", _neighbored(graph), n_comps=12, device=DEVICE)
+        metalcyte_call("tl.diffmap", _neighbored(graph), n_comps=12, device=DEVICE)
 
     # And the largest count both accept still agrees, so the boundary is the only issue.
     ours = _neighbored(graph)
-    scrust_call("tl.diffmap", ours, n_comps=11, device=DEVICE)
+    metalcyte_call("tl.diffmap", ours, n_comps=11, device=DEVICE)
     assert_allclose(
         np.asarray(ours.uns["diffmap_evals"], dtype=np.float64),
         np.asarray(reference.uns["diffmap_evals"], dtype=np.float64),
@@ -583,7 +583,7 @@ def test_n_comps_at_the_cell_count_is_refused_where_scanpy_clamps() -> None:
 
 def test_small_n_comps_is_accepted_where_scanpy_refuses_it() -> None:
     """DIVERGENCE in validation, and the one place the documented eigenvalue ordering
-    breaks. scanpy rejects `n_comps <= 2` outright; scrust accepts `n_comps = 1`, and on a
+    breaks. scanpy rejects `n_comps <= 2` outright; metalcyte accepts `n_comps = 1`, and on a
     bipartite graph it can then return `-1` as the leading eigenvalue.
 
     `diffusion.rs` documents `eigenvalues` as "descending, starting at 1 for a connected
@@ -609,7 +609,7 @@ def test_small_n_comps_is_accepted_where_scanpy_refuses_it() -> None:
         sc.tl.diffmap(_neighbored(graph), n_comps=1)
 
     one = _neighbored(graph)
-    scrust_call("tl.diffmap", one, n_comps=1, device=DEVICE)
+    metalcyte_call("tl.diffmap", one, n_comps=1, device=DEVICE)
     leading = float(np.asarray(one.uns["diffmap_evals"])[0])
     assert abs(leading) == pytest.approx(1.0, abs=1e-5)
     assert leading == pytest.approx(-1.0, abs=1e-5), (
@@ -618,7 +618,7 @@ def test_small_n_comps_is_accepted_where_scanpy_refuses_it() -> None:
     )
 
     three = _neighbored(graph)
-    scrust_call("tl.diffmap", three, n_comps=3, device=DEVICE)
+    metalcyte_call("tl.diffmap", three, n_comps=3, device=DEVICE)
     evals = np.asarray(three.uns["diffmap_evals"], dtype=np.float64)
     assert evals[0] == pytest.approx(1.0, abs=1e-5), evals
     assert evals[-1] == pytest.approx(-1.0, abs=1e-5), evals
@@ -648,9 +648,9 @@ def test_unsorted_csr_indices_give_the_same_map() -> None:
     assert np.any(shuffled.indices != graph.indices), "the permutation was a no-op"
 
     sorted_run = _neighbored(graph)
-    scrust_call("tl.diffmap", sorted_run, n_comps=6, device=DEVICE)
+    metalcyte_call("tl.diffmap", sorted_run, n_comps=6, device=DEVICE)
     shuffled_run = _neighbored(shuffled)
-    scrust_call("tl.diffmap", shuffled_run, n_comps=6, device=DEVICE)
+    metalcyte_call("tl.diffmap", shuffled_run, n_comps=6, device=DEVICE)
 
     assert_allclose(
         np.asarray(shuffled_run.uns["diffmap_evals"], dtype=np.float64),

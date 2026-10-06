@@ -1,13 +1,13 @@
 """Audit native DPT branch detection against scanpy by adjusted Rand index.
 
 `tl.dpt(n_branchings>0)` used to raise `NotImplementedError`. It now runs a port of
-scanpy's Haghverdi 2016 branch detection (`scrust.tl._dpt_branching`) and writes
+scanpy's Haghverdi 2016 branch detection (`metalcyte.tl._dpt_branching`) and writes
 `obs["dpt_groups"]`. Branch labels are arbitrary, so parity is the adjusted Rand index of
 the two partitions, per `docs/API_CONTRACT.md` (clustering labels are compared by ARI).
 
-The algorithm reads the diffusion map, so a fair test of the *port* feeds scrust's and
+The algorithm reads the diffusion map, so a fair test of the *port* feeds metalcyte's and
 scanpy's branching the **same** diffmap: any difference is then the branching logic alone,
-and it must be none (ARI = 1.0). A second test runs the whole scrust path end to end and
+and it must be none (ARI = 1.0). A second test runs the whole metalcyte path end to end and
 only asserts it produces the field without raising, recording its ARI for the record.
 """
 
@@ -21,8 +21,8 @@ import scanpy as sc
 from anndata import AnnData
 from sklearn.metrics import adjusted_rand_score
 
-from scrust.tl._dpt_branching import dpt_groups
-from scrust_call import scrust_call
+from metalcyte.tl._dpt_branching import dpt_groups
+from metalcyte_call import metalcyte_call
 
 
 @pytest.fixture(scope="module")
@@ -72,13 +72,13 @@ def test_branch_partition_matches_scanpy_exactly(
 def test_dpt_end_to_end_writes_dpt_groups_without_error(
     prepared: AnnData, record_property: Callable[[str, object], None]
 ) -> None:
-    """The full scrust path (its own pseudotime + branching) produces the field.
+    """The full metalcyte path (its own pseudotime + branching) produces the field.
 
-    End-to-end ARI against scanpy also folds in scrust's diffmap, so it is recorded, not
+    End-to-end ARI against scanpy also folds in metalcyte's diffmap, so it is recorded, not
     asserted; the branching port itself is pinned to ARI = 1.0 by the test above.
     """
     del prepared.obs["dpt_pseudotime"]
-    scrust_call("tl.dpt", prepared, n_branchings=1, n_dcs=10)
+    metalcyte_call("tl.dpt", prepared, n_branchings=1, n_dcs=10)
 
     assert "dpt_groups" in prepared.obs
     assert prepared.obs["dpt_groups"].nunique() >= 2
@@ -95,6 +95,6 @@ def test_dpt_end_to_end_writes_dpt_groups_without_error(
 def test_n_branchings_zero_still_skips_branching(prepared: AnnData) -> None:
     """`n_branchings=0` writes pseudotime only, never `dpt_groups`."""
     del prepared.obs["dpt_pseudotime"]
-    scrust_call("tl.dpt", prepared, n_branchings=0)
+    metalcyte_call("tl.dpt", prepared, n_branchings=0)
     assert "dpt_pseudotime" in prepared.obs
     assert "dpt_groups" not in prepared.obs

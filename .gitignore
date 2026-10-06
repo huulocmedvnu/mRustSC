@@ -11,3 +11,4 @@ dist/
 data/
 docs/tutorials/figures/
 .ipynb_checkpoints/
+benches/results/*.h5ad

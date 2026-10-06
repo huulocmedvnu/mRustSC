@@ -13,14 +13,14 @@ from pathlib import Path
 
 import pytest
 
-import scrust
+import metalcyte
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 WHEEL_DIRS = (REPO_ROOT / "target" / "wheels", REPO_ROOT / "dist")
 
 # Every module that publishes an `__all__`, by import path.
-PUBLIC_MODULES = ["scrust", "scrust.get", "scrust.metrics", "scrust.pp", "scrust.tl"]
+PUBLIC_MODULES = ["metalcyte", "metalcyte.get", "metalcyte.metrics", "metalcyte.pp", "metalcyte.tl"]
 
 
 def _metadata() -> dict:
@@ -29,7 +29,7 @@ def _metadata() -> dict:
 
 
 def test_version_matches_the_package() -> None:
-    assert _metadata()["version"] == scrust.__version__
+    assert _metadata()["version"] == metalcyte.__version__
 
 
 def test_requires_python_covers_the_running_interpreter() -> None:
@@ -50,11 +50,11 @@ def test_every_exported_name_is_importable(module_name: str) -> None:
 def test_py_typed_is_in_the_source_tree() -> None:
     # Asserted against the checkout, not the installed package: `maturin develop`
     # can leave an older install in the virtualenv.
-    assert (REPO_ROOT / "python" / "scrust" / "py.typed").is_file()
+    assert (REPO_ROOT / "python" / "metalcyte" / "py.typed").is_file()
 
 
 def _newest_wheel() -> Path | None:
-    wheels = [path for directory in WHEEL_DIRS for path in directory.glob("scrust-*.whl")]
+    wheels = [path for directory in WHEEL_DIRS for path in directory.glob("metalcyte-*.whl")]
     return max(wheels, key=lambda path: path.stat().st_mtime, default=None)
 
 
@@ -64,5 +64,5 @@ def test_py_typed_ships_inside_the_wheel() -> None:
         pytest.skip("no built wheel; run `maturin build --release` first")
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
-    assert "scrust/py.typed" in names
+    assert "metalcyte/py.typed" in names
     assert any(name.endswith(".so") for name in names), "wheel carries no extension module"

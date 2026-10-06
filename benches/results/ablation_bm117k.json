@@ -1,5 +1,5 @@
 {
-  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
   "million": false,
   "rows": [
     {
@@ -118,7 +118,7 @@
     {
       "config": "no_zero_copy",
       "env": {
-        "SCRUST_FORCE_COPY": "1"
+        "METALCYTE_FORCE_COPY": "1"
       },
       "args": [],
       "total_seconds": 25.133209835505113,

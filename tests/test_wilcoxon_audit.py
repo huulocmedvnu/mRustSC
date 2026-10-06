@@ -27,7 +27,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse, stats
 
-from scrust_call import DEVICE, scrust_call
+from metalcyte_call import DEVICE, metalcyte_call
 
 TIE_CORRECT = (False, True)
 
@@ -43,9 +43,9 @@ def csr_args(matrix: sparse.csr_matrix):
     )
 
 
-def scrust_wilcoxon(matrix, labels, n_groups, *, reference=None, tie_correct=False):
-    return scrust_call(
-        "_scrust.rank_genes_groups_wilcoxon",
+def metalcyte_wilcoxon(matrix, labels, n_groups, *, reference=None, tie_correct=False):
+    return metalcyte_call(
+        "_metalcyte.rank_genes_groups_wilcoxon",
         *csr_args(matrix),
         np.asarray(labels, dtype=np.uint32),
         n_groups,
@@ -141,7 +141,7 @@ def assert_matches(ours, theirs, *, rtol=1e-5, atol=1e-6, keys=None):
 def test_matches_scanpy_against_rest(tie_correct):
     """Each group against every other cell, which is scanpy's default `reference="rest"`."""
     matrix, labels = blobs()
-    ours = scrust_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
     theirs = _scanpy_table(matrix, labels, 3, tie_correct=tie_correct)
     assert_matches(ours, theirs)
 
@@ -152,7 +152,7 @@ def test_matches_scanpy_against_a_reference_group(reference, tie_correct):
     """One named group as the reference, where the ranking covers two groups rather
     than the whole matrix, and scanpy drops the reference group from its output."""
     matrix, labels = blobs()
-    ours = scrust_wilcoxon(matrix, labels, 3, reference=reference, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, reference=reference, tie_correct=tie_correct)
     theirs = _scanpy_table(matrix, labels, 3, reference=reference, tie_correct=tie_correct)
     assert_matches(ours, theirs)
 
@@ -168,7 +168,7 @@ def test_matches_scanpy_on_a_dense_matrix_with_no_zeros_at_all(tie_correct):
     ranking is the ordinary one. It separates a bug in the closed form from a bug in
     the ranking itself."""
     matrix, labels = blobs(sparsity=0.0)
-    ours = scrust_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
     theirs = _scanpy_table(matrix, labels, 3, tie_correct=tie_correct)
     assert_matches(ours, theirs)
 
@@ -198,8 +198,8 @@ def test_explicit_zeros_rank_with_the_structural_ones(tie_correct):
     assert explicit.nnz == dense.size
     assert (explicit.count_nonzero()) < explicit.nnz, "there have to be stored zeros"
 
-    compact = scrust_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
-    stored = scrust_wilcoxon(explicit, labels, 3, tie_correct=tie_correct)
+    compact = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
+    stored = metalcyte_wilcoxon(explicit, labels, 3, tie_correct=tie_correct)
     for key in ("scores", "p_values", "adjusted_p_values", "log2_fold_changes"):
         np.testing.assert_allclose(
             np.asarray(stored[key], dtype=np.float64),
@@ -227,7 +227,7 @@ def test_negative_values_rank_around_the_zero_block(tie_correct):
     assert (shifted.data < 0).any() and (shifted.data > 0).any()
     assert (np.asarray(shifted.todense()) == 0).any(), "the zero block has to survive"
 
-    ours = scrust_wilcoxon(shifted, labels, 3, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(shifted, labels, 3, tie_correct=tie_correct)
     theirs = _scanpy_table(shifted, labels, 3, tie_correct=tie_correct)
     assert_matches(ours, theirs)
 
@@ -242,7 +242,7 @@ def test_an_all_zero_gene_is_one_tied_block(tie_correct):
     dense[:, 1] = 2.5  # constant but non-zero: tied without being the zero block
     matrix = sparse.csr_matrix(dense)
 
-    ours = scrust_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
     theirs = _scanpy_table(matrix, labels, 3, tie_correct=tie_correct)
     assert_matches(ours, theirs)
 
@@ -284,7 +284,7 @@ def test_a_single_cell_group_scores_where_scanpy_refuses(tie_correct):
     with pytest.raises(ValueError, match="only contain one sample"):
         _scanpy_table(matrix, labels, 3, tie_correct=tie_correct)
 
-    ours = scrust_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=tie_correct)
     scores = np.asarray(ours["scores"], dtype=np.float64)
     p_values = np.asarray(ours["p_values"], dtype=np.float64)
     assert np.isfinite(scores).all() and np.isfinite(p_values).all()
@@ -297,7 +297,7 @@ def test_a_single_cell_group_scores_where_scanpy_refuses(tie_correct):
     keep = labels != 2
     kept_matrix = matrix[keep]
     kept_labels = labels[keep]
-    kept_ours = scrust_wilcoxon(kept_matrix, kept_labels, 2, tie_correct=tie_correct)
+    kept_ours = metalcyte_wilcoxon(kept_matrix, kept_labels, 2, tie_correct=tie_correct)
     kept_theirs = _scanpy_table(kept_matrix, kept_labels, 2, tie_correct=tie_correct)
     assert_matches(kept_ours, kept_theirs)
 
@@ -308,7 +308,7 @@ def test_scores_are_antisymmetric_for_two_groups():
     implementation enforces this; it follows from the rank sums being complementary,
     which makes it a good check on the closed-form zero block."""
     matrix, labels = blobs(n_groups=2, n_cells=80, seed=13)
-    ours = scrust_wilcoxon(matrix, labels, 2, tie_correct=True)
+    ours = metalcyte_wilcoxon(matrix, labels, 2, tie_correct=True)
     scores = np.asarray(ours["scores"], dtype=np.float64)
     p_values = np.asarray(ours["p_values"], dtype=np.float64)
     np.testing.assert_allclose(scores[0], -scores[1], rtol=1e-5, atol=1e-6)
@@ -341,7 +341,7 @@ def test_far_tail_p_values_do_not_underflow():
     dense[:, 1] = np.linspace(1.0, 2.0, 2 * n_per_group)
     matrix = sparse.csr_matrix(dense)
 
-    ours = scrust_wilcoxon(matrix, labels, 2, tie_correct=True)
+    ours = metalcyte_wilcoxon(matrix, labels, 2, tie_correct=True)
     scores = np.asarray(ours["scores"], dtype=np.float64)
     p_values = np.asarray(ours["p_values"], dtype=np.float64)
 
@@ -366,7 +366,7 @@ def test_the_reported_score_is_f32_so_the_p_value_cannot_be_recomputed_from_it()
     tolerance of every other tail test here depends on it.
     """
     matrix, labels = blobs(n_cells=120, n_genes=40, seed=21)
-    ours = scrust_wilcoxon(matrix, labels, 3, tie_correct=True)
+    ours = metalcyte_wilcoxon(matrix, labels, 3, tie_correct=True)
     scores = np.asarray(ours["scores"], dtype=np.float64)
     p_values = np.asarray(ours["p_values"], dtype=np.float64)
     recomputed = 2.0 * stats.norm.sf(np.abs(scores))
@@ -401,7 +401,7 @@ def test_log_fold_change_matches_scanpys_expm1_ratio():
     dense[:, 3] = 0.0  # silent everywhere
     matrix = sparse.csr_matrix(dense)
 
-    ours = scrust_wilcoxon(matrix, labels, 3)
+    ours = metalcyte_wilcoxon(matrix, labels, 3)
     theirs = _scanpy_table(matrix, labels, 3)
     folds = np.asarray(ours["log2_fold_changes"], dtype=np.float64)
     np.testing.assert_allclose(folds, theirs["logfoldchanges"], rtol=1e-4, atol=1e-5)
@@ -442,7 +442,7 @@ def test_log_fold_change_ignores_the_log_base_scanpy_records():
     columns = [order[name] for name in adata.uns["rank_genes_groups"]["names"]["0"]]
     theirs[columns] = adata.uns["rank_genes_groups"]["logfoldchanges"]["0"]
 
-    ours = np.asarray(scrust_wilcoxon(matrix, labels, 3)["log2_fold_changes"])[0]
+    ours = np.asarray(metalcyte_wilcoxon(matrix, labels, 3)["log2_fold_changes"])[0]
 
     # The ranks, and so the scores, are untouched by the base: only the fold changes move.
     assert not np.allclose(ours, theirs, rtol=1e-2, atol=1e-2), (

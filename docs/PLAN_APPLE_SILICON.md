@@ -1,4 +1,4 @@
-# Plan: proving scrust is built for Apple silicon, and finishing what is half done
+# Plan: proving metalcyte is built for Apple silicon, and finishing what is half done
 
 Written 2026-10-06 on branch `feat/scanpy-parity`. This is the working plan for the
 next pass over the project; it lists what is done, what is measured but not yet
@@ -11,12 +11,12 @@ Tick items off here as they land; `docs/SCALE.md` holds the numbers.
 | area | state |
 |---|---|
 | per-operation benchmark to 100 000 cells | done, `benches/results/benchmark_100k_m3pro.txt` |
-| real 117k atlas end to end, scanpy vs scrust (CPU, Metal, parallel UMAP) | done, 233 s / 29 s / 47 s / 20 s |
+| real 117k atlas end to end, scanpy vs metalcyte (CPU, Metal, parallel UMAP) | done, 233 s / 29 s / 47 s / 20 s |
 | scanpy with its fastest settings (`--tuned`) as a fourth column | done, 86.1 s |
 | 1 M cells on 18 GB through `pp.preprocess_backed` | done, 210 s Metal; 409 s CPU-only after the parallel CPU search (was 5 386 s) |
 | scanpy on 1 M cells on the same machine | did not finish: `scale` needed 21.9 GB, PCA swapped, killed at 15 min |
 | streamed PCA held to scanpy's exact solver | done, `tests/test_streaming.py` and 50/50 components on real data |
-| energy per run (`benches/energy.py`, `benches/run_energy.sh`) | done: scanpy 974 J, scrust Metal 195 J |
+| energy per run (`benches/energy.py`, `benches/run_energy.sh`) | done: scanpy 974 J, metalcyte Metal 195 J |
 | placement against rapids-singlecell | written from their published numbers, `docs/SCALE.md` section 5 |
 | Rust unit tests | 267 pass; Python suite not yet re-run in full after today's changes |
 | CI on `main` | red: `clippy -D warnings` and 3 scanpy-1.12.4 median tests (pre-existing) |
@@ -40,7 +40,7 @@ Same binary, same data (117k real, 1 M streamed), same machine.
 | Accelerate / AMX BLAS | `--features accelerate` (default wheel) | pure-Rust `matrixmultiply` | second wheel built without the feature into `.venv-noaccel` |
 | Metal | `settings.device="auto"` | `"cpu"` | done |
 | all 11 cores (P+E) | `RAYON_NUM_THREADS=11` | `5` (P only), `1` | env var, rayon honours it |
-| zero-copy numpy borrows | current `fast.rs` paths | force the old copying path (`SCRUST_FORCE_COPY=1`, to add) | env var read in `_basics.py` |
+| zero-copy numpy borrows | current `fast.rs` paths | force the old copying path (`METALCYTE_FORCE_COPY=1`, to add) | env var read in `_basics.py` |
 | parallel UMAP | `parallel=True` | `False` | done |
 
 Output: `benches/ablation.py` producing `benches/results/ablation_{bm117k,embryo1m}.json`;
@@ -67,13 +67,13 @@ machine idles waiting on the SSD.
 
 ### 1.4 Energy per run
 `sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad` gives net joules for
-scanpy, scrust Metal and scrust CPU. Report joules per million cells next to the
+scanpy, metalcyte Metal and metalcyte CPU. Report joules per million cells next to the
 NVIDIA figures (an L40S draws about 300 W; 92 s is about 28 kJ for a million cells;
 the laptop's whole package is under 30 W).
 
 ### 1.5 Scaling curves
 Seconds against cells at 10k, 50k, 100k (done), 117k real, 250k and 500k subsamples of
-the 1 M atlas, and 1 M, for scanpy (where it fits) and scrust. Log-log, one line per
+the 1 M atlas, and 1 M, for scanpy (where it fits) and metalcyte. Log-log, one line per
 step. The figure shows where each library's slope changes and where scanpy stops.
 
 ## 2. Engineering: what has to change for the claims to hold at 1 M and beyond
@@ -86,7 +86,7 @@ products from `simdgroup_float8x8` steps with queries and dimension-major candid
 staged in threadgroup memory; it is correct (held to the brute-force reference) but
 3.1 s against the tiled kernel's 2.2 s at 116k x 50, and an ablation of its own shows
 the 8 x 8 steps are the whole cost (0.76 s without them). It is opt-in
-(`SCRUST_KNN_KERNEL=simd`). What it needs is gemm-grade blocking: 64 x 64 output tiles
+(`METALCYTE_KNN_KERNEL=simd`). What it needs is gemm-grade blocking: 64 x 64 output tiles
 per threadgroup with eight accumulators amortising every load, as MLX's gemm does; or
 the alternative two-stage design (one large Metal matmul per tile, then a merge
 kernel), which is bandwidth-bound at about 50 s for a million cells because the
@@ -123,14 +123,14 @@ From the API audit (scanpy 1.12.4): `pp`: 17/22, `tl`: 15/20, `pl`: 3/48,
    `highest_expr_genes`, `highly_variable_genes`, `pca`, `pca_loadings`, `paga`, `dendrogram`,
    `rank_genes_groups_{dotplot,violin,heatmap}`, `embedding_density`, `tsne`, `diffmap`, `draw_graph`;
    written natively in matplotlib in the house style of `pl.py`, each held to scanpy's output
-   on PBMC 3k by a snapshot test. Until then the README says: run scrust, plot with `sc.pl.*`.
+   on PBMC 3k by a snapshot test. Until then the README says: run metalcyte, plot with `sc.pl.*`.
 6. `tl.sim`, `paga_compare_paths`, `paga_degrees`, `paga_expression_entropies`: low value, last.
 `external.*` is scanpy calling other packages; out of scope, say so in the docs.
 
 ### 2.5 Housekeeping before any PR
 - fix the `clippy -D warnings` failure on `main` (run `cargo clippy --all-targets --all-features`);
 - decide the 3 scanpy-1.12.4 sparse-median tests: follow scanpy 1.12 (preferred) or pin the old rule;
-- run the whole Python suite on `SCRUST_TEST_DEVICE=auto` and `cpu`;
+- run the whole Python suite on `METALCYTE_TEST_DEVICE=auto` and `cpu`;
 - `benches/results/` is committed (small JSON and text), the data files are not.
 
 ## 3. Figures: the theory and the hardware, drawn
@@ -141,8 +141,8 @@ figure comes from one script, `benches/figures.py`, and can be regenerated.
 
 | # | figure | what it shows | source |
 |---|---|---|---|
-| F1 | **The chip and the library** | the M3 Pro as blocks (5 P cores, 6 E cores, AMX, 14-core GPU, one unified memory, SSD) with arrows for which scrust layer uses which block: rayon across P+E, Accelerate on AMX, candle/Metal kernels on the GPU, numpy buffers borrowed in place | diagram |
-| F2 | **Where the bytes go** | the same pipeline step (`pp.scale` then `pp.pca`) as a byte-flow: scanpy's copies (sparse, dense f64, scaled, device) against scrust's one fused pass into a buffer the GPU reads directly; numbers from the `+MB` columns | diagram + measured |
+| F1 | **The chip and the library** | the M3 Pro as blocks (5 P cores, 6 E cores, AMX, 14-core GPU, one unified memory, SSD) with arrows for which metalcyte layer uses which block: rayon across P+E, Accelerate on AMX, candle/Metal kernels on the GPU, numpy buffers borrowed in place | diagram |
+| F2 | **Where the bytes go** | the same pipeline step (`pp.scale` then `pp.pca`) as a byte-flow: scanpy's copies (sparse, dense f64, scaled, device) against metalcyte's one fused pass into a buffer the GPU reads directly; numbers from the `+MB` columns | diagram + measured |
 | F3 | **A million cells in four passes** | the streamed head: disk → row block → per-block transform → accumulator (sums, scatter) → eigenvectors → projection; a second row shows what scanpy would need to hold (8 GB dense) | diagram |
 | F4 | **Ablation** | seconds per step with each Apple-specific choice removed | 1.1 |
 | F5 | **Roofline** | kernels against the chip's compute and memory roofs | 1.2 |

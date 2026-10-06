@@ -1,4 +1,4 @@
-"""Backed `.h5ad` row blocks: `scrust._backed`.
+"""Backed `.h5ad` row blocks: `metalcyte._backed`.
 
 The point of the module is that peak memory follows the block, not the dataset,
 so the last test streams a matrix tens of times larger than its block budget and
@@ -17,8 +17,8 @@ import pytest
 import scipy.sparse as sp
 from numpy.testing import assert_allclose
 
-from scrust._backed import block_size_for, open_backed
-from scrust.settings import settings
+from metalcyte._backed import block_size_for, open_backed
+from metalcyte.settings import settings
 
 N_OBS, N_VARS, DENSITY = 240, 60, 0.2
 
@@ -38,7 +38,7 @@ PEAK_ALLOWANCE_BYTES = 32 * 1024**2
 # matrix and nothing else.
 _STREAMING_PASS = """
 import numpy as np
-from scrust._backed import open_backed
+from metalcyte._backed import open_backed
 
 with open_backed({path!r}) as backed:
     for _, block in backed.blocks(backed.block_size(max_memory_gb={budget!r})):
@@ -47,7 +47,7 @@ with open_backed({path!r}) as backed:
 
 _IN_MEMORY_PASS = """
 import anndata, numpy as np
-import scrust._backed  # imported for a like-for-like baseline
+import metalcyte._backed  # imported for a like-for-like baseline
 
 adata = anndata.read_h5ad({path!r})
 np.asarray(adata.X.sum(axis=1)).ravel()

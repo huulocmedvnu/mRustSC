@@ -1,4 +1,4 @@
-"""`scrust.metrics` against scanpy. Owned by feat/metrics.
+"""`metalcyte.metrics` against scanpy. Owned by feat/metrics.
 
 The two autocorrelation statistics are deterministic reductions, so agreement is
 element wise to the contract's tolerance on every gene, not a set overlap. The
@@ -16,7 +16,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
 
-from scrust_call import scrust_call
+from metalcyte_call import metalcyte_call
 
 # The contract's tolerance for a deterministic transform. Both statistics divide
 # a graph-wide reduction by a per-gene one, so an f32 path drifts here where
@@ -42,7 +42,7 @@ def worst_deviation(ours: np.ndarray, reference: np.ndarray, names: object) -> t
 
 @pytest.mark.parametrize("statistic", STATISTICS)
 def test_matches_scanpy_on_every_gene(neighbored: AnnData, statistic: str) -> None:
-    ours = scrust_call(f"metrics.{statistic}", neighbored)
+    ours = metalcyte_call(f"metrics.{statistic}", neighbored)
     reference = getattr(sc.metrics, statistic)(neighbored)
 
     assert np.isnan(ours).tolist() == np.isnan(reference).tolist()
@@ -86,8 +86,8 @@ def ring() -> AnnData:
 
 def test_smooth_and_alternating_signals_reach_the_ends_of_both_scales(ring: AnnData) -> None:
     n = ring.n_obs
-    morans = scrust_call("metrics.morans_i", ring)
-    gearys = scrust_call("metrics.gearys_c", ring)
+    morans = metalcyte_call("metrics.morans_i", ring)
+    gearys = metalcyte_call("metrics.gearys_c", ring)
 
     # A cosine over 64 cells barely changes between neighbours.
     assert morans[0] > 0.99
@@ -99,8 +99,8 @@ def test_smooth_and_alternating_signals_reach_the_ends_of_both_scales(ring: AnnD
 
 
 def test_a_constant_gene_returns_what_scanpy_returns(ring: AnnData) -> None:
-    ours_morans = scrust_call("metrics.morans_i", ring)
-    ours_gearys = scrust_call("metrics.gearys_c", ring)
+    ours_morans = metalcyte_call("metrics.morans_i", ring)
+    ours_gearys = metalcyte_call("metrics.gearys_c", ring)
     with pytest.warns(UserWarning, match="constant"):
         reference_morans = sc.metrics.morans_i(ring)
     with pytest.warns(UserWarning, match="constant"):
@@ -114,30 +114,30 @@ def test_a_constant_gene_returns_what_scanpy_returns(ring: AnnData) -> None:
 
 @pytest.mark.parametrize("statistic", STATISTICS)
 def test_vals_accepts_a_name_an_obs_column_or_an_array(ring: AnnData, statistic: str) -> None:
-    per_gene = scrust_call(f"metrics.{statistic}", ring)
-    by_name = scrust_call(f"metrics.{statistic}", ring, vals="smooth")
+    per_gene = metalcyte_call(f"metrics.{statistic}", ring)
+    by_name = metalcyte_call(f"metrics.{statistic}", ring, vals="smooth")
     assert by_name == pytest.approx(per_gene[0], rel=RTOL)
 
     # scanpy's explicit array layout is (n_features, n_cells).
-    explicit = scrust_call(f"metrics.{statistic}", ring, vals=ring.X.toarray().T)
+    explicit = metalcyte_call(f"metrics.{statistic}", ring, vals=ring.X.toarray().T)
     np.testing.assert_allclose(explicit, per_gene, rtol=RTOL)
 
     ring.obs["smooth_obs"] = np.asarray(ring[:, "smooth"].X.todense()).ravel()
-    from_obs = scrust_call(f"metrics.{statistic}", ring, vals="smooth_obs")
+    from_obs = metalcyte_call(f"metrics.{statistic}", ring, vals="smooth_obs")
     assert from_obs == pytest.approx(per_gene[0], rel=RTOL)
 
-    several = scrust_call(f"metrics.{statistic}", ring, vals=["smooth", "alternating"])
+    several = metalcyte_call(f"metrics.{statistic}", ring, vals=["smooth", "alternating"])
     np.testing.assert_allclose(several, per_gene[:2], rtol=RTOL)
 
 
 @pytest.mark.parametrize("statistic", STATISTICS)
 def test_gpu_agrees_with_cpu(neighbored: AnnData, statistic: str) -> None:
-    from scrust import _scrust
+    from metalcyte import _metalcyte
 
-    if not _scrust.gpu_available():
+    if not _metalcyte.gpu_available():
         pytest.skip("no Metal device on this machine")
-    cpu = scrust_call(f"metrics.{statistic}", neighbored, device="cpu")
-    gpu = scrust_call(f"metrics.{statistic}", neighbored, device="gpu")
+    cpu = metalcyte_call(f"metrics.{statistic}", neighbored, device="cpu")
+    gpu = metalcyte_call(f"metrics.{statistic}", neighbored, device="gpu")
     # f32 either way, and the scatter-add on the GPU accumulates in a different
     # order, so the bar is f32 rounding rather than equality.
     np.testing.assert_allclose(gpu, cpu, rtol=1e-5, atol=1e-6)
@@ -146,13 +146,13 @@ def test_gpu_agrees_with_cpu(neighbored: AnnData, statistic: str) -> None:
 @pytest.mark.parametrize("statistic", STATISTICS)
 def test_rejects_mismatched_shapes_and_an_empty_graph(ring: AnnData, statistic: str) -> None:
     with pytest.raises(ValueError):
-        scrust_call(f"metrics.{statistic}", ring, vals=np.zeros((2, ring.n_obs + 1)))
+        metalcyte_call(f"metrics.{statistic}", ring, vals=np.zeros((2, ring.n_obs + 1)))
     with pytest.raises(KeyError):
-        scrust_call(f"metrics.{statistic}", ring, use_graph="distances")
+        metalcyte_call(f"metrics.{statistic}", ring, use_graph="distances")
 
     ring.obsp["connectivities"] = sparse.csr_matrix((ring.n_obs, ring.n_obs), dtype=np.float32)
     with pytest.raises(ValueError):
-        scrust_call(f"metrics.{statistic}", ring)
+        metalcyte_call(f"metrics.{statistic}", ring)
 
 
 @pytest.mark.parametrize("normalize", [True, False])
@@ -168,7 +168,9 @@ def test_confusion_matrix_matches_scanpy(neighbored: AnnData, normalize: bool) -
         },
         index=neighbored.obs_names,
     )
-    ours = scrust_call("metrics.confusion_matrix", "group", "coarse", labels, normalize=normalize)
+    ours = metalcyte_call(
+        "metrics.confusion_matrix", "group", "coarse", labels, normalize=normalize
+    )
     reference = sc.metrics.confusion_matrix("group", "coarse", labels, normalize=normalize)
     pd.testing.assert_frame_equal(ours, reference, check_dtype=False)
 
@@ -176,7 +178,7 @@ def test_confusion_matrix_matches_scanpy(neighbored: AnnData, normalize: bool) -
 def test_confusion_matrix_accepts_bare_arrays() -> None:
     orig = ["b", "b", "a", "a", "c"]
     new = ["2", "1", "1", "1", "1"]
-    ours = scrust_call("metrics.confusion_matrix", orig, new, normalize=False)
+    ours = metalcyte_call("metrics.confusion_matrix", orig, new, normalize=False)
     pd.testing.assert_frame_equal(
         ours, sc.metrics.confusion_matrix(orig, new, normalize=False), check_dtype=False
     )
@@ -186,8 +188,8 @@ def test_modularity_scores_the_labelling_on_the_neighbour_graph(ring: AnnData) -
     """Wired to `cluster::modularity`, which `feat/leiden` still owes us.
 
     The call is asserted against igraph's answer for the same partition, so it
-    starts passing the moment that branch lands; until then `scrust_call` reports
+    starts passing the moment that branch lands; until then `metalcyte_call` reports
     it as the `todo!()` stub it is.
     """
-    ours = scrust_call("metrics.modularity", ring, "half")
+    ours = metalcyte_call("metrics.modularity", ring, "half")
     assert ours == pytest.approx(sc.metrics.modularity(ring, "half"), rel=1e-4)

@@ -115,7 +115,7 @@
       1.4899479133014848
     ]
   },
-  "scrust_cpu": {
+  "metalcyte_cpu": {
     "pp.calculate_qc_metrics": [
       0.8488423609330008,
       0.0014020656403192294
@@ -173,7 +173,7 @@
       2.432276117514136
     ]
   },
-  "scrust_metal": {
+  "metalcyte_metal": {
     "pp.calculate_qc_metrics": [
       0.8603564583075544,
       0.00996406411789036

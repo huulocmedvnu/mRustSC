@@ -17,7 +17,7 @@ import pytest
 import scipy.sparse as sp
 from numpy.testing import assert_allclose, assert_array_equal
 
-import scrust as sr
+import metalcyte as mc
 
 _BLOCK = 64  # small, so a 400-cell matrix streams in several blocks rather than one
 
@@ -49,11 +49,11 @@ def backed_and_memory(tmp_path):
 
 
 def _streamed(adata: anndata.AnnData, call) -> None:
-    sr.settings.chunk_size = _BLOCK
+    mc.settings.chunk_size = _BLOCK
     try:
         call(adata)
     finally:
-        sr.settings.chunk_size = 0
+        mc.settings.chunk_size = 0
 
 
 def _data(adata: anndata.AnnData) -> np.ndarray:
@@ -63,15 +63,15 @@ def _data(adata: anndata.AnnData) -> np.ndarray:
 
 def test_normalize_total_backed_matches_memory_bit_for_bit(backed_and_memory) -> None:
     backed, memory = backed_and_memory
-    _streamed(backed, lambda a: sr.pp.normalize_total(a, target_sum=1e4))
-    sr.pp.normalize_total(memory, target_sum=1e4)
+    _streamed(backed, lambda a: mc.pp.normalize_total(a, target_sum=1e4))
+    mc.pp.normalize_total(memory, target_sum=1e4)
     assert_array_equal(_data(backed), _data(memory))
 
 
 def test_log1p_backed_matches_memory_bit_for_bit(backed_and_memory) -> None:
     backed, memory = backed_and_memory
-    _streamed(backed, sr.pp.log1p)
-    sr.pp.log1p(memory)
+    _streamed(backed, mc.pp.log1p)
+    mc.pp.log1p(memory)
     assert_array_equal(_data(backed), _data(memory))
     assert backed.uns["log1p"] == {"base": None}
 
@@ -81,8 +81,8 @@ def test_normalize_then_log1p_backed_matches_memory(backed_and_memory) -> None:
     backed, memory = backed_and_memory
 
     def head(adata: anndata.AnnData) -> None:
-        sr.pp.normalize_total(adata, target_sum=1e4)
-        sr.pp.log1p(adata)
+        mc.pp.normalize_total(adata, target_sum=1e4)
+        mc.pp.log1p(adata)
 
     _streamed(backed, head)
     head(memory)
@@ -92,8 +92,8 @@ def test_normalize_then_log1p_backed_matches_memory(backed_and_memory) -> None:
 def test_normalize_total_median_backed_matches_memory_to_f32(backed_and_memory) -> None:
     """`target_sum=None` uses the global median of per-cell totals, streamed to `f32`."""
     backed, memory = backed_and_memory
-    _streamed(backed, sr.pp.normalize_total)  # None -> median
-    sr.pp.normalize_total(memory)
+    _streamed(backed, mc.pp.normalize_total)  # None -> median
+    mc.pp.normalize_total(memory)
     assert_allclose(_data(backed), _data(memory), rtol=1e-5, atol=1e-6)
 
 
@@ -101,7 +101,7 @@ def test_in_memory_path_is_unchanged_by_the_backed_branch() -> None:
     """A plain in-memory AnnData must not touch the streaming path at all."""
     adata = _counts(n_cells=120, n_genes=300, per_row=40)
     assert not adata.isbacked
-    sr.pp.normalize_total(adata, target_sum=1e4)
-    sr.pp.log1p(adata)
+    mc.pp.normalize_total(adata, target_sum=1e4)
+    mc.pp.log1p(adata)
     assert adata.uns["log1p"] == {"base": None}
     assert np.isfinite(adata.X.data).all()

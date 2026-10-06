@@ -24,7 +24,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse, stats
 
-from scrust_call import DEVICE, scrust_call
+from metalcyte_call import DEVICE, metalcyte_call
 
 T_TESTS = ("t-test", "t-test_overestim_var")
 
@@ -40,13 +40,13 @@ def csr_args(matrix: sparse.csr_matrix):
 
 
 _BINDING = {
-    "t-test": "_scrust.rank_genes_groups_t_test",
-    "t-test_overestim_var": "_scrust.rank_genes_groups_t_test_overestim_var",
+    "t-test": "_metalcyte.rank_genes_groups_t_test",
+    "t-test_overestim_var": "_metalcyte.rank_genes_groups_t_test_overestim_var",
 }
 
 
-def scrust_t_test(method, matrix, labels, n_groups, reference=None):
-    return scrust_call(
+def metalcyte_t_test(method, matrix, labels, n_groups, reference=None):
+    return metalcyte_call(
         _BINDING[method],
         *csr_args(matrix),
         np.asarray(labels, np.uint32),
@@ -56,9 +56,9 @@ def scrust_t_test(method, matrix, labels, n_groups, reference=None):
     )
 
 
-def scrust_logreg(matrix, labels, n_groups, max_iterations=100):
-    return scrust_call(
-        "_scrust.rank_genes_groups_logreg",
+def metalcyte_logreg(matrix, labels, n_groups, max_iterations=100):
+    return metalcyte_call(
+        "_metalcyte.rank_genes_groups_logreg",
         *csr_args(matrix),
         np.asarray(labels, np.uint32),
         n_groups,
@@ -120,7 +120,7 @@ def scanpy_table(matrix, labels, n_groups, method, reference=None):
 @pytest.mark.parametrize("method", T_TESTS)
 def test_t_test_matches_scanpy_against_rest(method):
     matrix, labels = blobs()
-    ours = scrust_t_test(method, matrix, labels, 3)
+    ours = metalcyte_t_test(method, matrix, labels, 3)
     theirs = scanpy_table(matrix, labels, 3, method)
 
     np.testing.assert_allclose(np.asarray(ours["scores"]), theirs["scores"], rtol=1e-4, atol=1e-5)
@@ -139,7 +139,7 @@ def test_t_test_matches_scanpy_against_rest(method):
 @pytest.mark.parametrize("reference", [0, 2])
 def test_t_test_matches_scanpy_against_a_reference_group(method, reference):
     matrix, labels = blobs(seed=3)
-    ours = scrust_t_test(method, matrix, labels, 3, reference)
+    ours = metalcyte_t_test(method, matrix, labels, 3, reference)
     theirs = scanpy_table(matrix, labels, 3, method, reference)
 
     np.testing.assert_allclose(np.asarray(ours["scores"]), theirs["scores"], rtol=1e-4, atol=1e-5)
@@ -165,8 +165,8 @@ def test_the_two_t_tests_differ_only_in_the_reference_sample_size():
     sizes = np.bincount(labels)
     assert sizes.min() * 2 < len(labels), "each group has to be smaller than its rest"
 
-    plain = scrust_t_test("t-test", matrix, labels, 3)
-    inflated = scrust_t_test("t-test_overestim_var", matrix, labels, 3)
+    plain = metalcyte_t_test("t-test", matrix, labels, 3)
+    inflated = metalcyte_t_test("t-test_overestim_var", matrix, labels, 3)
 
     plain_p = np.asarray(plain["p_values"])
     inflated_p = np.asarray(inflated["p_values"])
@@ -198,7 +198,7 @@ def test_a_gene_constant_everywhere_has_no_t_statistic():
     matrix = sparse.csr_matrix(dense.astype(np.float32))
 
     for method in T_TESTS:
-        ours = scrust_t_test(method, matrix, labels, 3)
+        ours = metalcyte_t_test(method, matrix, labels, 3)
         scores = np.asarray(ours["scores"])
         p_values = np.asarray(ours["p_values"])
         assert np.all(scores[:, :2] == 0.0), method
@@ -214,7 +214,7 @@ def test_t_test_p_values_match_scipys_t_distribution():
     moments rather than read back from the implementation."""
     matrix, labels = blobs(n_cells=120, n_genes=20, seed=11)
     dense = np.asarray(matrix.todense(), dtype=np.float64)
-    ours = scrust_t_test("t-test", matrix, labels, 3)
+    ours = metalcyte_t_test("t-test", matrix, labels, 3)
     scores = np.asarray(ours["scores"], dtype=np.float64)
     p_values = np.asarray(ours["p_values"], dtype=np.float64)
 
@@ -242,7 +242,7 @@ def test_logreg_scores_match_scanpy():
     an iterative optimum, so the coefficients agree to the solver's tolerance, not to
     f32, and what a caller reads off is the order."""
     matrix, labels = blobs(n_cells=180, n_genes=25, seed=13, sparsity=0.2)
-    ours = np.asarray(scrust_logreg(matrix, labels, 3, 1000)["scores"], dtype=np.float64)
+    ours = np.asarray(metalcyte_logreg(matrix, labels, 3, 1000)["scores"], dtype=np.float64)
     theirs = scanpy_table(matrix, labels, 3, "logreg")["scores"]
 
     assert ours.shape == theirs.shape
@@ -267,7 +267,7 @@ def test_logreg_reports_no_p_values_because_scanpy_reports_none():
     instead of an invention.
     """
     matrix, labels = blobs(n_cells=120, n_genes=15, seed=17)
-    ours = scrust_logreg(matrix, labels, 3, 500)
+    ours = metalcyte_logreg(matrix, labels, 3, 500)
 
     assert np.isnan(np.asarray(ours["p_values"])).all()
     assert np.isnan(np.asarray(ours["adjusted_p_values"])).all()
@@ -295,7 +295,7 @@ def test_logreg_separates_a_planted_marker():
         dense[labels == group, group] += np.float32(5.0)
     matrix = sparse.csr_matrix(np.log1p(dense).astype(np.float32))
 
-    scores = np.asarray(scrust_logreg(matrix, labels, 3, 1000)["scores"], dtype=np.float64)
+    scores = np.asarray(metalcyte_logreg(matrix, labels, 3, 1000)["scores"], dtype=np.float64)
     for group in range(3):
         assert int(np.argmax(scores[group])) == group, (
             f"group {group}'s planted marker is not its top coefficient"

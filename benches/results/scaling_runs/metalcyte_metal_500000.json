@@ -1,0 +1,46 @@
+{
+  "library": "metalcyte",
+  "device": "metal",
+  "shape": [
+    478116,
+    2000
+  ],
+  "streaming": {
+    "block_size": 22934,
+    "device": "auto",
+    "n_passes": 4,
+    "timings": {
+      "pass1_moments": 1.8352236251812428,
+      "hvg": 0.0018922081217169762,
+      "pass2_hv_moments": 2.8249880420044065,
+      "pass3_scatter_eigh": 8.139079832937568,
+      "pass4_project": 3.541971125174314
+    },
+    "cells_dropped": 21884,
+    "genes_dropped": 11931
+  },
+  "steps": [
+    {
+      "step": "pp.preprocess_backed",
+      "seconds": 16.663189749931917,
+      "added_mb": 982.4234771728516
+    },
+    {
+      "step": "pp.neighbors",
+      "seconds": 31.644437666982412,
+      "added_mb": 62.984352111816406
+    },
+    {
+      "step": "tl.umap",
+      "seconds": 22.79228666704148,
+      "added_mb": 387.70333099365234
+    },
+    {
+      "step": "tl.leiden",
+      "seconds": 3.659509915858507,
+      "added_mb": 620.4378890991211
+    }
+  ],
+  "total_seconds": 74.75942399981432,
+  "n_clusters": 32
+}

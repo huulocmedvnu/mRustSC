@@ -1,20 +1,20 @@
 """Audit of `de/glm.rs`, `de/dispersion.rs` and `de/hypothesis.rs`.
 
-Reachability, established by reading `crates/scrust-py/src/` and by listing
-`scrust._scrust`:
+Reachability, established by reading `crates/metalcyte-py/src/` and by listing
+`metalcyte._metalcyte`:
 
 * `de/hypothesis.rs` is **partly reachable**. Its `erfc` is the only tail routine the
   crate ever uses: `de/wilcoxon.rs::two_sided_p` is literally
   `hypothesis::erfc(|z| / sqrt 2)`, and that runs on every call to the bound
-  `_scrust.rank_genes_groups_wilcoxon`. So `erfc` -- the highest-value target, a Cody
+  `_metalcyte.rank_genes_groups_wilcoxon`. So `erfc` -- the highest-value target, a Cody
   rational approximation with three branches -- can be exercised end to end through a
   real binding, which is what the first group of tests below does. Its `wald_test`
   is not reachable: nothing outside `hypothesis.rs` calls it.
 * `de/glm.rs` (`fit_negative_binomial`) is **not reachable**: no pyfunction anywhere in
-  `crates/scrust-py/src/` mentions it, and `scrust._scrust` exports no GLM entry point.
+  `crates/metalcyte-py/src/` mentions it, and `metalcyte._metalcyte` exports no GLM entry point.
 * `de/dispersion.rs` (`size_factors_median_of_ratios`,
   `dispersions_method_of_moments`, `shrink_towards_trend`) is **not reachable** either,
-  for the same reason. Note that `_scrust.highly_variable_genes` reports "dispersions",
+  for the same reason. Note that `_metalcyte.highly_variable_genes` reports "dispersions",
   but those come from `preprocess.rs`, not from `de/dispersion.rs`.
 
 Because two of the three modules cannot be called from Python, the only honest thing
@@ -40,9 +40,9 @@ import numpy as np
 import pytest
 from scipy import sparse, special, stats
 
-from scrust_call import DEVICE, scrust_call
+from metalcyte_call import DEVICE, metalcyte_call
 
-CORE_DE = Path(__file__).resolve().parents[1] / "crates" / "scrust-core" / "src" / "de"
+CORE_DE = Path(__file__).resolve().parents[1] / "crates" / "metalcyte-core" / "src" / "de"
 GLM_RS = CORE_DE / "glm.rs"
 HYPOTHESIS_RS = CORE_DE / "hypothesis.rs"
 
@@ -88,8 +88,8 @@ def rank_ladder(n_per_group: int):
 def wilcoxon(matrix):
     labels = np.repeat([0, 1], matrix.shape[0] // 2).astype(np.uint32)
     matrix = matrix.tocsr()
-    return scrust_call(
-        "_scrust.rank_genes_groups_wilcoxon",
+    return metalcyte_call(
+        "_metalcyte.rank_genes_groups_wilcoxon",
         matrix.indptr.astype(np.uint32),
         matrix.indices.astype(np.uint32),
         matrix.data.astype(np.float32),
@@ -104,7 +104,7 @@ def wilcoxon(matrix):
 
 @pytest.fixture(scope="module")
 def ladder():
-    """scrust's scores and p-values on the rank ladder, plus the exact z."""
+    """metalcyte's scores and p-values on the rank ladder, plus the exact z."""
     matrix, exact_z = rank_ladder(100)
     result = wilcoxon(matrix)
     # Row 0 is group A against the rest, which is exactly group B.
@@ -112,10 +112,10 @@ def ladder():
 
 
 def test_the_ladder_reproduces_the_exact_rank_sum_score(ladder):
-    """The fixture's closed-form z is the z scrust computes, to f32 resolution.
+    """The fixture's closed-form z is the z metalcyte computes, to f32 resolution.
 
-    Without this the erfc tests below would be comparing scrust's p-value against a
-    tail argument scrust never saw. Measured: max |z_scrust - z_exact| = 4.6e-7 over
+    Without this the erfc tests below would be comparing metalcyte's p-value against a
+    tail argument metalcyte never saw. Measured: max |z_metalcyte - z_exact| = 4.6e-7 over
     |z| <= 12.2, which is one f32 ulp of a number of that size and nothing more. The
     p-values are f64 and are computed from the unrounded f64 score, which is why the
     erfc comparison below can be held to 1e-13 rather than to this.
@@ -123,7 +123,7 @@ def test_the_ladder_reproduces_the_exact_rank_sum_score(ladder):
     scores, _, exact_z = ladder
     assert np.abs(exact_z).max() > 12.0, "the ladder must reach the far tail"
     deviation = np.abs(scores - exact_z).max()
-    assert deviation < 5e-6, f"max |z_scrust - z_exact| = {deviation}"
+    assert deviation < 5e-6, f"max |z_metalcyte - z_exact| = {deviation}"
 
 
 def test_erfc_matches_scipy_across_all_three_cody_branches(ladder):
@@ -412,9 +412,9 @@ def test_glm_and_dispersion_are_not_reachable_from_python():
     real end-to-end cross-check against statsmodels. It fails just as loudly if the
     Wilcoxon binding -- the only route to `hypothesis::erfc` -- disappears.
     """
-    import scrust
+    import metalcyte
 
-    exported = set(dir(scrust._scrust))
+    exported = set(dir(metalcyte._metalcyte))
     assert "rank_genes_groups_wilcoxon" in exported
     glm_like = {
         name
@@ -423,7 +423,9 @@ def test_glm_and_dispersion_are_not_reachable_from_python():
     }
     assert glm_like == set(), f"a GLM/dispersion binding now exists: {sorted(glm_like)}"
 
-    py_sources = (Path(__file__).resolve().parents[1] / "crates" / "scrust-py" / "src").glob("*.rs")
+    py_sources = (Path(__file__).resolve().parents[1] / "crates" / "metalcyte-py" / "src").glob(
+        "*.rs"
+    )
     mentions = [
         p.name for p in py_sources if re.search(r"\bde::glm\b|\bde::dispersion\b", p.read_text())
     ]

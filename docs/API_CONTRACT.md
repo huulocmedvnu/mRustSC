@@ -2,7 +2,7 @@
 
 What this crate promises about its numbers: the dtypes and shapes that cross the
 Python boundary, what "agrees with scanpy" means per algorithm and to what
-tolerance, what the two devices guarantee about each other, and where scrust
+tolerance, what the two devices guarantee about each other, and where metalcyte
 deliberately does something scanpy does not.
 
 The parallel-branch round this document was written to coordinate is over. Every
@@ -22,10 +22,10 @@ measures.
 
 - Matrices are **cells by genes**. `CsrMatrix` crosses the Python boundary as
   `(indptr, indices, values, n_cols)` with `uint32` indices and `float32` values
-  (`crates/scrust-py/src/convert.rs`, `python/scrust/_shared.py`).
+  (`crates/metalcyte-py/src/convert.rs`, `python/metalcyte/_shared.py`).
 - `f32` throughout, except **p-values, which are `f64`** — a rank-sum p-value
   underflows `f32` to exactly zero. The wrapper writes `pvals` and `pvals_adj`
-  as `float64` (`python/scrust/tl/_de.py:23-24`).
+  as `float64` (`python/metalcyte/tl/_de.py:23-24`).
 - Reductions whose result is a small number obtained from large ones accumulate
   in `f64` even when the inputs and outputs are `f32`. Per-gene moments in
   `preprocess/scale.rs` and the column means in `neighbors.rs` do this because
@@ -34,7 +34,7 @@ measures.
 - Every algorithm takes a `&candle_core::Device`. The CPU path is the same code
   as the GPU path and is the oracle the GPU path is tested against.
 - Randomness takes an explicit seed. Same seed, same bytes.
-- Errors are `scrust_core::Error`; nothing panics on user input.
+- Errors are `metalcyte_core::Error`; nothing panics on user input.
 - The Python layer is AnnData plumbing and defaults only. No arithmetic.
 - Bindings convert and nothing else: no defaults, no AnnData knowledge, no
   algorithm. Release the GIL around the core call.
@@ -44,7 +44,7 @@ measures.
 **The device a caller gets is a property of their machine, not of their code.**
 `settings.device` defaults to `"auto"`, and `DeviceKind::Auto` resolves to
 `Device::new_metal(0).unwrap_or(Device::Cpu)`
-(`crates/scrust-core/src/device.rs:33`). On any Mac with Metal, a caller who
+(`crates/metalcyte-core/src/device.rs:33`). On any Mac with Metal, a caller who
 names no device is on the GPU.
 
 - **The two devices agree to `f32`, not exactly.** Same candle source means the
@@ -67,7 +67,7 @@ names no device is on the GPU.
   distance to the origin rather than the radius of the cloud.
 - **CI does not cover the GPU.** GitHub's hosted macOS runners have no usable
   GPU, so `gpu_available()` is false and `tests/test_device_parity.py` skips in
-  its entirety there. The audits run against `SCRUST_TEST_DEVICE`, which
+  its entirety there. The audits run against `METALCYTE_TEST_DEVICE`, which
   defaults to `"cpu"`; set it to `"auto"` on hardware with a GPU to run the same
   suite the other way. Both legs pass locally. Do not present a green CI as GPU
   coverage — this is stated in `.github/workflows/ci.yml` as well.
@@ -78,12 +78,12 @@ names no device is on the GPU.
   `autocorrelation` use it. Accepting `device` and ignoring it is allowed, but
   the parameter must be spelled `_device` so the fact is visible at the
   signature, and the reason belongs in the doc comment.
-- **`scrust-gpu` is partly reachable: `knn` is wired, the rest is not.**
-  `crates/scrust-py` depends on `scrust-gpu` and its `embedding` binding routes a
+- **`metalcyte-gpu` is partly reachable: `knn` is wired, the rest is not.**
+  `crates/metalcyte-py` depends on `metalcyte-gpu` and its `embedding` binding routes a
   Metal caller's k-NN to `kernels::knn::knn_metal`, falling back to the candle path
-  on the CPU or where no Metal context builds (`scrust-py/src/embedding.rs`). A wired
+  on the CPU or where no Metal context builds (`metalcyte-py/src/embedding.rs`). A wired
   kernel is an **optimisation, not a separate algorithm**: it must return what its
-  `scrust-core` counterpart returns, and its tests must assert that. `knn` meets this —
+  `metalcyte-core` counterpart returns, and its tests must assert that. `knn` meets this —
   it reproduces `neighbors::knn`'s f64 mean-centering and its
   `(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` snapping inside the MSL, so
   `tests/test_device_parity.py` holds the two devices' neighbour lists equal (4 of 4).
@@ -149,7 +149,7 @@ both go. `docs/API.md` carries the caller-facing version.
   `linkage_method="complete"` in `uns` so the choice is readable from the
   result. Where the two methods differ, leaf order differs outright.
 - **`tl.diffmap` raises for `n_comps >= n_cells`** where scanpy clamps to
-  `n_cells - 1` (`crates/scrust-core/src/diffusion.rs:85`): the last eigenvector
+  `n_cells - 1` (`crates/metalcyte-core/src/diffusion.rs:85`): the last eigenvector
   of an `n_cells` operator is not determined by a subspace of the same size.
 - **The connected-graph guard counts only edges carrying weight**, not stored
   entries. This is stricter than scipy and scanpy, deliberately: walking the
@@ -189,7 +189,7 @@ both go. `docs/API.md` carries the caller-facing version.
   `calculate_qc_metrics` counts entries `!= 0`.** Identical on counts, different
   on centred data. Both follow scanpy.
 - **`de/glm` and `de/dispersion` are not reachable from Python at all.** They
-  exist in `crates/scrust-core/src/de/` and are tested there; no binding exposes
+  exist in `crates/metalcyte-core/src/de/` and are tested there; no binding exposes
   them.
 
 ## Big data

@@ -1,11 +1,11 @@
 {
-  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
   "n_cells": 115868,
   "hvg_jaccard": 1.0,
   "pca_canonical_min_top10": 0.9999478459358215,
   "pca_canonical_min_top30": 0.9999513030052185,
   "pca_canonical_min_top50": 0.8756058812141418,
-  "pca_variance_ratio_scrust": [
+  "pca_variance_ratio_metalcyte": [
     0.03488754481077194,
     0.02270164154469967,
     0.0195793267339468,
@@ -33,13 +33,13 @@
   "knn_overlap_common_pca": 0.9167437658945239,
   "leiden": {
     "n_clusters_scanpy": 37,
-    "n_clusters_scrust": 36,
-    "ari_scanpy_vs_scrust": 0.9449151917341103,
-    "nmi_scanpy_vs_scrust": 0.9567882055109199,
+    "n_clusters_metalcyte": 36,
+    "ari_scanpy_vs_metalcyte": 0.9449151917341103,
+    "nmi_scanpy_vs_metalcyte": 0.9567882055109199,
     "ari_scanpy_vs_celltype": 0.2763000895748961,
-    "ari_scrust_vs_celltype": 0.27618875079703975,
+    "ari_metalcyte_vs_celltype": 0.27618875079703975,
     "nmi_scanpy_vs_celltype": 0.568552325287442,
-    "nmi_scrust_vs_celltype": 0.5674038347900253
+    "nmi_metalcyte_vs_celltype": 0.5674038347900253
   },
   "markers": {
     "CD4-positive, alpha-beta T cell": {

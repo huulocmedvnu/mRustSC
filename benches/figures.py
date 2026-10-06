@@ -28,14 +28,22 @@ COLORS = pio.templates["plotly"].layout.colorway  # the default colorway
 FONT = dict(family="Helvetica Neue, Helvetica, Arial, sans-serif", size=13)
 
 
+PAPER = False  # `--paper`: no in-figure titles (the caption carries them), into docs/figures/paper/
+
+
 def save(fig: go.Figure, name: str, width: int, height: int) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    fig.update_layout(font=FONT, margin=dict(l=20, r=20, t=50, b=20))
+    out = OUT / "paper" if PAPER else OUT
+    out.mkdir(parents=True, exist_ok=True)
+    if PAPER:
+        fig.update_layout(title=None, margin=dict(l=20, r=20, t=20, b=20))
+    else:
+        fig.update_layout(margin=dict(l=20, r=20, t=50, b=20))
+    fig.update_layout(font=FONT)
     for ext in ("svg", "png"):
         fig.write_image(
-            OUT / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
+            out / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
         )
-    print(f"wrote docs/figures/{name}.svg/.png")
+    print(f"wrote {out.relative_to(ROOT)}/{name}.svg/.png")
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -101,7 +109,7 @@ def blank_axes(fig, w, h):
 
 
 def f1_chip_and_library():
-    """The M3 Pro as blocks and the scrust layer that drives each one."""
+    """The M3 Pro as blocks and the metalcyte layer that drives each one."""
     fig = go.Figure()
     blank_axes(fig, 100, 62)
     c = COLORS
@@ -153,7 +161,7 @@ def f1_chip_and_library():
     arrow(fig, 30, 21, 41, 37, "sgemm, ssyrk", c[1], at=0.3)
     arrow(fig, 30, 10, 68, 37, "command buffers", c[1], at=0.3)
     arrow(fig, 30, 43, 41, 25, "numpy's own bytes", c[0], at=0.15)
-    fig.update_layout(title="F1. What runs where: the scrust stack on an Apple silicon package")
+    fig.update_layout(title="F1. What runs where: the metalcyte stack on an Apple silicon package")
     save(fig, "F1_chip_and_library", 1100, 700)
 
 
@@ -161,13 +169,13 @@ def f1_chip_and_library():
 
 
 def f2_bytes():
-    """`pp.scale` then `pp.pca` as a flow of bytes: scanpy's copies against scrust's one pass."""
+    """`pp.scale` then `pp.pca` as a flow of bytes: scanpy's copies against metalcyte's one pass."""
     fig = go.Figure()
     blank_axes(fig, 100, 50)
     c = COLORS
     n = "115 868 cells x 2 000 genes"
     fig.add_annotation(x=25, y=48, text=f"<b>scanpy</b> ({n})", showarrow=False, font=dict(size=14))
-    fig.add_annotation(x=75, y=48, text="<b>scrust</b>", showarrow=False, font=dict(size=14))
+    fig.add_annotation(x=75, y=48, text="<b>metalcyte</b>", showarrow=False, font=dict(size=14))
     # scanpy column: boxes sized by bytes (height ∝ MB)
     # Box sizes are the measured +MB split over the copies scanpy's scale and PCA make
     # (a dense copy, a centred-and-scaled copy, the clipped result; ARPACK's work vectors).
@@ -334,9 +342,9 @@ def f6_pipeline_117k():
     names = {
         "scanpy": "scanpy (defaults)",
         "scanpy_tuned": "scanpy (tuned)",
-        "scrust_cpu": "scrust CPU",
-        "scrust_metal": "scrust Metal",
-        "scrust_metal_umap_parallel": "scrust Metal + parallel UMAP",
+        "metalcyte_cpu": "metalcyte CPU",
+        "metalcyte_metal": "metalcyte Metal",
+        "metalcyte_metal_umap_parallel": "metalcyte Metal + parallel UMAP",
     }
     runs = {k: _load(f"bm117k_{k}.json") for k in names}
     runs = {k: v for k, v in runs.items() if v}
@@ -364,7 +372,9 @@ def f6_pipeline_117k():
 
 
 def f7_energy():
-    runs = {k: _load(f"energy_bm117k_{k}.json") for k in ("scanpy", "scrust_metal", "scrust_cpu")}
+    runs = {
+        k: _load(f"energy_bm117k_{k}.json") for k in ("scanpy", "metalcyte_metal", "metalcyte_cpu")
+    }
     runs = {k: v for k, v in runs.items() if v}
     if not runs:
         print("F7 skipped: no energy_bm117k_*.json (run benches/run_energy.sh under sudo)")
@@ -462,7 +472,7 @@ def _residency(path: Path):
 def f8_utilisation():
     from plotly.subplots import make_subplots
 
-    runs = [("scrust_metal", "scrust, Metal"), ("scanpy", "scanpy")]
+    runs = [("metalcyte_metal", "metalcyte, Metal"), ("scanpy", "scanpy")]
     logs = [(RESULTS / f"energy_bm117k_{k}.powermetrics.txt", n) for k, n in runs]
     logs = [(p, n) for p, n in logs if p.exists()]
     if not logs:
@@ -525,8 +535,8 @@ def f5_scaling():
     names = {
         "scanpy": "scanpy (defaults)",
         "scanpy_tuned": "scanpy (tuned)",
-        "scrust_cpu": "scrust CPU",
-        "scrust_metal": "scrust Metal",
+        "metalcyte_cpu": "metalcyte CPU",
+        "metalcyte_metal": "metalcyte Metal",
     }
     from plotly.subplots import make_subplots
 
@@ -582,9 +592,11 @@ def f5_scaling():
 
 
 def f10_umap_1m():
-    path = RESULTS / "embryo1m_scrust_metal.h5ad"
+    path = RESULTS / "embryo1m_metalcyte_metal.h5ad"
     if not path.exists():
-        print("F10 skipped: run pipeline_1m.py --save benches/results/embryo1m_scrust_metal.h5ad")
+        print(
+            "F10 skipped: run pipeline_1m.py --save benches/results/embryo1m_metalcyte_metal.h5ad"
+        )
         return
     import anndata
 
@@ -648,10 +660,10 @@ def f11_agreement():
     )
     ld = data["leiden"]
     mid = {
-        "ARI scanpy vs scrust": ld["ari_scanpy_vs_scrust"],
-        "NMI scanpy vs scrust": ld["nmi_scanpy_vs_scrust"],
+        "ARI scanpy vs metalcyte": ld["ari_scanpy_vs_metalcyte"],
+        "NMI scanpy vs metalcyte": ld["nmi_scanpy_vs_metalcyte"],
         "NMI scanpy vs cell type": ld["nmi_scanpy_vs_celltype"],
-        "NMI scrust vs cell type": ld["nmi_scrust_vs_celltype"],
+        "NMI metalcyte vs cell type": ld["nmi_metalcyte_vs_celltype"],
     }
     fig.add_bar(
         x=list(mid), y=list(mid.values()), marker_line_width=0, showlegend=False, row=1, col=2
@@ -677,7 +689,7 @@ def f11_agreement():
     fig.update_xaxes(tickangle=35, row=1, col=3)
     fig.update_layout(
         barmode="group",
-        title=f"F11. scrust against scanpy on the 117k bone-marrow atlas, {data['n_cells']:,} cells, same seeds",  # noqa: E501
+        title=f"F11. metalcyte against scanpy on the 117k bone-marrow atlas, {data['n_cells']:,} cells, same seeds",  # noqa: E501
     )
     save(fig, "F11_agreement", 1500, 560)
 

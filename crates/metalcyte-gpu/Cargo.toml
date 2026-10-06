@@ -1,0 +1,18 @@
+[package]
+name = "metalcyte-gpu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+metalcyte-core.workspace = true
+candle-core.workspace = true
+metal.workspace = true
+ndarray.workspace = true
+blas-src = { workspace = true, optional = true }
+
+[features]
+# Apple Accelerate BLAS for the dense CPU-reference paths; propagates to metalcyte-core.
+accelerate = ["dep:blas-src", "ndarray/blas", "candle-core/accelerate", "metalcyte-core/accelerate"]
+
+[dev-dependencies]
+rand.workspace = true

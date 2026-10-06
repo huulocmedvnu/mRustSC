@@ -3,8 +3,8 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "scrust"
-version = "0.2.0"
+name = "metalcyte"
+version = "0.3.0"
 description = "Single-cell analysis with a Rust core on the Apple GPU"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,23 +34,23 @@ dependencies = ["numpy>=2.0", "anndata>=0.10", "scipy>=1.13", "pandas>=2.0"]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 # The scanpy cross-checks; scanpy pulls in leidenalg's reference implementation.
 reference = ["scanpy>=1.10", "leidenalg>=0.10"]
-# Native plotting (`scrust.pl`); seaborn only for its categorical palettes.
+# Native plotting (`metalcyte.pl`); seaborn only for its categorical palettes.
 plot = ["matplotlib>=3.7", "seaborn>=0.13"]
 
 [project.urls]
-Homepage = "https://github.com/huulocmedvnu/mRustSC"
-Repository = "https://github.com/huulocmedvnu/mRustSC"
-Issues = "https://github.com/huulocmedvnu/mRustSC/issues"
+Homepage = "https://github.com/huulocmedvnu/metalcyte"
+Repository = "https://github.com/huulocmedvnu/metalcyte"
+Issues = "https://github.com/huulocmedvnu/metalcyte/issues"
 
 [tool.maturin]
-module-name = "scrust._scrust"
+module-name = "metalcyte._metalcyte"
 python-source = "python"
-manifest-path = "crates/scrust-py/Cargo.toml"
-# Apple Accelerate (vecLib BLAS/LAPACK) is on by default: scrust targets Apple silicon and
+manifest-path = "crates/metalcyte-py/Cargo.toml"
+# Apple Accelerate (vecLib BLAS/LAPACK) is on by default: metalcyte targets Apple silicon and
 # CI runs on macOS. For a pure-Rust wheel (e.g. a Linux build), remove "accelerate" here.
 features = ["pyo3/extension-module", "accelerate"]
 # The typing marker is data, not a module, so it needs naming explicitly.
-include = [{ path = "python/scrust/py.typed", format = "wheel" }]
+include = [{ path = "python/metalcyte/py.typed", format = "wheel" }]
 
 [tool.ruff]
 line-length = 100

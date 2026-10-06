@@ -1,5 +1,5 @@
-== 117k scrust cpu (real)
-scrust (cpu) on bone_marrow_117k_counts.h5ad
+== 117k metalcyte cpu (real)
+metalcyte (cpu) on bone_marrow_117k_counts.h5ad
   pp.calculate_qc_metrics          1.223 s  +    1866 MB  (117308, 25574)
   pp.filter_cells                  0.853 s  +    2457 MB  (115868, 25574)
   pp.filter_genes                  1.093 s  +    2391 MB  (115868, 25574)
@@ -16,8 +16,8 @@ scrust (cpu) on bone_marrow_117k_counts.h5ad
   out[name] = __import__(name).__version__
   out[name] = __import__(name).__version__
   total                           98.900 s   (36 Leiden clusters)
-== 117k scrust metal (same binary, for a paired comparison)
-scrust (auto) on bone_marrow_117k_counts.h5ad
+== 117k metalcyte metal (same binary, for a paired comparison)
+metalcyte (auto) on bone_marrow_117k_counts.h5ad
   pp.calculate_qc_metrics          0.862 s  +    1857 MB  (117308, 25574)
   pp.filter_cells                  0.643 s  +    2416 MB  (115868, 25574)
   pp.filter_genes                  1.010 s  +    2405 MB  (115868, 25574)
@@ -34,8 +34,8 @@ scrust (auto) on bone_marrow_117k_counts.h5ad
   out[name] = __import__(name).__version__
   out[name] = __import__(name).__version__
   total                           19.720 s   (36 Leiden clusters)
-== 1M scrust cpu (real)
-scrust on embryo_1m_counts.h5ad
+== 1M metalcyte cpu (real)
+metalcyte on embryo_1m_counts.h5ad
       pass1_moments            3.37 s
       hvg                      0.00 s
       pass2_hv_moments         4.72 s

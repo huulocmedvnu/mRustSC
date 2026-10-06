@@ -6,8 +6,8 @@ dominates every single-cell column, negative values left behind by `scale`, the
 change pseudocount, and the boundaries of `normalize_total`, `scale` and
 `highly_variable_genes`.
 
-The tests call the compiled core directly rather than through `scrust.pp` /
-`scrust.tl`, because the Python layer hard-codes `tie_correct=False` and drops the
+The tests call the compiled core directly rather than through `metalcyte.pp` /
+`metalcyte.tl`, because the Python layer hard-codes `tie_correct=False` and drops the
 explicitly stored zeros a CSR is allowed to carry — both of which are exactly what
 is under test here.
 """
@@ -23,30 +23,30 @@ import pytest
 import scipy.sparse as sp
 from scipy import stats
 
-from scrust_call import DEVICE
+from metalcyte_call import DEVICE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# `cargo build -p scrust-py --release` puts a fresh cdylib in the work tree; prefer it
+# `cargo build -p metalcyte-py --release` puts a fresh cdylib in the work tree; prefer it
 # over whatever is installed in site-packages, which may be built from another branch.
-_WORKTREE_EXTENSION = REPO_ROOT / "target" / "pyext" / "_scrust.so"
+_WORKTREE_EXTENSION = REPO_ROOT / "target" / "pyext" / "_metalcyte.so"
 
 
 def _load_extension():
     if _WORKTREE_EXTENSION.exists():
-        # The name has to be `_scrust`: CPython derives the init symbol it looks
-        # for (`PyInit__scrust`) from it.
-        spec = importlib.util.spec_from_file_location("_scrust", _WORKTREE_EXTENSION)
+        # The name has to be `_metalcyte`: CPython derives the init symbol it looks
+        # for (`PyInit__metalcyte`) from it.
+        spec = importlib.util.spec_from_file_location("_metalcyte", _WORKTREE_EXTENSION)
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
-        sys.modules.setdefault("_scrust", module)
+        sys.modules.setdefault("_metalcyte", module)
         spec.loader.exec_module(module)
         return module
     try:
-        from scrust import _scrust
+        from metalcyte import _metalcyte
     except ImportError as exc:  # pragma: no cover - environment without a build
         pytest.skip(f"the compiled core is not available: {exc}")
-    return _scrust
+    return _metalcyte
 
 
 ext = _load_extension()
@@ -311,7 +311,7 @@ def test_every_scanpy_method_is_now_accepted():
     in `test_parametric_audit.py`; this only pins that the wrapper lets them through and
     that an unknown method is still refused.
     """
-    scrust_tl = pytest.importorskip("scrust.tl")
+    metalcyte_tl = pytest.importorskip("metalcyte.tl")
     from anndata import AnnData
 
     rng = np.random.default_rng(0)
@@ -322,12 +322,12 @@ def test_every_scanpy_method_is_now_accepted():
     for method in ("wilcoxon", "t-test", "t-test_overestim_var", "logreg"):
         # Writes in place and returns None, as scanpy does.
         target = adata.copy()
-        assert scrust_tl.rank_genes_groups(target, "group", method=method) is None
+        assert metalcyte_tl.rank_genes_groups(target, "group", method=method) is None
         names = target.uns["rank_genes_groups"]["names"]
         assert len(names) == dense.shape[1], method
 
     with pytest.raises(ValueError, match="method must be one of"):
-        scrust_tl.rank_genes_groups(adata, "group", method="not-a-method")
+        metalcyte_tl.rank_genes_groups(adata, "group", method="not-a-method")
 
 
 def test_overestim_var_changes_the_statistic_not_only_the_degrees_of_freedom():
@@ -428,7 +428,7 @@ def test_benjamini_hochberg_is_applied_per_group_over_all_genes():
 
 
 @pytest.mark.xfail(
-    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule scrust follows is undecided",  # noqa: E501
+    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule metalcyte follows is undecided",  # noqa: E501
     strict=False,
 )
 def test_normalize_total_uses_the_csr_median_including_empty_cells():
@@ -467,7 +467,7 @@ def test_normalize_total_uses_the_csr_median_including_empty_cells():
 
 
 @pytest.mark.xfail(
-    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule scrust follows is undecided",  # noqa: E501
+    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule metalcyte follows is undecided",  # noqa: E501
     strict=False,
 )
 def test_normalize_total_refuses_a_zero_median_instead_of_erasing_the_matrix():

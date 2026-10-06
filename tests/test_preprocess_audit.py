@@ -21,7 +21,7 @@ import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
 
-from scrust_call import DEVICE, scrust_call
+from metalcyte_call import DEVICE, metalcyte_call
 
 FLAVORS = ("seurat", "cell_ranger")
 
@@ -36,13 +36,13 @@ def csr_args(matrix: sparse.csr_matrix):
     )
 
 
-def scrust_normalize(matrix, target_sum=None):
-    result = scrust_call("_scrust.normalize_total", *csr_args(matrix), target_sum, DEVICE)
+def metalcyte_normalize(matrix, target_sum=None):
+    result = metalcyte_call("_metalcyte.normalize_total", *csr_args(matrix), target_sum, DEVICE)
     return _to_csr(result, matrix.shape)
 
 
-def scrust_log1p(matrix):
-    return _to_csr(scrust_call("_scrust.log1p", *csr_args(matrix)), matrix.shape)
+def metalcyte_log1p(matrix):
+    return _to_csr(metalcyte_call("_metalcyte.log1p", *csr_args(matrix)), matrix.shape)
 
 
 def _to_csr(result, shape):
@@ -52,9 +52,9 @@ def _to_csr(result, shape):
     )
 
 
-def scrust_hvg(matrix, n_top_genes, flavor):
-    return scrust_call(
-        "_scrust.highly_variable_genes", *csr_args(matrix), n_top_genes, flavor, DEVICE
+def metalcyte_hvg(matrix, n_top_genes, flavor):
+    return metalcyte_call(
+        "_metalcyte.highly_variable_genes", *csr_args(matrix), n_top_genes, flavor, DEVICE
     )
 
 
@@ -88,7 +88,7 @@ def test_normalize_total_matches_scanpy_for_an_explicit_target(target_sum):
     adata = AnnData(matrix.copy())
     sc.pp.normalize_total(adata, target_sum=target_sum)
     np.testing.assert_allclose(
-        scrust_normalize(matrix, target_sum).toarray(), adata.X.toarray(), rtol=1e-5, atol=1e-6
+        metalcyte_normalize(matrix, target_sum).toarray(), adata.X.toarray(), rtol=1e-5, atol=1e-6
     )
 
 
@@ -101,12 +101,12 @@ def test_normalize_total_matches_scanpy_when_the_median_is_implied():
     adata = AnnData(matrix.copy())
     sc.pp.normalize_total(adata, target_sum=None)
     np.testing.assert_allclose(
-        scrust_normalize(matrix).toarray(), adata.X.toarray(), rtol=1e-5, atol=1e-6
+        metalcyte_normalize(matrix).toarray(), adata.X.toarray(), rtol=1e-5, atol=1e-6
     )
 
 
 @pytest.mark.xfail(
-    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule scrust follows is undecided",  # noqa: E501
+    reason="scanpy 1.12 changed normalize_total's sparse median rule; which rule metalcyte follows is undecided",  # noqa: E501
     strict=False,
 )
 def test_the_implied_median_follows_scanpys_sparse_rule_not_its_dense_one():
@@ -133,7 +133,7 @@ def test_the_implied_median_follows_scanpys_sparse_rule_not_its_dense_one():
     dense_rule = float(np.median(totals[totals > 0]))
     assert sparse_rule != dense_rule, "this matrix has to separate the two rules"
 
-    ours = scrust_normalize(matrix).toarray()
+    ours = metalcyte_normalize(matrix).toarray()
 
     from_csr = AnnData(matrix.copy())
     sc.pp.normalize_total(from_csr, target_sum=None)
@@ -155,7 +155,7 @@ def test_a_cell_with_no_counts_is_left_alone_rather_than_divided_by_zero():
     matrix[0, :] = 0
     matrix = sparse.csr_matrix(matrix)
 
-    ours = scrust_normalize(matrix, 1e4).toarray()
+    ours = metalcyte_normalize(matrix, 1e4).toarray()
     assert np.all(ours[0] == 0.0)
     assert np.isfinite(ours).all()
 
@@ -166,7 +166,7 @@ def test_a_cell_with_no_counts_is_left_alone_rather_than_divided_by_zero():
 
 def test_log1p_matches_scanpy_and_keeps_the_sparsity_pattern():
     matrix = counts(seed=7)
-    ours = scrust_log1p(matrix)
+    ours = metalcyte_log1p(matrix)
     adata = AnnData(matrix.copy())
     sc.pp.log1p(adata)
     np.testing.assert_allclose(ours.toarray(), adata.X.toarray(), rtol=1e-6, atol=1e-7)
@@ -189,7 +189,7 @@ def scanpy_hvg(matrix, n_top_genes, flavor):
 def test_hvg_matches_scanpy(flavor, n_top_genes):
     """Means, dispersions, normalised dispersions and the selection itself."""
     matrix = logged(counts(seed=11))
-    ours = scrust_hvg(matrix, n_top_genes, flavor)
+    ours = metalcyte_hvg(matrix, n_top_genes, flavor)
     theirs = scanpy_hvg(matrix, n_top_genes, flavor)
 
     np.testing.assert_allclose(
@@ -222,7 +222,7 @@ def test_hvg_matches_scanpy_on_a_dense_matrix(flavor):
     rng = np.random.default_rng(13)
     dense = rng.lognormal(0.0, 1.0, size=(150, 200)).astype(np.float32)
     matrix = logged(sparse.csr_matrix(dense))
-    ours = scrust_hvg(matrix, 12, flavor)
+    ours = metalcyte_hvg(matrix, 12, flavor)
     theirs = scanpy_hvg(matrix, 12, flavor)
     np.testing.assert_allclose(
         np.asarray(ours["normalised_dispersions"], dtype=np.float64),
@@ -246,7 +246,7 @@ def test_a_gene_that_never_varies_carries_no_dispersion(flavor):
     dense[:, 1] = 1.5  # expressed, but identically
     matrix = sparse.csr_matrix(dense)
 
-    ours = scrust_hvg(matrix, 10, flavor)
+    ours = metalcyte_hvg(matrix, 10, flavor)
     theirs = scanpy_hvg(matrix, 10, flavor)
     got = np.asarray(ours["normalised_dispersions"], dtype=np.float64)
     want = theirs["dispersions_norm"].to_numpy().astype(np.float64)
@@ -273,7 +273,7 @@ def test_a_bin_holding_one_gene_normalises_it_to_exactly_one():
     matrix = logged(sparse.csr_matrix(dense))
 
     theirs = scanpy_hvg(matrix, 5, "seurat")
-    ours = scrust_hvg(matrix, 5, "seurat")
+    ours = metalcyte_hvg(matrix, 5, "seurat")
     got = np.asarray(ours["normalised_dispersions"], dtype=np.float64)
     want = theirs["dispersions_norm"].to_numpy().astype(np.float64)
 
@@ -316,7 +316,7 @@ def test_cell_ranger_bins_holding_two_genes_are_degenerate():
     dense = rng.lognormal(0.0, 1.0, size=(150, 40)).astype(np.float32)
     matrix = logged(sparse.csr_matrix(dense))
 
-    ours = scrust_hvg(matrix, 12, "cell_ranger")
+    ours = metalcyte_hvg(matrix, 12, "cell_ranger")
     theirs = scanpy_hvg(matrix, 12, "cell_ranger")
     got = np.asarray(ours["normalised_dispersions"], dtype=np.float64)
     want = theirs["dispersions_norm"].to_numpy().astype(np.float64)
@@ -353,7 +353,7 @@ def test_the_top_gene_cut_off_is_a_threshold_so_ties_widen_the_selection():
     matrix = logged(sparse.csr_matrix(dense))
 
     for n_top_genes in (3, 5):
-        ours = scrust_hvg(matrix, n_top_genes, "seurat")
+        ours = metalcyte_hvg(matrix, n_top_genes, "seurat")
         theirs = scanpy_hvg(matrix, n_top_genes, "seurat")
         chosen = np.asarray(ours["highly_variable"])
         np.testing.assert_array_equal(chosen, theirs["highly_variable"].to_numpy())
@@ -363,7 +363,7 @@ def test_the_top_gene_cut_off_is_a_threshold_so_ties_widen_the_selection():
 @pytest.mark.parametrize("flavor", FLAVORS)
 def test_hvg_asked_for_more_genes_than_exist_keeps_them_all(flavor):
     matrix = logged(counts(n_genes=15, seed=29))
-    ours = scrust_hvg(matrix, 100, flavor)
+    ours = metalcyte_hvg(matrix, 100, flavor)
     chosen = np.asarray(ours["highly_variable"])
     finite = np.isfinite(np.asarray(ours["normalised_dispersions"], dtype=np.float64))
     assert chosen[finite].all(), "every gene with a dispersion should survive"

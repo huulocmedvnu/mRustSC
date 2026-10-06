@@ -17,8 +17,8 @@ from anndata import AnnData
 from numpy.testing import assert_allclose
 from scipy import sparse
 
+from metalcyte_call import metalcyte_call
 from reference_metrics import as_dense
-from scrust_call import scrust_call
 
 # scanpy accumulates the residual in f32 as we do, but forms the coefficients in
 # f64; a relative 1e-4 is what that difference leaves on log-normalised data.
@@ -64,7 +64,7 @@ def _deviation(ours: np.ndarray, reference: np.ndarray) -> tuple[float, float]:
 def test_regress_out_matches_scanpy(lognorm: AnnData) -> None:
     adata = _with_covariates(lognorm)
     ours = adata.copy()
-    scrust_call("pp.regress_out", ours, NUMERIC_KEYS)
+    metalcyte_call("pp.regress_out", ours, NUMERIC_KEYS)
 
     reference = adata.copy()
     sc.pp.regress_out(reference, NUMERIC_KEYS)
@@ -83,7 +83,7 @@ def test_regress_out_matches_scanpy_on_a_categorical_key(lognorm: AnnData) -> No
     encode it. The two designs span the same space, so the residuals must be the
     same to f32 — and that equivalence is exactly what is being asserted."""
     ours = lognorm.copy()
-    scrust_call("pp.regress_out", ours, "group")
+    metalcyte_call("pp.regress_out", ours, "group")
 
     reference = lognorm.copy()
     sc.pp.regress_out(reference, "group")
@@ -109,7 +109,7 @@ def test_a_gene_that_is_a_linear_function_of_the_covariate_regresses_to_zero() -
     adata = AnnData(np.column_stack([exact, noise]).astype(np.float32))
     adata.obs["covariate"] = covariate
 
-    scrust_call("pp.regress_out", adata, "covariate")
+    metalcyte_call("pp.regress_out", adata, "covariate")
 
     residuals = as_dense(adata.X)
     assert np.abs(residuals[:, :2]).max() < 1e-4, "an exact linear gene left a residual"
@@ -124,13 +124,13 @@ def test_regress_out_rejects_a_rank_deficient_design() -> None:
     adata.obs["copy"] = adata.obs["first"]
 
     with pytest.raises(ValueError, match="full column rank"):
-        scrust_call("pp.regress_out", adata, ["first", "copy"])
+        metalcyte_call("pp.regress_out", adata, ["first", "copy"])
 
 
 def test_regress_out_rejects_an_unknown_key() -> None:
     adata = AnnData(np.ones((10, 3), dtype=np.float32))
     with pytest.raises(KeyError, match="absent"):
-        scrust_call("pp.regress_out", adata, "absent")
+        metalcyte_call("pp.regress_out", adata, "absent")
 
 
 def test_combat_rejects_mismatched_and_impossible_input() -> None:
@@ -140,15 +140,15 @@ def test_combat_rejects_mismatched_and_impossible_input() -> None:
 
     # One cell in a batch: no within-batch variance to estimate.
     with pytest.raises(ValueError, match="at least 2 cells"):
-        scrust_call("pp.combat", adata, "batch")
+        metalcyte_call("pp.combat", adata, "batch")
     with pytest.raises(ValueError, match="could not find the key"):
-        scrust_call("pp.combat", adata, "absent")
+        metalcyte_call("pp.combat", adata, "absent")
 
 
 def test_combat_matches_scanpy(lognorm: AnnData) -> None:
     adata = _batched(lognorm)
     ours = adata.copy()
-    scrust_call("pp.combat", ours, "batch")
+    metalcyte_call("pp.combat", ours, "batch")
 
     reference = adata.copy()
     sc.pp.combat(reference, "batch")
@@ -175,7 +175,7 @@ def test_combat_shrinks_the_batch_difference(lognorm: AnnData) -> None:
     adata = _batched(lognorm)
     before = as_dense(adata.X)
     ours = adata.copy()
-    scrust_call("pp.combat", ours, "batch")
+    metalcyte_call("pp.combat", ours, "batch")
     reference = adata.copy()
     sc.pp.combat(reference, "batch")
 
@@ -198,7 +198,7 @@ def test_combat_shrinks_the_batch_difference(lognorm: AnnData) -> None:
 def test_combat_with_covariates_matches_scanpy(lognorm: AnnData) -> None:
     adata = _with_covariates(_batched(lognorm))
     ours = adata.copy()
-    scrust_call("pp.combat", ours, "batch", covariates=["percent_mito"])
+    metalcyte_call("pp.combat", ours, "batch", covariates=["percent_mito"])
 
     reference = adata.copy()
     sc.pp.combat(reference, "batch", covariates=["percent_mito"])
@@ -210,16 +210,16 @@ def test_combat_with_covariates_matches_scanpy(lognorm: AnnData) -> None:
 
 @pytest.mark.parametrize("call", ["regress_out", "combat"])
 def test_cpu_and_gpu_agree(lognorm: AnnData, call: str) -> None:
-    import scrust
+    import metalcyte
 
-    if not scrust.gpu_available():
+    if not metalcyte.gpu_available():
         pytest.skip("no Metal device on this machine")
 
     adata = _with_covariates(_batched(lognorm))
     arguments = {"regress_out": (NUMERIC_KEYS,), "combat": ("batch",)}[call]
     on_cpu, on_gpu = adata.copy(), adata.copy()
-    scrust_call(f"pp.{call}", on_cpu, *arguments, device="cpu")
-    scrust_call(f"pp.{call}", on_gpu, *arguments, device="gpu")
+    metalcyte_call(f"pp.{call}", on_cpu, *arguments, device="cpu")
+    metalcyte_call(f"pp.{call}", on_gpu, *arguments, device="gpu")
 
     largest, _ = _deviation(as_dense(on_gpu.X), as_dense(on_cpu.X))
     print(f"\n{call}: largest cpu/gpu deviation {largest:.3e}")
@@ -253,9 +253,9 @@ def test_regress_out_beats_scanpys_per_gene_loop(device: str) -> None:
     equations once, one matmul for every gene — in f64 BLAS, so there the honest
     result is parity, not a speedup, and only the categorical case is asserted on.
     """
-    import scrust
+    import metalcyte
 
-    if device == "gpu" and not scrust.gpu_available():
+    if device == "gpu" and not metalcyte.gpu_available():
         pytest.skip("no Metal device on this machine")
 
     n_obs, n_vars = 2000, 2000
@@ -263,12 +263,12 @@ def test_regress_out_beats_scanpys_per_gene_loop(device: str) -> None:
     header = f"\nregress_out {n_obs}x{n_vars} on {device}"
 
     for keys, path in [("donor", "categorical, scanpy's per-gene GLM"), (NUMERIC_KEYS, "numeric")]:
-        scrust_call("pp.regress_out", adata.copy(), keys, device=device)  # warm the device
-        ours, mine = _timed(scrust.pp.regress_out, adata, keys, device=device)
+        metalcyte_call("pp.regress_out", adata.copy(), keys, device=device)  # warm the device
+        ours, mine = _timed(metalcyte.pp.regress_out, adata, keys, device=device)
         reference, theirs = _timed(sc.pp.regress_out, adata, keys)
 
         print(
-            f"{header}, {path}: scrust {mine * 1e3:.0f} ms, "
+            f"{header}, {path}: metalcyte {mine * 1e3:.0f} ms, "
             f"scanpy {theirs * 1e3:.0f} ms ({theirs / mine:.1f}x)"
         )
         assert_allclose(as_dense(ours.X), as_dense(reference.X), **REGRESS_TOLERANCE)

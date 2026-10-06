@@ -1,16 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["crates/scrust-core", "crates/scrust-gpu", "crates/scrust-py"]
+members = ["crates/metalcyte-core", "crates/metalcyte-gpu", "crates/metalcyte-py"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
-scrust-core = { path = "crates/scrust-core" }
-scrust-gpu = { path = "crates/scrust-gpu" }
+metalcyte-core = { path = "crates/metalcyte-core" }
+metalcyte-gpu = { path = "crates/metalcyte-gpu" }
 candle-core = { version = "0.9", features = ["metal"] }
 metal = "0.29"
 ndarray = "0.16"

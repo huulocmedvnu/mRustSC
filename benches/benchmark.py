@@ -87,7 +87,7 @@ class Op:
     kwargs: dict[str, Any] = field(default_factory=dict)
     # Arguments that depend on the prepared input, applied per run.
     dynamic_kwargs: Any = None
-    # Above this many cells scrust refuses the input, so scanpy is not timed either.
+    # Above this many cells metalcyte refuses the input, so scanpy is not timed either.
     max_cells: int | None = None
     max_cells_reason: str = ""
     # False for the few functions that take labellings rather than an AnnData.
@@ -112,7 +112,7 @@ OPS = (
         dynamic_kwargs=lambda adata: {"learning_rate": _auto_learning_rate(adata.n_obs)},
         max_cells=20000,
         max_cells_reason=(
-            "scrust's t-SNE is exact and refuses more than 20 000 cells, "
+            "metalcyte's t-SNE is exact and refuses more than 20 000 cells, "
             "so timing scanpy here would compare nothing"
         ),
     ),
@@ -454,9 +454,9 @@ def run_worker(library_name: str, n_cells: int, repeats: int, only: list[str] | 
     if library_name == "scanpy":
         library: Any = sc
     else:
-        import scrust
+        import metalcyte
 
-        library = scrust
+        library = metalcyte
 
     stages = prepare(resize(load_pbmc3k(), n_cells))
     read_rss = _rss_reader()
@@ -580,20 +580,20 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
 
     header = (
         f"{'algorithm':<24}{'cells':>7}{'genes':>7}"
-        f"{'scanpy s':>10}{'scrust s':>10}{'speedup':>9}"
-        f"{'scanpy +MB':>11}{'scrust +MB':>11}"
+        f"{'scanpy s':>10}{'metalcyte s':>10}{'speedup':>9}"
+        f"{'scanpy +MB':>11}{'metalcyte +MB':>11}"
     )
     unavailable: list[str] = []
     probes: dict[str, str] = {}
     for n_cells in sizes:
         scanpy_run = _call_worker("scanpy", n_cells, repeats, only)
-        scrust_run = _call_worker("scrust", n_cells, repeats, only)
-        reference, ours = scanpy_run.results, scrust_run.results
-        unavailable.extend(note for note in (scanpy_run.note, scrust_run.note) if note)
-        probes.update(scrust_run.probes)
+        metalcyte_run = _call_worker("metalcyte", n_cells, repeats, only)
+        reference, ours = scanpy_run.results, metalcyte_run.results
+        unavailable.extend(note for note in (scanpy_run.note, metalcyte_run.note) if note)
+        probes.update(metalcyte_run.probes)
 
         baselines = _baseline_line(
-            (("scanpy", scanpy_run.baseline_mb), ("scrust", scrust_run.baseline_mb))
+            (("scanpy", scanpy_run.baseline_mb), ("metalcyte", metalcyte_run.baseline_mb))
         )
         print(f"\n=== {n_cells} cells requested; resident before timing: {baselines}")
         print(header)
@@ -603,7 +603,7 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
             shape = mine or theirs
             cells = f"{shape['cells']:>7}" if shape else f"{'?':>7}"
             genes = f"{shape['genes']:>7}" if shape else f"{'?':>7}"
-            for library, record in (("scanpy", theirs), ("scrust", mine)):
+            for library, record in (("scanpy", theirs), ("metalcyte", mine)):
                 if record is None:
                     unavailable.append(
                         f"{library} {op.path} at {n_cells} cells: no record returned"
@@ -625,7 +625,7 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
         sys.stdout.flush()
 
     print(
-        "\nspeedup is scanpy seconds / scrust seconds; above 1.00x scrust is faster."
+        "\nspeedup is scanpy seconds / metalcyte seconds; above 1.00x metalcyte is faster."
         "\n+MB is the memory the call added: peak physical footprint (Activity Monitor's"
         "\nmeasure, compressed pages included) minus the footprint when the call started,"
         "\nsampled every 5 ms. Absolute process sizes are not compared: on a machine with"
@@ -639,14 +639,14 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
             print(f"  {line}")
     if probes:
         print(
-            "\nnot benchmarked at all, because scrust has no implementation to time."
+            "\nnot benchmarked at all, because metalcyte has no implementation to time."
             "\nEach line is what the call actually raised when this run made it:"
         )
         for path, outcome in probes.items():
-            print(f"  scrust.{path:<32} {outcome}")
+            print(f"  metalcyte.{path:<32} {outcome}")
     print(
-        "\nthe GPU CSR kernels in crates/scrust-gpu (SpMM, column moments, row scaling)"
-        "\nhave no Python binding — crates/scrust-py/src/lib.rs registers preprocess,"
+        "\nthe GPU CSR kernels in crates/metalcyte-gpu (SpMM, column moments, row scaling)"
+        "\nhave no Python binding — crates/metalcyte-py/src/lib.rs registers preprocess,"
         "\nembedding, de and paga only — so nothing here can reach them. See"
         "\nbenches/streaming.py for the memory behaviour that is reachable from Python."
     )
@@ -656,7 +656,7 @@ def run(sizes: list[int], repeats: int, only: list[str] | None = None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sizes", type=int, nargs="+", default=list(DEFAULT_SIZES))
-    parser.add_argument("--worker", choices=["scanpy", "scrust"], help=argparse.SUPPRESS)
+    parser.add_argument("--worker", choices=["scanpy", "metalcyte"], help=argparse.SUPPRESS)
     parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS)
     parser.add_argument("--cells", type=int, help=argparse.SUPPRESS)
     parser.add_argument(
