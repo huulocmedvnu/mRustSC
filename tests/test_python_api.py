@@ -495,13 +495,13 @@ def test_umap_lays_out_the_connectivities_graph(core: FakeCore) -> None:
     assert adata.obsm["X_umap"].dtype == np.float32
     indptr, _, _, n_cols, *params = core.args_of("umap")
     assert (len(indptr) - 1, n_cols) == (N_OBS, N_OBS)
-    assert params == [2, 200, 0.5, 1.0, 1.0, 5, 0, "auto"]
+    assert params == [2, 200, 0.5, 1.0, 1.0, 5, 0, _DEVICE]
 
 
 def test_umap_forwards_overrides(core: FakeCore) -> None:
     adata = _with_neighbors(core)
     tl.umap(adata, n_components=3, min_dist=0.1, spread=2.0, n_epochs=100, random_state=5)
-    assert list(core.args_of("umap")[4:]) == [3, 100, 0.1, 2.0, 1.0, 5, 5, "auto"]
+    assert list(core.args_of("umap")[4:]) == [3, 100, 0.1, 2.0, 1.0, 5, 5, _DEVICE]
     assert adata.obsm["X_umap"].shape == (N_OBS, 3)
 
 
