@@ -1,9 +1,8 @@
-"""Single-cell analysis with a Rust core running on the Apple GPU.
+"""Single-cell analysis engine for Apple silicon: a Rust core, Metal kernels, one memory.
 
-`pp` holds preprocessing, `tl` the tools, `metrics` and `get` the accessors.
-Functions take an `AnnData` and write their results into its standard slots. Functions take an
-`AnnData` and write their results
-into the slots scanpy uses, so existing code and plotting keep working.
+`pp` holds preprocessing, `tl` the tools, `metrics` and `get` the accessors. Every function
+takes an `AnnData` and writes its result into the standard slot, so existing code and
+plotting keep working.
 """
 
 from metalcyte import get, metrics, pp, tl
