@@ -1,1 +1,75 @@
 == agreement 117k
+scanpy ...
+  return dispatch(args[0].__class__)(*args, **kw)
+  self.stats[group_name, "logfoldchanges"] = np.log2(
+scrust ...
+  return dispatch(args[0].__class__)(*args, **kw)
+{
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+  "n_cells": 115868,
+  "hvg_jaccard": 1.0,
+  "pca_canonical_min_top10": 0.9999478459358215,
+  "pca_canonical_min_top30": 0.9999513030052185,
+  "pca_canonical_min_top50": 0.8756058812141418,
+  "knn_overlap_own_pca": 0.7898125453101805,
+  "knn_overlap_common_pca": 0.9167437658945239,
+  "leiden": {
+    "n_clusters_scanpy": 37,
+    "n_clusters_scrust": 36,
+    "ari_scanpy_vs_scrust": 0.9449151917341103,
+    "nmi_scanpy_vs_scrust": 0.9567882055109199,
+    "ari_scanpy_vs_celltype": 0.2763000895748961,
+    "ari_scrust_vs_celltype": 0.27618875079703975,
+    "nmi_scanpy_vs_celltype": 0.568552325287442,
+    "nmi_scrust_vs_celltype": 0.5674038347900253
+  },
+  "markers_summary": {
+    "median_spearman": 1.0,
+    "median_top50_overlap": 1.0,
+    "n_groups": 12
+  }
+}
+== repeat 1 scrust metal
+  pp.normalize_total               0.110 s  +    1240 MB  (115868, 25574)
+  total                           16.897 s   (36 Leiden clusters)
+== repeat 1 scrust cpu
+  pp.normalize_total               0.100 s  +    1238 MB  (115868, 25574)
+  total                           19.710 s   (37 Leiden clusters)
+== repeat 1 scanpy tuned
+  pp.normalize_total               1.140 s  +    1251 MB  (115868, 25574)
+  total                           80.651 s   (37 Leiden clusters)
+== repeat 2 scrust metal
+  pp.normalize_total               0.099 s  +    1240 MB  (115868, 25574)
+  total                           16.992 s   (36 Leiden clusters)
+== repeat 2 scrust cpu
+  pp.normalize_total               0.092 s  +    1238 MB  (115868, 25574)
+  total                           24.414 s   (37 Leiden clusters)
+== repeat 2 scanpy tuned
+  pp.normalize_total               1.101 s  +    1275 MB  (115868, 25574)
+  total                           79.612 s   (37 Leiden clusters)
+== repeat 3 scrust metal
+  pp.normalize_total               0.102 s  +    1240 MB  (115868, 25574)
+  total                           17.313 s   (36 Leiden clusters)
+== repeat 3 scrust cpu
+  pp.normalize_total               0.093 s  +    1237 MB  (115868, 25574)
+  total                           20.989 s   (37 Leiden clusters)
+== repeat 3 scanpy tuned
+  pp.normalize_total               1.081 s  +    1208 MB  (115868, 25574)
+  total                           77.713 s   (37 Leiden clusters)
+== repeat 1 scanpy defaults
+  pp.normalize_total               1.125 s  +    1226 MB  (115868, 25574)
+  total                          211.701 s   (37 Leiden clusters)
+== repeat 2 scanpy defaults
+  pp.normalize_total               1.128 s  +    1240 MB  (115868, 25574)
+  total                          214.650 s   (37 Leiden clusters)
+== repeat 3 scanpy defaults
+  pp.normalize_total               1.135 s  +    1182 MB  (115868, 25574)
+  total                          213.352 s   (37 Leiden clusters)
+== 1M save
+      pass4_project            5.93 s
+  pp.preprocess_backed             26.52 s  +    1066 MB
+  pp.neighbors                    139.97 s  +     243 MB
+  tl.umap                          41.63 s  +     964 MB
+  tl.leiden                         8.72 s  +    1323 MB
+  total                           216.83 s   (42 Leiden clusters)
+CHAIN_FINAL_DONE

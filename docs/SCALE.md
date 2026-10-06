@@ -355,3 +355,34 @@ The placement is the point of the project:
   cells is out of reach of 14 GPU cores and an SSD. The claim here is a smaller one and is
   the one an analyst at a bench needs: the standard pipeline on an atlas-scale dataset, on
   the machine already on the desk, in minutes, for the energy in section 4.
+
+## 8. The same biology: scrust against scanpy on the 117k atlas
+
+`benches/results/agreement_bm117k.json`, from `benches/agreement.py`: both libraries on the same
+115,868 cells with the same seeds, every intermediate compared (Figure F11).
+
+| what | agreement |
+|---|---:|
+| highly variable genes, Jaccard of the two 2 000-gene sets | 1.000 |
+| PCA, smallest canonical correlation, leading 10 / 30 / 50 components | 0.9999 / 1.0000 / 0.876 |
+| 15-NN graph, mean fraction of neighbours shared, each library's own PCA | 0.790 |
+| 15-NN graph, same fraction with scrust's exact search on scanpy's PCA | 0.917 |
+| Leiden, ARI / NMI between the two clusterings (37 and 36 clusters) | 0.945 / 0.957 |
+| Leiden, NMI against the author cell types, scanpy / scrust | 0.569 / 0.567 |
+| Wilcoxon markers, median Spearman of scores over 12 cell types | 1.000 |
+| Wilcoxon markers, median overlap of the top-50 lists | 1.000 |
+
+- The two libraries select the same genes, span the same leading principal subspace (the 50th
+  component is where the randomised solver's tails diverge), and rank the same marker genes.
+- The neighbour graphs share 79% of their edges when each library uses its own PCA and 92% when
+  scrust's exact search runs on scanpy's PCA: the remaining difference is pynndescent's approximation
+  on scanpy's side. Leiden on those graphs agrees at ARI 0.95, and both clusterings sit at the same
+  distance from the author's cell-type labels.
+
+## 9. Repeats
+
+`benches/results/repeats/summary.json`: three runs of the 117k pipeline per configuration, mean ± sd
+of the whole pipeline. scanpy defaults 213 ± 1 s, scanpy tuned
+79.3 ± 1.5 s, scrust CPU 21.7 ± 2.4 s, scrust Metal
+17.1 ± 0.2 s. The single runs quoted in section 2 sit within these; the marker test is
+the one step with a wide spread on the CPU (7.6 ± 2.4 s).

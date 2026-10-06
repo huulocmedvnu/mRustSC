@@ -130,7 +130,7 @@ def main() -> int:
     args = parser.parse_args()
     print(f"{args.library} on {args.h5ad.name}", flush=True)
     result = (
-        run_scrust(args.h5ad, args.device, args.umap_parallel)
+        run_scrust(args.h5ad, args.device, args.umap_parallel, args.save)
         if args.library == "scrust"
         else run_scanpy(args.h5ad)
     )

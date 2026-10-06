@@ -1,0 +1,111 @@
+{
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+  "n_cells": 115868,
+  "hvg_jaccard": 1.0,
+  "pca_canonical_min_top10": 0.9999478459358215,
+  "pca_canonical_min_top30": 0.9999513030052185,
+  "pca_canonical_min_top50": 0.8756058812141418,
+  "pca_variance_ratio_scrust": [
+    0.03488754481077194,
+    0.02270164154469967,
+    0.0195793267339468,
+    0.015616847202181816,
+    0.013957787305116653,
+    0.011049823835492134,
+    0.01018445286899805,
+    0.009064031764864922,
+    0.008437510579824448,
+    0.007709552999585867
+  ],
+  "pca_variance_ratio_scanpy_eigh": [
+    0.03488742143562515,
+    0.022701485546110175,
+    0.019579212462723792,
+    0.015616810503603622,
+    0.013957467458814814,
+    0.011049612886493079,
+    0.010184299662180183,
+    0.009063585956357758,
+    0.008437326623980309,
+    0.00770934009527767
+  ],
+  "knn_overlap_own_pca": 0.7898125453101805,
+  "knn_overlap_common_pca": 0.9167437658945239,
+  "leiden": {
+    "n_clusters_scanpy": 37,
+    "n_clusters_scrust": 36,
+    "ari_scanpy_vs_scrust": 0.9449151917341103,
+    "nmi_scanpy_vs_scrust": 0.9567882055109199,
+    "ari_scanpy_vs_celltype": 0.2763000895748961,
+    "ari_scrust_vs_celltype": 0.27618875079703975,
+    "nmi_scanpy_vs_celltype": 0.568552325287442,
+    "nmi_scrust_vs_celltype": 0.5674038347900253
+  },
+  "markers": {
+    "CD4-positive, alpha-beta T cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "CD8-positive, alpha-beta T cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "T cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "bone cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "dendritic cell, human": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "endothelial cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "hematopoietic precursor cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "lymphocyte of B lineage": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "mature NK T cell": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "monocyte": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "smooth muscle cell": {
+      "spearman": 0.9999999999999998,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    },
+    "stromal cell of bone marrow": {
+      "spearman": 1.0,
+      "top50_overlap": 1.0,
+      "n_genes": 2000
+    }
+  },
+  "markers_summary": {
+    "median_spearman": 1.0,
+    "median_top50_overlap": 1.0,
+    "n_groups": 12
+  }
+}
