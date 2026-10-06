@@ -16,6 +16,7 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -508,6 +509,179 @@ def f8_utilisation():
 
 
 FIGURES["F8"] = f8_utilisation
+
+
+# ----------------------------------------------------------------------------- F5
+
+
+def f5_scaling():
+    data = _load("scaling_embryo.json")
+    if not data:
+        print("F5 skipped: no scaling_embryo.json")
+        return
+    names = {
+        "scanpy": "scanpy (defaults)",
+        "scanpy_tuned": "scanpy (tuned)",
+        "scrust_cpu": "scrust CPU",
+        "scrust_metal": "scrust Metal",
+    }
+    from plotly.subplots import make_subplots
+
+    steps = ["whole pipeline", "pp.pca", "pp.neighbors", "tl.umap", "tl.leiden"]
+    fig = make_subplots(rows=1, cols=len(steps), subplot_titles=steps, shared_yaxes=True)
+    for i, (key, label) in enumerate(names.items()):
+        pts = sorted(
+            (p for p in data["points"] if p["config"] == key and p["outcome"] == "ok"),
+            key=lambda p: p["size"],
+        )
+        if not pts:
+            continue
+        x = [p["n_cells"] or p["size"] for p in pts]
+        for col, step in enumerate(steps, start=1):
+            y = [
+                p["total_seconds"] if step == "whole pipeline" else p["steps"].get(step)
+                for p in pts
+            ]
+            fig.add_scatter(
+                x=x,
+                y=y,
+                mode="lines+markers",
+                name=label,
+                legendgroup=key,
+                showlegend=col == 1,
+                marker=dict(size=7, line_width=0, color=COLORS[i]),
+                line=dict(color=COLORS[i]),
+                row=1,
+                col=col,
+            )
+        dead = [p for p in data["points"] if p["config"] == key and p["outcome"] != "ok"]
+        if dead:
+            d = dead[0]
+            fig.add_annotation(
+                x=np.log10(d["size"]),
+                y=np.log10(max(pts[-1]["total_seconds"], 1) * 2),
+                text=f"{label}: {d['outcome'].split(':')[0]} at {d['size']:,}",
+                showarrow=False,
+                font=dict(size=10, color=COLORS[i]),
+                row=1,
+                col=1,
+            )
+    fig.update_xaxes(type="log", title_text="cells")
+    fig.update_yaxes(type="log")
+    fig.update_yaxes(title_text="seconds", row=1, col=1)
+    fig.update_layout(
+        title="F5. Seconds against cells on random subsamples of the 1 M-cell embryo atlas (log-log)"  # noqa: E501
+    )
+    save(fig, "F5_scaling", 1500, 480)
+
+
+# ----------------------------------------------------------------------------- F10
+
+
+def f10_umap_1m():
+    path = RESULTS / "embryo1m_scrust_metal.h5ad"
+    if not path.exists():
+        print("F10 skipped: run pipeline_1m.py --save benches/results/embryo1m_scrust_metal.h5ad")
+        return
+    import anndata
+
+    a = anndata.read_h5ad(path)
+    xy = a.obsm["X_umap"]
+    types = a.obs["cell_type"].astype(str) if "cell_type" in a.obs else a.obs["leiden"].astype(str)
+    counts = types.value_counts()
+    keep = counts.index[:20]
+    label = types.where(types.isin(keep), "other")
+    rng = np.random.default_rng(0)
+    order = rng.permutation(len(a))[:300_000]  # a 300k subsample draws at a sane size
+    fig = go.Figure()
+    for i, t in enumerate([*list(keep), "other"]):
+        m = label.to_numpy()[order] == t
+        if not m.any():
+            continue
+        fig.add_scattergl(
+            x=xy[order][m, 0],
+            y=xy[order][m, 1],
+            mode="markers",
+            name=f"{t} ({int((label == t).sum()):,})",
+            marker=dict(
+                size=2,
+                opacity=0.6,
+                line_width=0,
+                color=COLORS[i % len(COLORS)] if t != "other" else "#cccccc",
+            ),
+        )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False, scaleanchor="x")
+    fig.update_layout(
+        title=f"F10. {len(a):,} embryo cells, UMAP by author cell type (top 20 types; 300k points drawn)",  # noqa: E501
+        legend=dict(itemsizing="constant", font=dict(size=10)),
+    )
+    save(fig, "F10_umap_1m", 1300, 1000)
+
+
+# ----------------------------------------------------------------------------- F11
+
+
+def f11_agreement():
+    data = _load("agreement_bm117k.json")
+    if not data:
+        print("F11 skipped: no agreement_bm117k.json")
+        return
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(
+        rows=1, cols=3, subplot_titles=["intermediates", "Leiden", "marker genes per cell type"]
+    )
+    left = {
+        "HVG Jaccard": data["hvg_jaccard"],
+        "PCA canonical (top 10)": data["pca_canonical_min_top10"],
+        "PCA canonical (top 30)": data["pca_canonical_min_top30"],
+        "PCA canonical (top 50)": data["pca_canonical_min_top50"],
+        "15-NN overlap, own PCA": data["knn_overlap_own_pca"],
+        "15-NN overlap, same PCA": data["knn_overlap_common_pca"],
+    }
+    fig.add_bar(
+        x=list(left), y=list(left.values()), marker_line_width=0, showlegend=False, row=1, col=1
+    )
+    ld = data["leiden"]
+    mid = {
+        "ARI scanpy vs scrust": ld["ari_scanpy_vs_scrust"],
+        "NMI scanpy vs scrust": ld["nmi_scanpy_vs_scrust"],
+        "NMI scanpy vs cell type": ld["nmi_scanpy_vs_celltype"],
+        "NMI scrust vs cell type": ld["nmi_scrust_vs_celltype"],
+    }
+    fig.add_bar(
+        x=list(mid), y=list(mid.values()), marker_line_width=0, showlegend=False, row=1, col=2
+    )
+    groups = sorted(data["markers"], key=lambda g: -data["markers"][g]["spearman"])
+    fig.add_bar(
+        x=groups,
+        y=[data["markers"][g]["spearman"] for g in groups],
+        name="Spearman of scores",
+        marker_line_width=0,
+        row=1,
+        col=3,
+    )
+    fig.add_bar(
+        x=groups,
+        y=[data["markers"][g]["top50_overlap"] for g in groups],
+        name="top-50 overlap",
+        marker_line_width=0,
+        row=1,
+        col=3,
+    )
+    fig.update_yaxes(range=[0, 1.02])
+    fig.update_xaxes(tickangle=35, row=1, col=3)
+    fig.update_layout(
+        barmode="group",
+        title=f"F11. scrust against scanpy on the 117k bone-marrow atlas, {data['n_cells']:,} cells, same seeds",  # noqa: E501
+    )
+    save(fig, "F11_agreement", 1500, 560)
+
+
+FIGURES["F5"] = f5_scaling
+FIGURES["F10"] = f10_umap_1m
+FIGURES["F11"] = f11_agreement
 
 
 if __name__ == "__main__":
