@@ -9,7 +9,6 @@ out-of-core head that never holds the matrix. Python is the interface only: it h
 plumbing and defaults. Results land in the standard AnnData slots, so a script written for scanpy
 runs on Metalcyte after changing its import and keeps its plotting.
 
-Metalcyte was previously published as `scrust` (`mRustSC`); `import scrust` still works and warns.
 All benchmark numbers are measured, not claimed.
 
 ```python
