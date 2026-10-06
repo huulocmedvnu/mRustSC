@@ -1,0 +1,5 @@
+== scrust_cpu at 250,000 cells
+   ok, 67.8 s
+== scrust_metal at 250,000 cells
+   ok, 51.6 s
+== scanpy at 500,000 cells

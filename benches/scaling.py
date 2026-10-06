@@ -49,11 +49,14 @@ def run_one(cmd: list[str], out: Path, swap_limit_mb: float, timeout_s: float) -
     with log.open("w") as handle:
         proc = subprocess.Popen(cmd, env=env, stdout=handle, stderr=subprocess.STDOUT)
         started = time.time()
+        # Swap is judged by what this run adds: macOS keeps a previous run's swap for a
+        # while, so an absolute threshold would charge one run for another's memory.
+        swap_at_start = swap_used_mb()
         while proc.poll() is None:
             time.sleep(5)
-            if swap_used_mb() > swap_limit_mb:
+            if swap_used_mb() - swap_at_start > swap_limit_mb:
                 proc.kill()
-                return {"outcome": f"killed: swap above {swap_limit_mb / 1024:.0f} GB"}
+                return {"outcome": f"killed: added more than {swap_limit_mb / 1024:.0f} GB of swap"}
             if time.time() - started > timeout_s:
                 proc.kill()
                 return {"outcome": f"killed: over {timeout_s / 60:.0f} min"}

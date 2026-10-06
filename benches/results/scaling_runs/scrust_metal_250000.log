@@ -1,0 +1,19 @@
+scrust (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          1.186 s  +    1677 MB  (250000, 45676)
+  pp.filter_cells                  1.081 s  +    2221 MB  (237994, 45676)
+  pp.filter_genes                  1.334 s  +    2179 MB  (237994, 32395)
+  pp.normalize_total               0.138 s  +    1099 MB  (237994, 32395)
+  pp.log1p                         0.146 s  +    1099 MB  (237994, 32395)
+  pp.highly_variable_genes         0.282 s  +    1653 MB  (237994, 32395)
+  subset                           0.806 s  +    3365 MB  (237994, 2000)
+  pp.scale                         0.231 s  +    1799 MB  (237994, 2000)
+  pp.pca                           2.430 s  +    2637 MB  (237994, 2000)
+  pp.neighbors                     7.854 s  +      45 MB  (237994, 2000)
+  tl.umap                         10.011 s  +     233 MB  (237994, 2000)
+  tl.leiden                        1.618 s  +     311 MB  (237994, 2000)
+  tl.rank_genes_groups            24.465 s  +   12759 MB  (237994, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                           51.583 s   (31 Leiden clusters)
