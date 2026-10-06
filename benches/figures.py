@@ -142,64 +142,70 @@ def blank_axes(fig, w, h):
 
 
 def f1_chip_and_library():
-    """What runs where: the Metalcyte layers, and the unit of the package each step runs on."""
+    """Architecture: (a) software layers over the hardware units, (b) execution unit per stage."""
     fig = go.Figure()
-    blank_axes(fig, 100, 68)
+    blank_axes(fig, 100, 92)
     c = COLORS
-    # the software, one row
-    box(fig, 2, 59, 31, 66, "<b>Python interface</b><br>AnnData in, AnnData out", c[0])
-    box(fig, 35.5, 59, 64.5, 66, "<b>Zero-copy bindings</b><br>borrow the numpy buffers as they are", c[0])
-    box(fig, 69, 59, 98, 66, "<b>Rust core</b><br>every step, on every unit below", c[1])
-    arrow(fig, 31, 62.5, 35.5, 62.5)
-    arrow(fig, 64.5, 62.5, 69, 62.5)
-    # the hardware, one column each
-    units = [
-        ("<b>Performance cores</b><br>5", c[2]),
-        ("<b>Efficiency cores</b><br>6", c[4]),
-        ("<b>Matrix coprocessor</b><br>through Accelerate", c[3]),
-        ("<b>GPU</b><br>14 cores, Metal kernels", c[5]),
-        ("<b>Drive</b><br>row blocks of the counts", c[7]),
+    grey = "#444"
+
+    def label(x, y, text, size=12, anchor="left", color="#222", bold=False):
+        fig.add_annotation(x=x, y=y, text=f"<b>{text}</b>" if bold else text, showarrow=False,
+                           xanchor=anchor, font=dict(size=size, color=color))
+
+    # ---- (a) software layers over the hardware units
+    label(1, 90.5, "(a) Software layers and hardware units", 13, bold=True)
+    label(1, 84, "Application layer", 11, color=grey)
+    box(fig, 22, 81, 98, 87, "Python API: AnnData input and output", c[0], size=12)
+    label(1, 75.5, "Binding layer", 11, color=grey)
+    box(fig, 22, 72.5, 98, 78.5, "Zero-copy access to NumPy and SciPy buffers", c[0], size=12)
+    label(1, 67, "Compute layer (Rust)", 11, color=grey)
+    box(fig, 22, 64, 46, 70, "Multithreaded CPU kernels", c[1], size=12)
+    box(fig, 48, 64, 72, 70, "Dense linear algebra<br>(Accelerate BLAS)", c[1], size=12)
+    box(fig, 74, 64, 98, 70, "GPU kernels (Metal)", c[1], size=12)
+    label(1, 55.5, "Hardware layer<br>(Apple M3 Pro SoC)", 11, color=grey)
+    box(fig, 22, 52.5, 46, 58.5, "CPU: 5 performance cores,<br>6 efficiency cores", c[2], size=12)
+    box(fig, 48, 52.5, 72, 58.5, "AMX matrix coprocessor", c[3], size=12)
+    box(fig, 74, 52.5, 98, 58.5, "GPU: 14 cores", c[5], size=12)
+    box(fig, 22, 44, 78, 50, "Unified memory: 18 GB, 150 GB/s, shared by CPU, AMX and GPU", c[6], size=12)
+    box(fig, 86, 44, 98, 50, "SSD", c[7], size=12)
+    arrow(fig, 60, 81, 60, 78.5, color=grey)
+    arrow(fig, 60, 72.5, 60, 70, color=grey)
+    for x in (34, 60, 86):
+        arrow(fig, x, 64, x, 58.5, color=grey)
+    arrow(fig, 34, 52.5, 34, 50, color=grey)
+    arrow(fig, 60, 52.5, 60, 50, color=grey)
+    arrow(fig, 86, 52.5, 86, 50, color=grey)
+    arrow(fig, 86, 47, 78, 47, color=grey)
+
+    # ---- (b) execution unit per pipeline stage
+    label(1, 38.5, "(b) Execution unit of each pipeline stage", 13, bold=True)
+    cols = ["Pipeline stage", "GPU enabled (default)", "GPU disabled", "Out-of-core mode"]
+    xs = [1, 36, 58, 79]
+    rows = [
+        ("Quality control, normalisation, log transform", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
+        ("Highly variable genes", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
+        ("Scaling", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
+        ("PCA", "GPU", "CPU and AMX", "SSD, row blocks, GPU"),
+        ("k-NN graph", "GPU", "CPU, 11 threads", "in memory, GPU"),
+        ("UMAP", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
+        ("Leiden", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
+        ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
     ]
-    xs = [38, 51, 64, 77, 90]
-    for (label, color), x in zip(units, xs):
-        box(fig, x - 6.2, 50, x + 6.2, 56, label, color, size=12)
-    # the pipeline, one row each; filled = default on the GPU path, open = when the GPU is off
-    steps = [
-        ("Quality control, normalise, log transform", "PPE--D"),
-        ("Variable genes", "PPE--D"),
-        ("Scaling", "PPE--D"),
-        ("PCA", "PPEoGD"),
-        ("Neighbour graph", "oo-G-"),
-        ("UMAP", "PPE--"),
-        ("Leiden", "PPE--"),
-        ("Marker test", "PPE--"),
-    ]
-    y0 = 47
-    for i, (label, code) in enumerate(steps):
-        y = y0 - i * 4.3
+    yh = 34.5
+    for x, name in zip(xs, cols):
+        label(x, yh, name, 12, bold=True)
+    fig.add_shape(type="line", x0=1, y0=yh - 1.8, x1=99, y1=yh - 1.8, line=dict(color="#222", width=1.2))
+    for i, row in enumerate(rows):
+        y = yh - 4 - i * 3.6
         if i % 2 == 0:
-            fig.add_shape(type="rect", x0=2, y0=y - 2.1, x1=98, y1=y + 2.1,
+            fig.add_shape(type="rect", x0=1, y0=y - 1.8, x1=99, y1=y + 1.8,
                           fillcolor="#000", opacity=0.03, line=dict(width=0), layer="below")
-        fig.add_annotation(x=2.5, y=y, text=label, showarrow=False, xanchor="left", font=dict(size=12))
-        cols = [ch for ch in code.replace("PPE", "PE")]
-        for ch, x, (_, color) in zip(cols, xs, units):
-            if ch == "-":
-                continue
-            filled = ch != "o"
-            fig.add_trace(go.Scatter(
-                x=[x], y=[y], mode="markers", showlegend=False, hoverinfo="skip",
-                marker=dict(size=15, color=color if filled else "white",
-                            line=dict(color=color, width=2.5)),
-            ))
-    # what the units share
-    box(fig, 31.8, 2, 83.2, 9,
-        "<b>Unified memory</b> 18 GB<br>cores, coprocessor and GPU read the same buffer, no copy to a device",
-        c[6], size=12)
-    box(fig, 83.8, 2, 96.2, 9, "<b>Out-of-core head</b><br>one block at a time", c[7], size=12)
-    fig.add_annotation(x=2.5, y=11.5, xanchor="left", showarrow=False, font=dict(size=11, color="#555"),
-                       text="filled: used by default, open: used when the GPU is switched off")
-    fig.update_layout(title="F1. What runs where: the Metalcyte layers and the unit each step runs on")
-    save(fig, "F1_chip_and_library", 1100, 750)
+        for x, text in zip(xs, row):
+            label(x, y, text, 12)
+    ylast = yh - 4 - (len(rows) - 1) * 3.6 - 1.8
+    fig.add_shape(type="line", x0=1, y0=ylast, x1=99, y1=ylast, line=dict(color="#222", width=1.2))
+    fig.update_layout(title="F1. Architecture of Metalcyte and the execution unit of each stage")
+    save(fig, "F1_chip_and_library", 1100, 1010)
 
 
 # ----------------------------------------------------------------------------- F2
