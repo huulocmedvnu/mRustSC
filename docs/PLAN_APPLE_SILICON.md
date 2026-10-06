@@ -100,6 +100,13 @@ Exact brute force is quadratic; at 5 M cells it is 25x the 1 M cost. Add an inde
 uses 15). Not needed for the paper's 1 M result; needed for the "atlas scale" claim.
 
 ### 2.3 Streamed head: the remaining in-memory steps
+
+**Found by the scaling sweep (2026-10-06):** the in-memory pipeline stops fitting 18 GB between
+250k and 500k cells, and the step that breaks it is `tl.rank_genes_groups`: +6.2 GB at 116k
+cells and +25.5 GB at 476k (37 groups x 2 000 genes), far beyond the gene-major transpose
+it needs. Profile the binding and the Python assembly (`_de.py`: structured arrays per group)
+and bound the working set; until then the marker test is the memory ceiling of the in-memory
+path and the streamed head is what runs above 250k.
 `pp.preprocess_backed` covers QC, filters, normalise, log1p, HVG, scale, PCA. Add
 `tl.rank_genes_groups` over row blocks (per-gene ranks need the whole column; do it
 gene-block by gene-block from a CSC copy written once) so marker genes at 1 M do not

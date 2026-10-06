@@ -1,0 +1,11 @@
+scrust on embryo_1m_counts_500000.h5ad
+      pass1_moments            1.84 s
+      hvg                      0.00 s
+      pass2_hv_moments         2.82 s
+      pass3_scatter_eigh       8.14 s
+      pass4_project            3.54 s
+  pp.preprocess_backed             16.66 s  +     982 MB
+  pp.neighbors                     31.64 s  +      63 MB
+  tl.umap                          22.79 s  +     388 MB
+  tl.leiden                         3.66 s  +     620 MB
+  total                            74.76 s   (32 Leiden clusters)

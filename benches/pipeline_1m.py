@@ -5,7 +5,7 @@
 
 `counts.h5ad` is a counts-only file (see `benches/prepare_counts.py`). The head of the
 pipeline (QC, filters, normalise, log1p, HVG, scale, PCA) runs through
-`metalcyte.pp.preprocess_backed`, reading row blocks off the disk and never holding the
+`scrust.pp.preprocess_backed`, reading row blocks off the disk and never holding the
 matrix; the remaining steps (neighbours, UMAP, Leiden) run on the `(n_cells, 50)`
 embedding in memory. Per-step wall time and the memory each step added are reported.
 
@@ -41,14 +41,14 @@ def _timed(records: list, name: str, call, *args):
     return out
 
 
-def run_metalcyte(path: Path, device: str, umap_parallel: bool, save: Path | None = None) -> dict:
-    import metalcyte as mc
+def run_scrust(path: Path, device: str, umap_parallel: bool, save: Path | None = None) -> dict:
+    import scrust as sr
 
-    mc.settings.device = device
+    sr.settings.device = device
     records: list = []
 
     def head():
-        return mc.pp.preprocess_backed(
+        return sr.pp.preprocess_backed(
             path,
             obs_columns=("cell_type",),
             device=device,
@@ -56,9 +56,9 @@ def run_metalcyte(path: Path, device: str, umap_parallel: bool, save: Path | Non
         )
 
     adata = _timed(records, "pp.preprocess_backed", head)
-    _timed(records, "pp.neighbors", lambda: mc.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca"))
-    _timed(records, "tl.umap", lambda: mc.tl.umap(adata, random_state=0, parallel=umap_parallel))
-    _timed(records, "tl.leiden", lambda: mc.tl.leiden(adata, random_state=0))
+    _timed(records, "pp.neighbors", lambda: sr.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca"))
+    _timed(records, "tl.umap", lambda: sr.tl.umap(adata, random_state=0, parallel=umap_parallel))
+    _timed(records, "tl.leiden", lambda: sr.tl.leiden(adata, random_state=0))
     if save is not None:
         import anndata
 
@@ -67,8 +67,8 @@ def run_metalcyte(path: Path, device: str, umap_parallel: bool, save: Path | Non
         kept.obsm["X_pca"] = adata.obsm["X_pca"]
         kept.write_h5ad(save)
     return {
-        "library": "metalcyte",
-        "device": "metal" if device == "auto" and mc.gpu_available() else "cpu",
+        "library": "scrust",
+        "device": "metal" if device == "auto" and sr.gpu_available() else "cpu",
         "shape": [int(adata.n_obs), int((adata.var["highly_variable"]).sum())],
         "streaming": {
             k: (dict(v) if hasattr(v, "items") else v) for k, v in adata.uns["streaming"].items()
@@ -120,18 +120,18 @@ def run_scanpy(path: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("h5ad", type=Path)
-    parser.add_argument("--library", choices=["metalcyte", "scanpy"], default="metalcyte")
+    parser.add_argument("--library", choices=["scrust", "scanpy"], default="scrust")
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--umap-parallel", action="store_true")
     parser.add_argument("--json", type=Path)
     parser.add_argument(
-        "--save", type=Path, help="write obs, X_umap and leiden to this .h5ad (metalcyte only)"
+        "--save", type=Path, help="write obs, X_umap and leiden to this .h5ad (scrust only)"
     )
     args = parser.parse_args()
     print(f"{args.library} on {args.h5ad.name}", flush=True)
     result = (
-        run_metalcyte(args.h5ad, args.device, args.umap_parallel)
-        if args.library == "metalcyte"
+        run_scrust(args.h5ad, args.device, args.umap_parallel, args.save)
+        if args.library == "scrust"
         else run_scanpy(args.h5ad)
     )
     print(

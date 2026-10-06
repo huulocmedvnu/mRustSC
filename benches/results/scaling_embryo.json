@@ -440,6 +440,90 @@
         "tl.rank_genes_groups": 24.465456875041127
       },
       "n_cells": 237994
+    },
+    {
+      "config": "scanpy",
+      "size": 500000,
+      "outcome": "killed: over 40 min"
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 377.02950208378024,
+      "steps": {
+        "pp.calculate_qc_metrics": 3.3935617501847446,
+        "pp.filter_cells": 1.4171804590150714,
+        "pp.filter_genes": 2.740342917153612,
+        "pp.normalize_total": 1.4144588329363614,
+        "pp.log1p": 0.6201821248978376,
+        "pp.highly_variable_genes": 1.9445012079086155,
+        "subset": 1.5156835420057178,
+        "pp.scale": 5.201366791967303,
+        "pp.pca": 51.98400674993172,
+        "pp.neighbors": 34.24251641682349,
+        "tl.umap": 216.01468749996275,
+        "tl.leiden": 12.410263957921416,
+        "tl.rank_genes_groups": 44.130749833071604
+      },
+      "n_cells": 476030
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 1000000,
+      "outcome": "killed: added more than 10 GB of swap"
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 112.82099779136479,
+      "steps": {
+        "pp.preprocess_backed": 19.701692041009665,
+        "pp.neighbors": 69.12481329217553,
+        "tl.umap": 20.342225708067417,
+        "tl.leiden": 3.652266750112176
+      },
+      "n_cells": 478116
+    },
+    {
+      "config": "scrust_metal",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 74.75942399981432,
+      "steps": {
+        "pp.preprocess_backed": 16.663189749931917,
+        "pp.neighbors": 31.644437666982412,
+        "tl.umap": 22.79228666704148,
+        "tl.leiden": 3.659509915858507
+      },
+      "n_cells": 478116
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 1000000,
+      "outcome": "ok",
+      "total_seconds": 365.7036806670949,
+      "steps": {
+        "pp.preprocess_backed": 37.32867462513968,
+        "pp.neighbors": 274.04830829193816,
+        "tl.umap": 45.40689866710454,
+        "tl.leiden": 8.919799082912505
+      },
+      "n_cells": 953436
+    },
+    {
+      "config": "scrust_metal",
+      "size": 1000000,
+      "outcome": "ok",
+      "total_seconds": 207.39628837513737,
+      "steps": {
+        "pp.preprocess_backed": 30.0127688748762,
+        "pp.neighbors": 123.44683841615915,
+        "tl.umap": 45.09815629199147,
+        "tl.leiden": 8.838524792110547
+      },
+      "n_cells": 953436
     }
   ]
 }

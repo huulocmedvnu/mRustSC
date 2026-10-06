@@ -1,0 +1,4 @@
+scrust on embryo_1m_counts.h5ad
+      pass1_moments            3.27 s
+      hvg                      0.00 s
+      pass2_hv_moments         4.54 s

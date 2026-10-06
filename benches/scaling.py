@@ -9,7 +9,7 @@ random subsample of one real atlas, so every point is the same biology at a diff
 scale (not a bootstrap). A configuration that fails or is killed at a size is marked and
 not tried at any larger size; a swap watchdog kills a run that drives the machine past
 `--swap-limit-gb`, which is what scanpy does on this laptop above a few hundred thousand
-cells. The metalcyte point at the full size comes from `pipeline_1m.py` (the streamed head),
+cells. The scrust point at the full size comes from `pipeline_1m.py` (the streamed head),
 because the in-memory pipeline cannot hold the dense scaled matrix either.
 """
 
@@ -31,8 +31,8 @@ SIZES = (10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000)
 CONFIGS = {
     "scanpy": ["--library", "scanpy"],
     "scanpy_tuned": ["--library", "scanpy", "--tuned"],
-    "metalcyte_cpu": ["--library", "metalcyte", "--device", "cpu", "--umap-parallel"],
-    "metalcyte_metal": ["--library", "metalcyte", "--device", "auto", "--umap-parallel"],
+    "scrust_cpu": ["--library", "scrust", "--device", "cpu", "--umap-parallel"],
+    "scrust_metal": ["--library", "scrust", "--device", "auto", "--umap-parallel"],
 }
 
 
@@ -72,6 +72,24 @@ def run_one(cmd: list[str], out: Path, swap_limit_mb: float, timeout_s: float) -
     }
 
 
+def _counts_subset(source: Path, size: int) -> Path:
+    """A counts-only file of the first `size` rows of `source`, made once and reused."""
+    target = source.with_name(f"{source.stem}_counts_{size}.h5ad")
+    if not target.exists():
+        subprocess.run(
+            [
+                sys.executable,
+                str(BENCH_DIR / "prepare_counts.py"),
+                str(source),
+                str(target),
+                "--cells",
+                str(size),
+            ],
+            check=True,
+        )
+    return target
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("h5ad", type=Path)
@@ -80,6 +98,15 @@ def main() -> int:
     parser.add_argument("--swap-limit-gb", type=float, default=12.0)
     parser.add_argument("--timeout-min", type=float, default=40.0)
     parser.add_argument("--json", type=Path, required=True)
+    parser.add_argument(
+        "--streamed-from",
+        type=int,
+        default=500_000,
+        help="from this size scrust uses the streamed head (pipeline_1m.py) instead of pipeline.py",
+    )
+    parser.add_argument(
+        "--source", type=Path, help="the original CELLxGENE file, for cutting counts subsets"
+    )
     args = parser.parse_args()
 
     runs_dir = args.json.parent / "scaling_runs"
@@ -99,15 +126,24 @@ def main() -> int:
             if (name, size) in done or name in dead:
                 continue
             out = runs_dir / f"{name}_{size}.json"
-            if size >= 1_000_000 and name.startswith("metalcyte"):
+            if size >= args.streamed_from and name.startswith("scrust"):
+                # Above this size the in-memory pipeline no longer fits 18 GB (the counts are
+                # held whole while the filters copy them, and the marker test's working set
+                # grows past 25 GB), so scrust runs its streamed head on a counts file of the
+                # first `size` rows (`prepare_counts.py --cells`).
+                source = (
+                    args.h5ad
+                    if size >= 1_000_000
+                    else _counts_subset(args.source or args.h5ad, size)
+                )
                 cmd = [
                     sys.executable,
                     str(BENCH_DIR / "pipeline_1m.py"),
-                    str(args.h5ad),
+                    str(source),
                     "--json",
                     str(out),
                 ]
-                cmd += ["--device", "cpu" if name == "metalcyte_cpu" else "auto", "--umap-parallel"]
+                cmd += ["--device", "cpu" if name == "scrust_cpu" else "auto", "--umap-parallel"]
             else:
                 cmd = [
                     sys.executable,
