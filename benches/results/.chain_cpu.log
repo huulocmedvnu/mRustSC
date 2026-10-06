@@ -35,3 +35,15 @@ scrust (auto) on bone_marrow_117k_counts.h5ad
   out[name] = __import__(name).__version__
   total                           19.720 s   (36 Leiden clusters)
 == 1M scrust cpu (real)
+scrust on embryo_1m_counts.h5ad
+      pass1_moments            3.37 s
+      hvg                      0.00 s
+      pass2_hv_moments         4.72 s
+      pass3_scatter_eigh      20.02 s
+      pass4_project            6.41 s
+  pp.preprocess_backed             35.13 s  +     683 MB
+  pp.neighbors                   5294.19 s  +    4279 MB
+  tl.umap                          45.54 s  +    1237 MB
+  tl.leiden                        11.01 s  +    1452 MB
+  total                          5385.87 s   (41 Leiden clusters)
+CHAIN_CPU_DONE

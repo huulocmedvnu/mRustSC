@@ -161,27 +161,32 @@ Seconds per step and the memory each step added (physical footprint):
 | step | scrust Metal | scrust CPU | +MB (Metal) |
 |---|---:|---:|---:|
 | pass 1: QC, normalise, log1p, HVG sums | 3.6 | 3.4 | |
-| pass 2: moments of the variable genes | 5.3 | 4.8 | |
-| pass 3: scaled scatter on the device, eigenvectors | 15.4 | 21.0 | |
-| pass 4: projection to 50 PCs | 7.5 | 6.9 | |
-| `pp.preprocess_backed` (all four passes) | 32.3 | 36.7 | 1058 |
-| `pp.neighbors` | 123.4 | 120.1 | 486 |
-| `tl.umap` | 44.6 | 46.6 | 1163 |
+| pass 2: moments of the variable genes | 5.3 | 4.7 | |
+| pass 3: scaled scatter on the device, eigenvectors | 15.4 | 20.0 | |
+| pass 4: projection to 50 PCs | 7.5 | 6.4 | |
+| `pp.preprocess_backed` (all four passes) | 32.3 | 35.1 | 1058 |
+| `pp.neighbors` | 123.4 | 5294.2 | 486 |
+| `tl.umap` | 44.6 | 45.5 | 1163 |
 | `tl.leiden` | 9.5 | 11.0 | 1245 |
-| **whole run** | **210** | **214** | |
+| **whole run** | **210** | **5386** | |
 
 - **A million cells, start to Leiden, in 3.5 minutes on a laptop, never holding more than 1.4 GB
   beyond the baseline.** The head of the pipeline, four passes over 4.8 GB of counts, is 32 s;
   the counts stream off the SSD faster than the arithmetic can use them.
-- **The exact neighbour search is now the long pole** (120 s, 57% of the run): it is brute force,
-  quadratic in cells. It is also the step that puts a Mac on the same footing as a data-centre
-  card: the 953 436 x 953 436 distance products run at about 400 GFLOP/s on either device.
-- **Metal and the CPU are within 2% of each other on the whole run.** The CPU path is not a
-  fallback: with the `accelerate` feature the matmuls go through Apple's AMX units via
-  Accelerate, and on an M3 Pro those keep pace with the 14-core GPU at these shapes. The GPU
-  wins the scatter step (15.4 s against 21.0 s) and nothing else by a margin worth the name.
-  The honest summary is that the speed comes from the whole chip, every CPU core, the AMX
-  matrix units and the GPU sharing one memory, not from the GPU alone.
+- **The exact neighbour search is the long pole and the GPU's whole case.** On Metal it is
+  120 s, 57% of the run; on the CPU, as the search is written today, it is 5294 s, an hour
+  and a half, and the whole run 90 minutes against 3.5. Brute force is quadratic in cells,
+  and at 10⁶ cells that is 9 x 10¹¹ distance evaluations: the one step where the 14-core GPU is
+  what makes the laptop usable at all.
+- **The CPU figure is a lower bound on the CPU, not a fair one.** The CPU search computes its
+  distance tiles through candle on effectively one core (the process sat at 105 to 130% CPU
+  through the 88 minutes) and only the top-k selection runs across cores. A query-block-parallel
+  CPU search with per-thread Accelerate products is the planned rewrite
+  (`docs/PLAN_APPLE_SILICON.md`, 2.1) and should bring the CPU to roughly 10 minutes; the GPU
+  kernel is at 15% of the chip's peak and will move with the same rewrite. The pair to publish is
+  the pair after that rewrite.
+- **Everything else is level between the devices**: the streamed head is 32 s against 35 s
+  (the scatter products 15 s against 20 s), UMAP and Leiden are on the CPU either way.
 - **scanpy on the same file, same machine**: see `benches/results/embryo1m_scanpy.log`.
   `read_h5ad` of the 4.8 GB counts, the filters, `normalize_total`, `log1p`, `highly_variable_genes`
   and the subset ran (about 4 minutes); `pp.scale` then took 98 s and added **21.9 GB** of
@@ -296,7 +301,7 @@ were measured on, next to this page's:
 | rapids-singlecell | NVIDIA RTX PRO 6000 (96 GB) | 1 000 000 | 28.4 s |
 | rapids-singlecell | NVIDIA DGX B200 (8 x B200) | 1 000 000 | 24.6 s |
 | rapids-singlecell (examples repo) | NVIDIA A100 40 GB | 1 300 000 | 686 s (UMAP 21 s, Leiden 1.7 s) |
-| **scrust** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s (210 s; 43 Leiden clusters on the CPU path)** |
+| **scrust** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; CPU-only as written today: 90 min) |
 
 Sources: NVIDIA developer blog "Driving toward billion-cell analysis and biological
 breakthroughs with RAPIDS-singlecell" (12 June 2025) for the 1 M-cell rows;

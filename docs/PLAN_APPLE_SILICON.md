@@ -13,7 +13,7 @@ Tick items off here as they land; `docs/SCALE.md` holds the numbers.
 | per-operation benchmark to 100 000 cells | done, `benches/results/benchmark_100k_m3pro.txt` |
 | real 117k atlas end to end, scanpy vs scrust (CPU, Metal, parallel UMAP) | done, 233 s / 99 s / 47 s / 20 s |
 | scanpy with its fastest settings (`--tuned`) as a fourth column | done, 86.1 s |
-| 1 M cells on 18 GB through `pp.preprocess_backed` | done, 210 s Metal; CPU-only being re-measured (the first "CPU" run was Metal) |
+| 1 M cells on 18 GB through `pp.preprocess_backed` | done, 210 s Metal; 5 386 s CPU-only (neighbour search 5 294 s on effectively one core) |
 | scanpy on 1 M cells on the same machine | did not finish: `scale` needed 21.9 GB, PCA swapped, killed at 15 min |
 | streamed PCA held to scanpy's exact solver | done, `tests/test_streaming.py` and 50/50 components on real data |
 | energy per run (`benches/energy.py`, `benches/run_energy.sh`) | done: scanpy 974 J, scrust Metal 195 J |

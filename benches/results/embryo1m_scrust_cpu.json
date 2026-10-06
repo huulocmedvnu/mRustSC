@@ -10,11 +10,11 @@
     "device": "cpu",
     "n_passes": 4,
     "timings": {
-      "pass1_moments": 3.4310221660416573,
-      "hvg": 0.0018028749618679285,
-      "pass2_hv_moments": 4.813968250062317,
-      "pass3_scatter_eigh": 20.981974124908447,
-      "pass4_project": 6.869386833161116
+      "pass1_moments": 3.3660269170068204,
+      "hvg": 0.0018382079433649778,
+      "pass2_hv_moments": 4.722638332983479,
+      "pass3_scatter_eigh": 20.02297654096037,
+      "pass4_project": 6.411271082935855
     },
     "cells_dropped": 47852,
     "genes_dropped": 9022
@@ -22,25 +22,25 @@
   "steps": [
     {
       "step": "pp.preprocess_backed",
-      "seconds": 36.7120371251367,
-      "added_mb": 769.7360000610352
+      "seconds": 35.133020374923944,
+      "added_mb": 683.4233627319336
     },
     {
       "step": "pp.neighbors",
-      "seconds": 120.06557295797393,
-      "added_mb": 424.2826919555664
+      "seconds": 5294.189468125114,
+      "added_mb": 4279.347618103027
     },
     {
       "step": "tl.umap",
-      "seconds": 46.61447266698815,
-      "added_mb": 1104.0162200927734
+      "seconds": 45.5386469590012,
+      "added_mb": 1236.6881408691406
     },
     {
       "step": "tl.leiden",
-      "seconds": 10.971020333934575,
-      "added_mb": 1382.1415634155273
+      "seconds": 11.006737875053659,
+      "added_mb": 1452.407096862793
     }
   ],
-  "total_seconds": 214.36310308403336,
-  "n_clusters": 43
+  "total_seconds": 5385.867873334093,
+  "n_clusters": 41
 }
