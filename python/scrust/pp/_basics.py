@@ -8,6 +8,7 @@ back into the slot scanpy uses. It also holds the private helpers that
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -40,6 +41,16 @@ __all__ = [
 
 # The three CSR arrays cross the boundary with these dtypes: `f32` values match
 # the core's "f32 throughout" rule, 32-bit offsets match its index type.
+
+
+def _fast_path(ext, name: str) -> bool:
+    """Whether the zero-copy multi-core kernel `name` is available and not switched off.
+
+    `SCRUST_FORCE_COPY=1` disables every fast path so the ablation in
+    `benches/ablation.py` can measure what the in-place kernels buy; it is not a
+    user-facing setting.
+    """
+    return hasattr(ext, name) and os.environ.get("SCRUST_FORCE_COPY") != "1"
 
 
 def _fast_csr_copy(matrix) -> sp.csr_matrix | None:
@@ -110,7 +121,7 @@ def normalize_total(
         normalize_total_backed(adata, target_sum)  # streams X on disk, one block in RAM
         return None
     ext = _extension()
-    normalized = _fast_csr_copy(adata.X) if hasattr(ext, "normalize_total_inplace") else None
+    normalized = _fast_csr_copy(adata.X) if _fast_path(ext, "normalize_total_inplace") else None
     if normalized is not None:
         # Zero-copy, multi-core kernel straight on the copy's numpy buffers.
         ext.normalize_total_inplace(normalized.indptr, normalized.data, target_sum)
@@ -132,7 +143,7 @@ def log1p(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
         adata.uns["log1p"] = {"base": None}
         return None
     ext = _extension()
-    logged = _fast_csr_copy(adata.X) if hasattr(ext, "log1p_inplace") else None
+    logged = _fast_csr_copy(adata.X) if _fast_path(ext, "log1p_inplace") else None
     if logged is not None:
         ext.log1p_inplace(logged.data)
     else:
@@ -183,7 +194,7 @@ def scale(
     """Scale genes to unit variance, optionally centring and clipping at `max_value`."""
     x, ext = adata.X, _extension()
     if (
-        hasattr(ext, "scale_dense")
+        _fast_path(ext, "scale_dense")
         and sp.issparse(x)
         and x.format == "csr"
         and x.indices.dtype in (np.int32, np.int64, np.uint32)
@@ -219,7 +230,7 @@ def pca(
 ) -> None:
     """Principal component analysis by randomised SVD."""
     ext, x = _extension(), adata.X
-    if isinstance(x, np.ndarray) and x.ndim == 2 and hasattr(ext, "pca_dense"):
+    if isinstance(x, np.ndarray) and x.ndim == 2 and _fast_path(ext, "pca_dense"):
         # Dense X (e.g. after pp.scale): straight to the device, no CSR round trip.
         dense = np.ascontiguousarray(x, dtype=_VALUE_DTYPE)
         result = ext.pca_dense(dense, n_comps, zero_center, random_state, device)

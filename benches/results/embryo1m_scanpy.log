@@ -1,0 +1,12 @@
+scanpy on embryo_1m_counts.h5ad
+  read_h5ad                         1.94 s  +    4704 MB
+  pp.filter_cells                  10.99 s  +    9560 MB
+  pp.filter_genes                  11.79 s  +    8826 MB
+  pp.normalize_total                2.05 s  +    4419 MB
+  pp.log1p                          1.47 s  +       0 MB
+  pp.highly_variable_genes          6.01 s  +    8807 MB
+  subset                            2.14 s  +     158 MB
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: UserWarning: zero-centering a sparse array/matrix densifies it.
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         97.79 s  +   21851 MB
+KILLED_DEADLINE after 15 min: 15:12, swap total = 17408.00M  used = 16135.31M  free = 1272.69M  (encrypted)

@@ -108,9 +108,19 @@ def _call_worker(mode: str, path: Path, block_size: int) -> dict[str, Any]:
     shutil.copyfile(path, scratch)
     try:
         process = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), "--worker", mode,
-             "--path", str(scratch), "--block-size", str(block_size)],
-            capture_output=True, text=True, check=False,
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--worker",
+                mode,
+                "--path",
+                str(scratch),
+                "--block-size",
+                str(block_size),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
     finally:
         pass

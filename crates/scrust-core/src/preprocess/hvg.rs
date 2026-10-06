@@ -53,7 +53,53 @@ pub fn highly_variable_genes(
         return Err(Error::parameter("n_top_genes", "at least 1", n_top_genes));
     }
 
-    let (means, dispersions) = gene_statistics(matrix, flavor);
+    let (sums, squared_sums) = crate::preprocess::inplace::hvg_partial_sums(
+        matrix.indptr(),
+        matrix.indices(),
+        matrix.values(),
+        matrix.n_cols(),
+        flavor == HvgFlavor::Seurat,
+    )?;
+    rank_from_sums(&sums, &squared_sums, matrix.n_rows(), n_top_genes, flavor)
+}
+
+/// `highly_variable_genes` from the per-gene `sum(x)` and `sum(x^2)` of a matrix
+/// that was never in memory whole.
+///
+/// The sums come from `inplace::hvg_partial_sums` run on each row block of a
+/// streamed matrix and added together (`expm1` set for the `seurat` flavour);
+/// `n_cells` is the number of rows they cover. Everything after the sums is the
+/// in-memory algorithm unchanged.
+pub fn highly_variable_genes_from_sums(
+    sums: &[f64],
+    squared_sums: &[f64],
+    n_cells: usize,
+    n_top_genes: usize,
+    flavor: HvgFlavor,
+) -> Result<HighlyVariableGenes> {
+    if n_cells == 0 {
+        return Err(Error::shape("at least one cell", "0 cells"));
+    }
+    if sums.is_empty() || sums.len() != squared_sums.len() {
+        return Err(Error::shape(
+            "one sum and one squared sum per gene",
+            format!("{} sums, {} squared sums", sums.len(), squared_sums.len()),
+        ));
+    }
+    if n_top_genes == 0 {
+        return Err(Error::parameter("n_top_genes", "at least 1", n_top_genes));
+    }
+    rank_from_sums(sums, squared_sums, n_cells, n_top_genes, flavor)
+}
+
+fn rank_from_sums(
+    sums: &[f64],
+    squared_sums: &[f64],
+    n_cells: usize,
+    n_top_genes: usize,
+    flavor: HvgFlavor,
+) -> Result<HighlyVariableGenes> {
+    let (means, dispersions) = gene_statistics(sums, squared_sums, n_cells, flavor);
     let edges = match flavor {
         HvgFlavor::Seurat => equal_width_edges(&means, N_BINS),
         HvgFlavor::CellRanger => percentile_edges(&means)?,
@@ -72,33 +118,25 @@ pub fn highly_variable_genes(
 
 /// Per-gene mean and dispersion, in the form the flavour's binning expects.
 ///
-/// One pass over the stored values gives the sum and the sum of squares per
-/// gene; the implicit zeros enter only through the cell count. Nothing is
+/// The per-gene sum and sum of squares (`inplace::hvg_partial_sums`, which for
+/// the `seurat` flavour has already applied scanpy's f32 `expm1` to recover the
+/// counts behind the log data) are gathered over the stored values across all
+/// cores; the implicit zeros enter only through the cell count. Nothing is
 /// densified and no tensor is built, so `device` stays unused.
-fn gene_statistics(matrix: &CsrMatrix, flavor: HvgFlavor) -> (Vec<f64>, Vec<f64>) {
-    let n_genes = matrix.n_cols();
-    let mut sums = vec![0.0f64; n_genes];
-    let mut squared_sums = vec![0.0f64; n_genes];
-
-    for (&gene, &value) in matrix.indices().iter().zip(matrix.values()) {
-        // Seurat dispersions are defined on the counts behind the log data,
-        // which scanpy recovers with an f32 `expm1` before accumulating in f64.
-        let value = match flavor {
-            HvgFlavor::Seurat => value.exp_m1() as f64,
-            HvgFlavor::CellRanger => value as f64,
-        };
-        let gene = gene as usize;
-        sums[gene] += value;
-        squared_sums[gene] += value * value;
-    }
-
-    let n_cells = matrix.n_rows() as f64;
+fn gene_statistics(
+    sums: &[f64],
+    squared_sums: &[f64],
+    n_rows: usize,
+    flavor: HvgFlavor,
+) -> (Vec<f64>, Vec<f64>) {
+    let n_genes = sums.len();
+    let n_cells = n_rows as f64;
     let mut means = Vec::with_capacity(n_genes);
     let mut dispersions = Vec::with_capacity(n_genes);
     for gene in 0..n_genes {
         let mean = sums[gene] / n_cells;
         let mut variance = squared_sums[gene] / n_cells - mean * mean;
-        if matrix.n_rows() > 1 {
+        if n_rows > 1 {
             variance *= n_cells / (n_cells - 1.0); // scanpy's correction=1
         }
         let mean = if mean == 0.0 {
@@ -388,6 +426,52 @@ mod tests {
         shared as f32 / expected.len() as f32
     }
 
+    /// The in-memory statistics, by the same two steps the public entry takes.
+    fn statistics_of(matrix: &CsrMatrix, flavor: HvgFlavor) -> (Vec<f64>, Vec<f64>) {
+        let (sums, squares) = crate::preprocess::inplace::hvg_partial_sums(
+            matrix.indptr(),
+            matrix.indices(),
+            matrix.values(),
+            matrix.n_cols(),
+            flavor == HvgFlavor::Seurat,
+        )
+        .unwrap();
+        gene_statistics(&sums, &squares, matrix.n_rows(), flavor)
+    }
+
+    #[test]
+    fn streamed_sums_select_the_same_genes_as_the_whole_matrix() {
+        let matrix = CsrMatrix::from_dense(&logged(&reference_counts()), N_CELLS, N_GENES).unwrap();
+        let whole = highly_variable_genes(&matrix, 20, HvgFlavor::Seurat, &Device::Cpu).unwrap();
+        // Two row blocks, summed separately and added.
+        let split = N_CELLS / 2;
+        let indptr = matrix.indptr();
+        let mut sums = vec![0f64; N_GENES];
+        let mut squares = vec![0f64; N_GENES];
+        for (start, end) in [(0, split), (split, N_CELLS)] {
+            let from = indptr[start] as usize;
+            let to = indptr[end] as usize;
+            let local: Vec<u32> = indptr[start..=end]
+                .iter()
+                .map(|&p| p - indptr[start])
+                .collect();
+            let (s, q) = crate::preprocess::inplace::hvg_partial_sums(
+                &local,
+                &matrix.indices()[from..to],
+                &matrix.values()[from..to],
+                N_GENES,
+                true,
+            )
+            .unwrap();
+            sums.iter_mut().zip(&s).for_each(|(a, b)| *a += b);
+            squares.iter_mut().zip(&q).for_each(|(a, b)| *a += b);
+        }
+        let streamed =
+            highly_variable_genes_from_sums(&sums, &squares, N_CELLS, 20, HvgFlavor::Seurat)
+                .unwrap();
+        assert_eq!(streamed.highly_variable, whole.highly_variable);
+    }
+
     #[test]
     fn means_and_dispersions_match_hand_computation() {
         // 4 cells x 2 genes of raw counts.
@@ -395,7 +479,7 @@ mod tests {
         // gene 1: 2, 2, 2, 2 -> mean 2, var 0,                  dispersion 0
         let matrix =
             CsrMatrix::from_dense(&[1.0, 2.0, 3.0, 2.0, 0.0, 2.0, 4.0, 2.0], 4, 2).unwrap();
-        let (means, dispersions) = gene_statistics(&matrix, HvgFlavor::CellRanger);
+        let (means, dispersions) = statistics_of(&matrix, HvgFlavor::CellRanger);
 
         assert!((means[0] - 2.0).abs() < 1e-9);
         assert!((means[1] - 2.0).abs() < 1e-9);
@@ -409,7 +493,7 @@ mod tests {
         let matrix =
             CsrMatrix::from_dense(&logged(&[1.0, 2.0, 3.0, 2.0, 0.0, 2.0, 4.0, 2.0]), 4, 2)
                 .unwrap();
-        let (means, dispersions) = gene_statistics(&matrix, HvgFlavor::Seurat);
+        let (means, dispersions) = statistics_of(&matrix, HvgFlavor::Seurat);
 
         assert!((means[0] - 2.0f64.ln_1p()).abs() < 1e-6);
         assert!((dispersions[0] - (5.0f64 / 3.0).ln()).abs() < 1e-6);

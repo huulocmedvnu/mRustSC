@@ -4,6 +4,7 @@ One module per area of responsibility; this file only re-exports, so adding an
 area never means editing the same file twice.
 """
 
+from scrust._streaming import preprocess_backed
 from scrust.pp._basics import (
     filter_cells,
     filter_genes,
@@ -33,6 +34,7 @@ __all__ = [
     "normalize_per_cell",
     "normalize_total",
     "pca",
+    "preprocess_backed",
     "regress_out",
     "sample",
     "scale",

@@ -1,0 +1,46 @@
+{
+  "library": "scrust",
+  "device": "cpu",
+  "shape": [
+    953436,
+    2000
+  ],
+  "streaming": {
+    "block_size": 22920,
+    "device": "cpu",
+    "n_passes": 4,
+    "timings": {
+      "pass1_moments": 3.4310221660416573,
+      "hvg": 0.0018028749618679285,
+      "pass2_hv_moments": 4.813968250062317,
+      "pass3_scatter_eigh": 20.981974124908447,
+      "pass4_project": 6.869386833161116
+    },
+    "cells_dropped": 47852,
+    "genes_dropped": 9022
+  },
+  "steps": [
+    {
+      "step": "pp.preprocess_backed",
+      "seconds": 36.7120371251367,
+      "added_mb": 769.7360000610352
+    },
+    {
+      "step": "pp.neighbors",
+      "seconds": 120.06557295797393,
+      "added_mb": 424.2826919555664
+    },
+    {
+      "step": "tl.umap",
+      "seconds": 46.61447266698815,
+      "added_mb": 1104.0162200927734
+    },
+    {
+      "step": "tl.leiden",
+      "seconds": 10.971020333934575,
+      "added_mb": 1382.1415634155273
+    }
+  ],
+  "total_seconds": 214.36310308403336,
+  "n_clusters": 43
+}

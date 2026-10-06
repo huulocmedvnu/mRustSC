@@ -1,0 +1,46 @@
+== scrust 1M cpu
+scrust on embryo_1m_counts.h5ad
+      pass1_moments            3.43 s
+      hvg                      0.00 s
+      pass2_hv_moments         4.81 s
+      pass3_scatter_eigh      20.98 s
+      pass4_project            6.87 s
+  pp.preprocess_backed             36.71 s  +     770 MB
+  pp.neighbors                    120.07 s  +     424 MB
+  tl.umap                          46.61 s  +    1104 MB
+  tl.leiden                        10.97 s  +    1382 MB
+  total                           214.36 s   (43 Leiden clusters)
+== scanpy 1M (watchdog: swap > 20 GB kills it)
+benches/results/run_chain.sh: line 15:  3856 Killed: 9               $PY benches/pipeline_1m.py $D1 --library scanpy --json benches/results/embryo1m_scanpy.json > benches/results/embryo1m_scanpy.log 2>&1
+scanpy on embryo_1m_counts.h5ad
+  read_h5ad                         1.94 s  +    4704 MB
+  pp.filter_cells                  10.99 s  +    9560 MB
+  pp.filter_genes                  11.79 s  +    8826 MB
+  pp.normalize_total                2.05 s  +    4419 MB
+  pp.log1p                          1.47 s  +       0 MB
+  pp.highly_variable_genes          6.01 s  +    8807 MB
+  subset                            2.14 s  +     158 MB
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         97.79 s  +   21851 MB
+KILLED_DEADLINE after 15 min: 15:12, swap total = 17408.00M  used = 16135.31M  free = 1272.69M  (encrypted)
+== scanpy 117k tuned
+scanpy (auto, tuned) on bone_marrow_117k_counts.h5ad
+  pp.calculate_qc_metrics          1.400 s  +    1406 MB  (117308, 25574)
+  pp.filter_cells                  0.688 s  +    2631 MB  (115868, 25574)
+  pp.filter_genes                  1.117 s  +    2441 MB  (115868, 25574)
+  pp.normalize_total               1.252 s  +    1249 MB  (115868, 25574)
+  pp.log1p                         0.350 s  +       0 MB  (115868, 25574)
+  pp.highly_variable_genes         1.373 s  +    2419 MB  (115868, 25574)
+  subset                           0.585 s  +    3768 MB  (115868, 2000)
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         0.534 s  +    2641 MB  (115868, 2000)
+  pp.pca                           3.701 s  +    3001 MB  (115868, 2000)
+  pp.neighbors                    18.199 s  +      13 MB  (115868, 2000)
+  tl.umap                         46.128 s  +     312 MB  (115868, 2000)
+  tl.leiden                        2.491 s  +     334 MB  (115868, 2000)
+  self.stats[group_name, "logfoldchanges"] = np.log2(
+  tl.rank_genes_groups             8.289 s  +     206 MB  (115868, 2000)
+  "steps": records,
+  "steps": records,
+  total                           86.108 s   (37 Leiden clusters)
+CHAIN_DONE

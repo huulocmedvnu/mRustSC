@@ -679,43 +679,69 @@ fn sample_merge(choices: &[(u32, f64)], rng: &mut StdRng) -> Option<u32> {
 /// The result has one entry per distinct community pair rather than per original
 /// edge, so every level is smaller than the last and the loop terminates.
 fn aggregate(graph: &Graph, labels: &[u32], n_communities: usize) -> Graph {
-    let (offsets, members) = group_by(labels, n_communities);
-    let mut indptr = Vec::with_capacity(n_communities + 1);
-    let mut neighbors: Vec<u32> = Vec::new();
-    let mut weights: Vec<f64> = Vec::new();
-    indptr.push(0usize);
+    use rayon::prelude::*;
 
-    let mut edge_to = vec![0.0f64; n_communities];
-    let mut seen = vec![false; n_communities];
-    let mut touched: Vec<u32> = Vec::new();
-    for community in 0..n_communities {
-        for &node in &members[offsets[community]..offsets[community + 1]] {
-            for (neighbour, weight) in graph.row(node as usize) {
-                let target = labels[neighbour as usize];
-                if !seen[target as usize] {
-                    seen[target as usize] = true;
-                    touched.push(target);
+    let (offsets, members) = group_by(labels, n_communities);
+
+    // Each community's row of the aggregate depends on its own members only, so
+    // the rows are built independently across all cores and concatenated in
+    // community order: the same rows in the same order as a sequential pass,
+    // and each row's weights summed in the same order within it. A thread
+    // keeps one scratch map (`edge_to`, `seen`, `touched`) across the
+    // communities it handles rather than allocating per community.
+    let rows: Vec<(Vec<u32>, Vec<f64>)> = (0..n_communities)
+        .into_par_iter()
+        .with_min_len(64)
+        .map_init(
+            || {
+                (
+                    vec![0.0f64; n_communities],
+                    vec![false; n_communities],
+                    Vec::<u32>::new(),
+                )
+            },
+            |(edge_to, seen, touched), community| {
+                for &node in &members[offsets[community]..offsets[community + 1]] {
+                    for (neighbour, weight) in graph.row(node as usize) {
+                        let target = labels[neighbour as usize];
+                        if !seen[target as usize] {
+                            seen[target as usize] = true;
+                            touched.push(target);
+                        }
+                        edge_to[target as usize] += weight;
+                    }
                 }
-                edge_to[target as usize] += weight;
-            }
-        }
-        touched.sort_unstable();
-        for &target in &touched {
-            neighbors.push(target);
-            weights.push(edge_to[target as usize]);
-            edge_to[target as usize] = 0.0;
-            seen[target as usize] = false;
-        }
-        touched.clear();
+                touched.sort_unstable();
+                let row_neighbors: Vec<u32> = touched.clone();
+                let row_weights: Vec<f64> = touched
+                    .iter()
+                    .map(|&target| {
+                        let w = edge_to[target as usize];
+                        edge_to[target as usize] = 0.0;
+                        seen[target as usize] = false;
+                        w
+                    })
+                    .collect();
+                touched.clear();
+                (row_neighbors, row_weights)
+            },
+        )
+        .collect();
+
+    let mut indptr = Vec::with_capacity(n_communities + 1);
+    indptr.push(0usize);
+    let total_entries: usize = rows.iter().map(|(n, _)| n.len()).sum();
+    let mut neighbors: Vec<u32> = Vec::with_capacity(total_entries);
+    let mut weights: Vec<f64> = Vec::with_capacity(total_entries);
+    for (row_neighbors, row_weights) in &rows {
+        neighbors.extend_from_slice(row_neighbors);
+        weights.extend_from_slice(row_weights);
         indptr.push(neighbors.len());
     }
 
-    let strength: Vec<f64> = (0..n_communities)
-        .map(|community| {
-            weights[indptr[community]..indptr[community + 1]]
-                .iter()
-                .sum()
-        })
+    let strength: Vec<f64> = rows
+        .iter()
+        .map(|(_, row_weights)| row_weights.iter().sum())
         .collect();
     let total = graph.total;
     Graph {

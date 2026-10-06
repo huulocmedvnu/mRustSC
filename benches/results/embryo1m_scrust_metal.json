@@ -1,0 +1,46 @@
+{
+  "library": "scrust",
+  "device": "metal",
+  "shape": [
+    953436,
+    2000
+  ],
+  "streaming": {
+    "block_size": 22920,
+    "device": "auto",
+    "n_passes": 4,
+    "timings": {
+      "pass1_moments": 3.5692603329662234,
+      "hvg": 0.0024021249264478683,
+      "pass2_hv_moments": 5.283802750054747,
+      "pass3_scatter_eigh": 15.355912582948804,
+      "pass4_project": 7.5021985420025885
+    },
+    "cells_dropped": 47852,
+    "genes_dropped": 9022
+  },
+  "steps": [
+    {
+      "step": "pp.preprocess_backed",
+      "seconds": 32.33194529218599,
+      "added_mb": 1058.2047500610352
+    },
+    {
+      "step": "pp.neighbors",
+      "seconds": 123.4351622920949,
+      "added_mb": 485.7201461791992
+    },
+    {
+      "step": "tl.umap",
+      "seconds": 44.5545617910102,
+      "added_mb": 1162.797836303711
+    },
+    {
+      "step": "tl.leiden",
+      "seconds": 9.495992916869,
+      "added_mb": 1245.016471862793
+    }
+  ],
+  "total_seconds": 209.8176622921601,
+  "n_clusters": 42
+}

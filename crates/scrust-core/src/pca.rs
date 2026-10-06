@@ -287,6 +287,160 @@ fn fit(
     })
 }
 
+/// `data^T data` for a dense row-major `(n_rows, n_cols)` block, as an `f64`
+/// row-major `(n_cols, n_cols)` matrix. The product runs on `device` (one matmul
+/// on Metal), the result comes back in `f64` so blocks can be added without
+/// losing the small eigenvalues.
+///
+/// This is the building block of the streamed PCA: a matrix too large to hold
+/// is scaled block by block and its covariance accumulated here.
+pub fn gram_dense(data: &[f32], n_rows: usize, n_cols: usize, device: &Device) -> Result<Vec<f64>> {
+    if data.len() != n_rows * n_cols {
+        return Err(Error::shape(
+            format!("{} values", n_rows * n_cols),
+            format!("{} values", data.len()),
+        ));
+    }
+    let block = Tensor::from_slice(data, (n_rows, n_cols), device)?;
+    let gram = block.t()?.contiguous()?.matmul(&block)?;
+    to_f64_rows(&gram)
+}
+
+/// Principal axes from a covariance (or scatter) matrix that was accumulated
+/// outside, as scanpy's `svd_solver="covariance_eigh"`.
+///
+/// `scatter` is the row-major `(n_genes, n_genes)` sum of outer products of the
+/// *already centred and scaled* rows (see `gram_dense`), `n_cells` the number
+/// of rows that went into it. Returns the `(n_components, n_genes)` loadings,
+/// `explained_variance` as `lambda / (n_cells - 1)` and the ratio against the
+/// trace, exactly the quantities sklearn's `PCA` reports for centred data.
+///
+/// The top eigenpairs are found by the same randomised range finder as `fit`,
+/// applied to the scatter matrix itself (symmetric and positive semidefinite,
+/// so its singular vectors are its eigenvectors). The scatter is small
+/// (`n_genes` square) so the extra passes cost nothing, and `n_power_iterations`
+/// of the subspace iteration are run so the spectrum is resolved to well below
+/// the accuracy of the `f32` scatter.
+pub fn pca_from_scatter(
+    scatter: &[f64],
+    n_genes: usize,
+    n_cells: usize,
+    n_components: usize,
+    seed: u64,
+    device: &Device,
+) -> Result<(Array2<f32>, Vec<f32>, Vec<f32>)> {
+    if scatter.len() != n_genes * n_genes {
+        return Err(Error::shape(
+            format!("{} values", n_genes * n_genes),
+            format!("{} values", scatter.len()),
+        ));
+    }
+    if n_cells < 2 {
+        return Err(Error::parameter("n_cells", "at least 2", n_cells));
+    }
+    if n_components == 0 || n_components > n_genes {
+        return Err(Error::parameter(
+            "n_components",
+            "between 1 and n_genes",
+            n_components,
+        ));
+    }
+    let trace: f64 = (0..n_genes).map(|g| scatter[g * n_genes + g]).sum();
+
+    // Randomised subspace iteration on the scatter in f32 on the device: the
+    // power iterations of `fit` applied to a symmetric matrix converge twice as
+    // fast per pass, and every pass here is an `n_genes^2 * k` product.
+    // A wider sketch than the data path uses: every product here is tiny, and
+    // the extra columns are what keep the trailing components resolved when
+    // the spectrum is dense (single-cell scatters are: the 50th eigenvalue is
+    // within a few percent of its neighbours).
+    let sketch_width = (n_components + SCATTER_OVERSAMPLING).min(n_genes);
+    let scatter_f32: Vec<f32> = scatter.iter().map(|&v| v as f32).collect();
+    let s = Tensor::from_vec(scatter_f32, (n_genes, n_genes), device)?;
+    let omega = gaussian_matrix(n_genes, sketch_width, seed, device)?;
+    let mut range = orthonormalize(&s.matmul(&omega)?)?;
+    for _ in 0..SCATTER_POWER_ITERATIONS {
+        range = orthonormalize(&s.matmul(&range)?)?;
+    }
+    // Rayleigh-Ritz on the small projected matrix, in f64.
+    let projected = range.t()?.contiguous()?.matmul(&s)?.matmul(&range)?;
+    let (eigenvalues, eigenvectors) = jacobi_eigen(to_f64_rows(&projected)?, sketch_width)?;
+    let leading = descending_order(&eigenvalues);
+
+    let mut basis = vec![0.0f32; sketch_width * n_components];
+    for (column, &index) in leading.iter().take(n_components).enumerate() {
+        for row in 0..sketch_width {
+            basis[row * n_components + column] = eigenvectors[row * sketch_width + index] as f32;
+        }
+    }
+    let basis = Tensor::from_vec(basis, (sketch_width, n_components), device)?;
+    let components = range.matmul(&basis)?.t()?.contiguous()?;
+    let mut components = to_array2(&components)?;
+
+    // Refine each eigenvalue in f64 as the Rayleigh quotient of its f32 vector,
+    // which is accurate to second order in the vector's error.
+    let explained_variance: Vec<f32> = (0..n_components)
+        .map(|c| {
+            let v: Vec<f64> = components.row(c).iter().map(|&x| f64::from(x)).collect();
+            let mut sv = vec![0.0f64; n_genes];
+            for (i, row) in scatter.chunks_exact(n_genes).enumerate() {
+                sv[i] = row.iter().zip(&v).map(|(a, b)| a * b).sum();
+            }
+            let num: f64 = sv.iter().zip(&v).map(|(a, b)| a * b).sum();
+            let den: f64 = v.iter().map(|x| x * x).sum();
+            ((num / den.max(f64::MIN_POSITIVE)) / (n_cells - 1) as f64) as f32
+        })
+        .collect();
+    let ratio = explained_variance
+        .iter()
+        .map(|&ev| {
+            if trace > 0.0 {
+                (f64::from(ev) * (n_cells - 1) as f64 / trace) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let mut no_embedding = Array2::<f32>::zeros((0, n_components));
+    fix_component_signs(&mut no_embedding, &mut components);
+    Ok((components, explained_variance, ratio))
+}
+
+/// Subspace iterations for `pca_from_scatter`. Each is one `n_genes^2 * k`
+/// product on the device (a quarter of a gigaflop at 2 000 genes), so they are
+/// free next to one pass over the data; 40 of them with the wider sketch leave
+/// the leading 50 of 2 000 eigenpairs converged on single-cell spectra, where 8
+/// with the narrow sketch had the 40th onward still mixing with their
+/// neighbours.
+const SCATTER_POWER_ITERATIONS: usize = 40;
+const SCATTER_OVERSAMPLING: usize = 100;
+
+/// `data @ components^T` for a dense row-major block: the scores of each row on
+/// the `(n_components, n_cols)` loadings, computed on `device`.
+pub fn project_dense(
+    data: &[f32],
+    n_rows: usize,
+    n_cols: usize,
+    components: &Array2<f32>,
+    device: &Device,
+) -> Result<Array2<f32>> {
+    if data.len() != n_rows * n_cols || components.ncols() != n_cols {
+        return Err(Error::shape(
+            format!("{n_rows} rows of {n_cols} values and loadings {n_cols} wide"),
+            format!(
+                "{} values, loadings {} wide",
+                data.len(),
+                components.ncols()
+            ),
+        ));
+    }
+    let block = Tensor::from_slice(data, (n_rows, n_cols), device)?;
+    let flat: Vec<f32> = components.iter().copied().collect();
+    let loadings = Tensor::from_vec(flat, (components.nrows(), n_cols), device)?;
+    let scores = block.matmul(&loadings.t()?.contiguous()?)?;
+    to_array2(&scores)
+}
+
 /// Per-gene means and the total variance the ratios are reported against.
 struct ColumnStats {
     mean: Vec<f32>,
