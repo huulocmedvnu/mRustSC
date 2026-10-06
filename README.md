@@ -69,37 +69,52 @@ enforces strict tolerance bounds between both backends.
 
 ## Benchmarks
 
-Measured on an Apple M3 Pro (18 GB) after the Apple silicon optimisation pass, PBMC 3k bootstrapped to
-10 000 and 50 000 cells. Speedup relative to Scanpy (values above 1.00x mean scrust is faster); full
-before/after table and method in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Measured on an Apple M3 Pro laptop (5 performance + 6 efficiency cores, 14-core GPU, 18 GB unified
+memory), scanpy 1.12.4. Every number below is in `benches/results/` with the script that produced it;
+the full write-up, including what was tried and did not work, is [docs/SCALE.md](docs/SCALE.md).
 
-| Operation | 10,000 cells | 50,000 cells |
-| --- | ---: | ---: |
-| `tl.rank_genes_groups` | 43.3x | 59.7x |
-| `pp.neighbors` | 20.0x | 4.5x |
-| `pp.scale` | 5.5x | 17.8x |
-| `pp.pca` | 5.7x | 6.7x |
-| `tl.leiden` | 134x | 29x |
-| `tl.umap(parallel=True)` | about 28x | 6x faster than sequential |
-| `tl.umap` (default, deterministic) | 5.0x | not measured |
-| `pp.log1p` | 3.1x | 2.1x |
-| `pp.normalize_total` | 1.9x | 1.3x |
-| `pp.highly_variable_genes` | 1.0x | 1.1x |
-| `tl.tsne` | see below | refuses > 20,000 cells |
+**A real atlas, start to finish.** 117 308 bone-marrow cells (CELLxGENE), QC → filters → normalise →
+log1p → 2 000 variable genes → scale → PCA → 15-NN graph → UMAP → Leiden → Wilcoxon markers
+(`benches/pipeline.py`):
 
-### Performance Insights
+| | scanpy (defaults) | scanpy (tuned) | scrust, CPU only | scrust, Metal |
+|---|---:|---:|---:|---:|
+| whole pipeline | 233 s | 86 s | 29 s | **20 s** |
+| energy (powermetrics, idle subtracted) | 974 J | | | **195 J** |
+| PCA / neighbours / UMAP / Leiden | 13.6 / 17.9 / 46.8 / 135 s | 3.7 / 18.2 / 46.1 / 2.5 s | 3.1 / 4.9 / 4.9 / 0.7 s | 1.1 / 2.0 / 4.8 / 0.6 s |
 
-- **The Wins:** Dense batched tensor operations and per-gene statistics show massive
-  speedups.
-- **Elementwise steps:** `normalize_total`, `log1p` and `scale` now run zero-copy on numpy's
-  buffers across all performance and efficiency cores, so they no longer lose to the FFI overhead.
-- **`tl.tsne` Limitations:** Uses exact `O(N^2)` distance formulation — optimal for GPU
-  tensor cores on smaller datasets, whereas Scanpy uses Barnes-Hut `O(N log N)`. It scales
-  poorly beyond 10,000 cells (17x slower) and raises a `ValueError` above 20,000 cells to
-  prevent OOM. Use `sc.tl.tsne` or `sr.tl.umap` at scale.
+"Tuned" is scanpy with `covariance_eigh` PCA, `igraph` Leiden and an unseeded UMAP, the fastest
+settings it offers; scrust uses `tl.umap(parallel=True)`. The two libraries find the same biology
+(same variable genes, the same PCA subspace, Leiden clusterings that agree; `benches/agreement.py`).
 
-For peak memory consumption and complete benchmarks, see
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+**A million cells on 18 GB.** 1 001 288 human embryo cells (CELLxGENE), through
+`sr.pp.preprocess_backed` (QC, filters, normalise, log1p, HVG, scale and PCA over row blocks of the
+on-disk counts, never holding the matrix) and then the graph steps in memory
+(`benches/pipeline_1m.py`):
+
+| | scanpy | scrust, CPU only | scrust, Metal |
+|---|---:|---:|---:|
+| QC → Leiden, 953 436 cells kept | did not finish (`scale` needed 21.9 GB, PCA swapped) | 409 s | **210 s** |
+| peak memory added per step | | < 1.5 GB | < 1.5 GB |
+
+**Which part of the chip buys what** (`benches/ablation.py`, 117k atlas): the GPU is worth 2.5x on
+the neighbour search and 2x on PCA and nothing elsewhere; all eleven cores are worth 6.6x on the UMAP
+optimiser, with the efficiency cores carrying a third of it; the zero-copy numpy borrows are worth
+4.5 s of a 20 s run; Accelerate (AMX) does not show at 2 000 genes.
+
+**Per operation, bootstrapped PBMC 3k.** `benches/benchmark.py` times each step on its own at 10k,
+50k and 100k cells; the table is in [docs/BENCHMARKS.md](docs/BENCHMARKS.md). The short version:
+PCA 6 to 80x, the neighbour graph 2.5 to 20x, Leiden 30 to 130x, Wilcoxon 40 to 73x, the elementwise
+steps at parity, `tl.tsne` exact and capped at 20 000 cells.
+
+### Where the time still goes
+
+- The exact neighbour search is quadratic: 2 s at 117k, 120 s at 1M on the GPU. An approximate
+  index is the next step above a million cells.
+- The Metal neighbour kernel runs at about 15% of the chip's arithmetic peak. A
+  `simdgroup_float8x8` version is in the tree, opt-in and documented as not yet faster.
+- scanpy's `tl.umap` and `tl.leiden` at their defaults are single-threaded; the tuned column is
+  the fair one to quote against.
 
 ## Custom Metal Kernels
 

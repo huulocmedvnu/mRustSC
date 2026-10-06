@@ -1,0 +1,63 @@
+
+=== 100000 cells requested; resident before timing: scanpy 1821 MB, scrust 3539 MB
+algorithm                 cells  genes  scanpy s  scrust s  speedup scanpy +MB scrust +MB
+-----------------------------------------------------------------------------------------
+pp.filter_cells          100000  32738    0.5253    0.5329    0.99x       1344       1263
+pp.filter_genes          100000  32738    0.6858    0.7415    0.92x       1246       1256
+pp.normalize_total       100000  16579    0.0836    0.0968    0.86x        633        635
+pp.log1p                 100000  16579    0.1671    0.0771    2.17x          0        633
+pp.highly_variable_genes 100000  16579    0.4808    0.3627    1.33x       1267        951
+pp.scale                 100000   2000    0.4414    0.0287   15.36x       2469        801
+pp.pca                   100000   2000   60.6002    0.7589   79.85x       4884       1872
+pp.neighbors             100000   2000    3.8581    1.5078    2.56x         49        137
+tl.umap                  100000   2000 1690.8137   26.9069   62.84x        248         89
+tl.leiden                100000   2000    6.5969    0.1947   33.88x        362        106
+tl.tsne                  100000   2000 not attem ValueErro        -          -          -
+tl.rank_genes_groups     100000  16579   61.7502    0.8504   72.61x        316       1590
+tl.paga                  100000   2000 ValueErro    0.0050        -          -          0
+get.obs_df               100000  16579    0.0519    0.0626    0.83x          0          0
+get.var_df               100000  16579    0.0005    0.0006    1.00x          0          0
+get.rank_genes_groups_df 100000  16579    0.0156    0.0229    0.68x          0          4
+get.aggregate            100000  16579    0.0396    0.2094    0.19x          0        637
+
+speedup is scanpy seconds / scrust seconds; above 1.00x scrust is faster.
++MB is the memory the call added: peak physical footprint (Activity Monitor's
+measure, compressed pages included) minus the footprint when the call started,
+sampled every 5 ms. Absolute process sizes are not compared: on a machine with
+little free memory they swing by gigabytes between two identical processes.
+each timing is the best of up to 2 runs, and an operation stops repeating after 30 s.
+
+not measured, with the reason:
+  the scanpy worker at 100000 cells exited with -9:   warnings.warn('resource_tracker: There appear to be %d '
+  the scrust worker at 100000 cells exited with -9:   return dispatch(args[0].__class__)(*args, **kw)
+  scanpy tl.tsne at 100000 cells: not attempted: scrust's t-SNE is exact and refuses more than 20 000 cells, so timing scanpy here would compare nothing
+  scrust tl.tsne at 100000 cells: ValueError: n_cells must be at most 20000 for the exact O(n^2) formulation, got 100000
+  scanpy tl.paga at 100000 cells: ValueError: mismatching number of index arrays for shape; got 0, expected 2
+
+not benchmarked at all, because scrust has no implementation to time.
+Each line is what the call actually raised when this run made it:
+  scrust.pp.calculate_qc_metrics          returned
+  scrust.pp.normalize_per_cell            returned
+  scrust.pp.sqrt                          returned
+  scrust.pp.filter_genes_dispersion       returned
+  scrust.pp.regress_out                   ValueError: expression must be small enough for a dense working set of 8 GiB, got 100000 cells x 16579 genes needs 12.4 GiB
+  scrust.pp.combat                        ValueError: expression must be small enough for a dense working set of 8 GiB, got 100000 cells x 16579 genes needs 30.9 GiB
+  scrust.pp.subsample                     returned
+  scrust.pp.sample                        returned
+  scrust.pp.downsample_counts             returned
+  scrust.tl.louvain                       returned
+  scrust.tl.diffmap                       ValueError: graph must be connected: a diffusion map of disconnected components is not defined, got 2638 connected components
+  scrust.tl.dpt                           ValueError: graph must be connected: a diffusion map of disconnected components is not defined, got 2638 connected components
+  scrust.tl.score_genes                   returned
+  scrust.tl.score_genes_cell_cycle        returned
+  scrust.tl.marker_gene_overlap           returned
+  scrust.tl.filter_rank_genes_groups      returned
+  scrust.tl.dendrogram                    returned
+  scrust.tl.draw_graph                    ValueError: n_cells must be at most 50000, got 100000
+  scrust.tl.embedding_density             KeyError: "adata.obsm has no 'X_umap'; compute the embedding first"
+  scrust.metrics.morans_i                 returned
+
+the GPU CSR kernels in crates/scrust-gpu (SpMM, column moments, row scaling)
+have no Python binding — crates/scrust-py/src/lib.rs registers preprocess,
+embedding, de and paga only — so nothing here can reach them. See
+benches/streaming.py for the memory behaviour that is reachable from Python.

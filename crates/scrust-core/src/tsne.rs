@@ -663,7 +663,9 @@ mod tests {
         if !gpu_available() {
             return;
         }
-        let metal = Device::new_metal(0).unwrap();
+        let Some(metal) = crate::device::metal_device() else {
+            return; // no GPU on this machine
+        };
         let input = uniform_matrix(100, 6, 5);
         let n = input.nrows();
 

@@ -1,0 +1,49 @@
+== 117k scrust cpu (real)
+scrust (cpu) on bone_marrow_117k_counts.h5ad
+  pp.calculate_qc_metrics          1.223 s  +    1866 MB  (117308, 25574)
+  pp.filter_cells                  0.853 s  +    2457 MB  (115868, 25574)
+  pp.filter_genes                  1.093 s  +    2391 MB  (115868, 25574)
+  pp.normalize_total               0.140 s  +    1237 MB  (115868, 25574)
+  pp.log1p                         0.155 s  +    1237 MB  (115868, 25574)
+  pp.highly_variable_genes         0.309 s  +    1861 MB  (115868, 25574)
+  subset                           0.759 s  +    3781 MB  (115868, 2000)
+  pp.scale                         0.039 s  +     882 MB  (115868, 2000)
+  pp.pca                           2.537 s  +     951 MB  (115868, 2000)
+  pp.neighbors                    78.981 s  +    1675 MB  (115868, 2000)
+  tl.umap                          4.656 s  +      69 MB  (115868, 2000)
+  tl.leiden                        0.638 s  +      69 MB  (115868, 2000)
+  tl.rank_genes_groups             7.517 s  +    6225 MB  (115868, 2000)
+  out[name] = __import__(name).__version__
+  out[name] = __import__(name).__version__
+  total                           98.900 s   (36 Leiden clusters)
+== 117k scrust metal (same binary, for a paired comparison)
+scrust (auto) on bone_marrow_117k_counts.h5ad
+  pp.calculate_qc_metrics          0.862 s  +    1857 MB  (117308, 25574)
+  pp.filter_cells                  0.643 s  +    2416 MB  (115868, 25574)
+  pp.filter_genes                  1.010 s  +    2405 MB  (115868, 25574)
+  pp.normalize_total               0.116 s  +    1238 MB  (115868, 25574)
+  pp.log1p                         0.121 s  +    1237 MB  (115868, 25574)
+  pp.highly_variable_genes         0.253 s  +    1861 MB  (115868, 25574)
+  subset                           0.552 s  +    3698 MB  (115868, 2000)
+  pp.scale                         0.023 s  +     828 MB  (115868, 2000)
+  pp.pca                           1.096 s  +    1294 MB  (115868, 2000)
+  pp.neighbors                     1.968 s  +      54 MB  (115868, 2000)
+  tl.umap                          4.804 s  +     112 MB  (115868, 2000)
+  tl.leiden                        0.660 s  +     120 MB  (115868, 2000)
+  tl.rank_genes_groups             7.613 s  +    6248 MB  (115868, 2000)
+  out[name] = __import__(name).__version__
+  out[name] = __import__(name).__version__
+  total                           19.720 s   (36 Leiden clusters)
+== 1M scrust cpu (real)
+scrust on embryo_1m_counts.h5ad
+      pass1_moments            3.37 s
+      hvg                      0.00 s
+      pass2_hv_moments         4.72 s
+      pass3_scatter_eigh      20.02 s
+      pass4_project            6.41 s
+  pp.preprocess_backed             35.13 s  +     683 MB
+  pp.neighbors                   5294.19 s  +    4279 MB
+  tl.umap                          45.54 s  +    1237 MB
+  tl.leiden                        11.01 s  +    1452 MB
+  total                          5385.87 s   (41 Leiden clusters)
+CHAIN_CPU_DONE

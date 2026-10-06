@@ -1,5 +1,8 @@
 # Benchmarks
 
+**For 100 000 cells and beyond, real atlases, energy and the ablation, read [SCALE.md](SCALE.md).**
+This page is the per-operation sweep on bootstrapped PBMC 3k and the optimisation history.
+
 scrust is faster than scanpy at some things and slower at others, and the pattern is
 consistent enough to plan around. This page is the measurement, wins and losses in
 the same table.

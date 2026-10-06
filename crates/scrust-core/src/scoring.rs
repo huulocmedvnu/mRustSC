@@ -337,7 +337,7 @@ mod tests {
     fn the_metal_path_returns_what_the_cpu_path_returns() {
         // A device is an optimisation, never a second algorithm, so on a machine
         // with a GPU the two must agree; on one without, there is nothing to check.
-        let Ok(metal) = Device::new_metal(0) else {
+        let Some(metal) = crate::device::metal_device() else {
             return;
         };
         let matrix = graded(20);

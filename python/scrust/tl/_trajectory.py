@@ -6,7 +6,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scrust._shared import _VALUE_DTYPE, _csr_args, _dense, _extension, _neighbor_graph
+from scrust._shared import (
+    _VALUE_DTYPE,
+    _csr_args,
+    _dense,
+    _extension,
+    _neighbor_graph,
+    _resolve_device,
+)
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -19,9 +26,14 @@ _DIFFMAP_COMPONENTS = 15
 
 
 def diffmap(
-    adata: AnnData, n_comps: int = 15, *, neighbors_key: str = "neighbors", device: str = "auto"
+    adata: AnnData,
+    n_comps: int = 15,
+    *,
+    neighbors_key: str = "neighbors",
+    device: str | None = None,
 ) -> None:
     """Diffusion map of the neighbour graph, as `scanpy.tl.diffmap`."""
+    device = _resolve_device(device)
     if neighbors_key == "neighbors":
         graph = _neighbor_graph(adata)
     else:
@@ -39,7 +51,7 @@ def dpt(
     n_dcs: int = 10,
     n_branchings: int = 0,
     min_group_size: float = 0.01,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Diffusion pseudotime from `uns["iroot"]`, as `scanpy.tl.dpt`.
 
@@ -48,6 +60,7 @@ def dpt(
     (`scrust.tl._dpt_branching`). Branch labels are arbitrary, so parity with scanpy is an
     adjusted Rand index, pinned in `tests/test_dpt_branching_audit.py`.
     """
+    device = _resolve_device(device)
     if "X_diffmap" not in adata.obsm:
         diffmap(adata, n_comps=_DIFFMAP_COMPONENTS, device=device)
     if "iroot" not in adata.uns:
@@ -76,7 +89,7 @@ def dpt(
 
 
 def paga(
-    adata: AnnData, groups: str | None = None, *, model: str = "v1.2", device: str = "auto"
+    adata: AnnData, groups: str | None = None, *, model: str = "v1.2", device: str | None = None
 ) -> None:
     """Partition-based graph abstraction, writing `uns["paga"]`, as `scanpy.tl.paga`.
 
@@ -84,6 +97,7 @@ def paga(
     neighbour graph is a single memory-bound pass over its stored entries into a
     matrix the size of the group count, which a GPU cannot make faster.
     """
+    device = _resolve_device(device)
     # Imported here because this module is shared with feat/diffusion, which
     # owns every other line of it.
     import numpy as np

@@ -1,0 +1,36 @@
+scanpy (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          1.844 s  +       7 MB  (250000, 45676)
+  pp.filter_cells                  0.607 s  +    2371 MB  (237994, 45676)
+  pp.filter_genes                  1.232 s  +    2180 MB  (237994, 32395)
+  pp.normalize_total               1.200 s  +    1103 MB  (237994, 32395)
+  pp.log1p                         0.291 s  +       0 MB  (237994, 32395)
+  pp.highly_variable_genes         1.299 s  +    2122 MB  (237994, 32395)
+  subset                           0.566 s  +    3340 MB  (237994, 2000)
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: UserWarning: zero-centering a sparse array/matrix densifies it.
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         2.146 s  +    5451 MB  (237994, 2000)
+  pp.pca                         440.172 s  +   11106 MB  (237994, 2000)
+  pp.neighbors                    23.415 s  +       6 MB  (237994, 2000)
+  tl.umap                        110.951 s  +     905 MB  (237994, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:135: FutureWarning: The `igraph` implementation of leiden clustering is *orders of magnitude faster*. Set the flavor argument to (and install if needed) 'igraph' to use it.
+In the future, the default backend for leiden will be igraph instead of leidenalg. To achieve the future defaults please pass: `flavor='igraph'` and `n_iterations=2`. `directed` must also be `False` to work with igraph’s implementation.
+  ("tl.leiden", lambda a: lib.tl.leiden(a, **leiden_kwargs)),
+  tl.leiden                      760.822 s  +    1267 MB  (237994, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: RuntimeWarning: invalid value encountered in log2
+  self.stats[group_name, "logfoldchanges"] = np.log2(
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:609: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "scores"] = scores[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:612: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "pvals"] = pvals[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:622: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "pvals_adj"] = pvals_adj[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "logfoldchanges"] = np.log2(
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:607: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "names"] = self.var_names[global_indices]
+  tl.rank_genes_groups            23.887 s  +     476 MB  (237994, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                         1368.433 s   (30 Leiden clusters)

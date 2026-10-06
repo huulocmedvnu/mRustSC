@@ -9,6 +9,7 @@ by hand on a matrix small enough to read.
 from __future__ import annotations
 
 import contextlib
+import os
 import sys
 import types
 import warnings
@@ -374,7 +375,7 @@ def fresh_settings() -> Settings:
 
 def test_defaults_are_quiet_and_device_agnostic(fresh_settings: Settings) -> None:
     assert fresh_settings.verbosity == Verbosity.warning
-    assert fresh_settings.device == "auto"
+    assert fresh_settings.device == os.environ.get("SCRUST_DEVICE", "auto")
     assert fresh_settings.max_memory_gb > 0
     assert (fresh_settings.n_jobs, fresh_settings.chunk_size) == (0, 0)
 

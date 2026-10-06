@@ -283,6 +283,12 @@ fn slice_rows(matrix: &CsrMatrix, start: usize, end: usize) -> Result<CsrMatrix>
 
 #[cfg(test)]
 mod tests {
+    /// `N_COLS` through a function: clippy 1.91's `chunks_exact_to_as_chunks` wants a
+    /// const argument turned into `as_chunks`, which older toolchains do not have.
+    fn row_width() -> usize {
+        N_COLS
+    }
+
     use super::*;
 
     const N_COLS: usize = 8;
@@ -334,7 +340,7 @@ mod tests {
         let n_rows = matrix.n_rows();
         let dense = matrix.densify_rows(0, n_rows);
         let mut mean = vec![0.0f64; N_COLS];
-        for row in dense.chunks_exact(N_COLS) {
+        for row in dense.chunks_exact(row_width()) {
             for (total, &value) in mean.iter_mut().zip(row) {
                 *total += value as f64;
             }
@@ -343,7 +349,7 @@ mod tests {
             *total /= n_rows as f64;
         }
         let mut variance = vec![0.0f64; N_COLS];
-        for row in dense.chunks_exact(N_COLS) {
+        for row in dense.chunks_exact(row_width()) {
             for ((total, &value), &centre) in variance.iter_mut().zip(row).zip(&mean) {
                 let deviation = value as f64 - centre;
                 *total += deviation * deviation;
@@ -363,7 +369,7 @@ mod tests {
         let dense = matrix.densify_rows(0, n_rows);
         let mut sum = [T::ZERO; N_COLS];
         let mut squares = [T::ZERO; N_COLS];
-        for row in dense.chunks_exact(N_COLS) {
+        for row in dense.chunks_exact(row_width()) {
             for ((total, square), &value) in sum.iter_mut().zip(&mut squares).zip(row) {
                 let value = T::of(value);
                 *total = *total + value;
@@ -531,7 +537,7 @@ mod tests {
         let totals = streaming_cell_totals(&mut CsrRowBlocks::new(&matrix)).unwrap();
         let dense = matrix.densify_rows(0, matrix.n_rows());
         let expected: Vec<f32> = dense
-            .chunks_exact(N_COLS)
+            .chunks_exact(row_width())
             .map(|row| row.iter().sum::<f32>())
             .collect();
         assert_eq!(totals, expected);

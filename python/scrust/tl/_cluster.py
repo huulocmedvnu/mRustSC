@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
-from scrust._shared import _csr_args, _extension, _neighbor_graph
+from scrust._shared import _csr_args, _extension, _neighbor_graph, _resolve_device
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -56,9 +56,10 @@ def leiden(
     neighbors_key: str = "neighbors",
     n_iterations: int = 2,
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Leiden clustering, writing `obs[key_added]` as `scanpy.tl.leiden` does."""
+    device = _resolve_device(device)
     graph = _connectivities(adata, neighbors_key)
     partition = _extension().leiden(
         *_csr_args(graph),
@@ -86,9 +87,10 @@ def louvain(
     key_added: str = "louvain",
     neighbors_key: str = "neighbors",
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Louvain clustering, writing `obs[key_added]` as `scanpy.tl.louvain` does."""
+    device = _resolve_device(device)
     graph = _connectivities(adata, neighbors_key)
     partition = _extension().louvain(
         *_csr_args(graph),

@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn the_gpu_agrees_with_the_cpu() {
-        let Ok(gpu) = Device::new_metal(0) else {
+        let Some(gpu) = crate::device::metal_device() else {
             return;
         };
         let (graph, signals) = (ring(128), ring_signals(128));

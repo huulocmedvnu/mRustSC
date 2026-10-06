@@ -1,0 +1,529 @@
+{
+  "file": "/Users/mac/Downloads/mRustSC_work/data/embryo_1m_counts.h5ad",
+  "points": [
+    {
+      "config": "scanpy",
+      "size": 10000,
+      "outcome": "ok",
+      "total_seconds": 29.603123957989737,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.3622745838947594,
+        "pp.filter_cells": 0.030730624916031957,
+        "pp.filter_genes": 0.05256750015541911,
+        "pp.normalize_total": 1.067588167032227,
+        "pp.log1p": 0.013389167143031955,
+        "pp.highly_variable_genes": 0.732952875085175,
+        "subset": 0.024698207853361964,
+        "pp.scale": 0.03684670780785382,
+        "pp.pca": 1.1306786660570651,
+        "pp.neighbors": 15.175730125047266,
+        "tl.umap": 8.362766208127141,
+        "tl.leiden": 2.1073104590177536,
+        "tl.rank_genes_groups": 0.505590665852651
+      },
+      "n_cells": 9506
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 10000,
+      "outcome": "ok",
+      "total_seconds": 26.8449933771044,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.28096808306872845,
+        "pp.filter_cells": 0.03005158412270248,
+        "pp.filter_genes": 0.050764583982527256,
+        "pp.normalize_total": 1.0358108750078827,
+        "pp.log1p": 0.013340292032808065,
+        "pp.highly_variable_genes": 0.725406875135377,
+        "subset": 0.023179708048701286,
+        "pp.scale": 0.03366787498816848,
+        "pp.pca": 0.8569707500282675,
+        "pp.neighbors": 14.81728187482804,
+        "tl.umap": 8.33555108285509,
+        "tl.leiden": 0.15843408415094018,
+        "tl.rank_genes_groups": 0.48356570885516703
+      },
+      "n_cells": 9506
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 10000,
+      "outcome": "ok",
+      "total_seconds": 1.290619206847623,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.04324141703546047,
+        "pp.filter_cells": 0.028883542167022824,
+        "pp.filter_genes": 0.053215499967336655,
+        "pp.normalize_total": 0.004504582844674587,
+        "pp.log1p": 0.004449708852916956,
+        "pp.highly_variable_genes": 0.011964333010837436,
+        "subset": 0.023524750024080276,
+        "pp.scale": 0.0047098330687731504,
+        "pp.pca": 0.22311516688205302,
+        "pp.neighbors": 0.04611229104921222,
+        "tl.umap": 0.4285752910654992,
+        "tl.leiden": 0.033780874917283654,
+        "tl.rank_genes_groups": 0.38454191596247256
+      },
+      "n_cells": 9506
+    },
+    {
+      "config": "scrust_metal",
+      "size": 10000,
+      "outcome": "ok",
+      "total_seconds": 1.3938632924109697,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.04128574999049306,
+        "pp.filter_cells": 0.030160083901137114,
+        "pp.filter_genes": 0.05262170801870525,
+        "pp.normalize_total": 0.0036222501657903194,
+        "pp.log1p": 0.004634999902918935,
+        "pp.highly_variable_genes": 0.013794375117868185,
+        "subset": 0.026732207974418998,
+        "pp.scale": 0.005207665963098407,
+        "pp.pca": 0.22764666704460979,
+        "pp.neighbors": 0.04180020815692842,
+        "tl.umap": 0.5053619591053575,
+        "tl.leiden": 0.035820625023916364,
+        "tl.rank_genes_groups": 0.40517479204572737
+      },
+      "n_cells": 9506
+    },
+    {
+      "config": "scanpy",
+      "size": 25000,
+      "outcome": "ok",
+      "total_seconds": 42.18210054235533,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.4976805420592427,
+        "pp.filter_cells": 0.08888974995352328,
+        "pp.filter_genes": 0.14588249986991286,
+        "pp.normalize_total": 1.1638486250303686,
+        "pp.log1p": 0.030571917071938515,
+        "pp.highly_variable_genes": 0.7803416249807924,
+        "subset": 0.05387012497521937,
+        "pp.scale": 0.10757116694003344,
+        "pp.pca": 3.0176889998838305,
+        "pp.neighbors": 15.385046625044197,
+        "tl.umap": 9.093112083850428,
+        "tl.leiden": 10.69409174984321,
+        "tl.rank_genes_groups": 1.1235048328526318
+      },
+      "n_cells": 23828
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 25000,
+      "outcome": "ok",
+      "total_seconds": 29.5295147895813,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.3927980831358582,
+        "pp.filter_cells": 0.08487591589801013,
+        "pp.filter_genes": 0.14975979086011648,
+        "pp.normalize_total": 1.119342332938686,
+        "pp.log1p": 0.030755541054531932,
+        "pp.highly_variable_genes": 0.7728863339871168,
+        "subset": 0.053100334014743567,
+        "pp.scale": 0.09987562499009073,
+        "pp.pca": 1.156175458803773,
+        "pp.neighbors": 15.077240166952834,
+        "tl.umap": 9.030004708096385,
+        "tl.leiden": 0.4146468329709023,
+        "tl.rank_genes_groups": 1.1480536658782512
+      },
+      "n_cells": 23828
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 25000,
+      "outcome": "ok",
+      "total_seconds": 3.2028293318580836,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.09505187487229705,
+        "pp.filter_cells": 0.06519074994139373,
+        "pp.filter_genes": 0.1259048751089722,
+        "pp.normalize_total": 0.00885487487539649,
+        "pp.log1p": 0.010603416012600064,
+        "pp.highly_variable_genes": 0.059853707905858755,
+        "subset": 0.05636179097928107,
+        "pp.scale": 0.00856874999590218,
+        "pp.pca": 0.4175386670976877,
+        "pp.neighbors": 0.25113725010305643,
+        "tl.umap": 1.0069518329109997,
+        "tl.leiden": 0.09535329206846654,
+        "tl.rank_genes_groups": 1.0014582499861717
+      },
+      "n_cells": 23828
+    },
+    {
+      "config": "scrust_metal",
+      "size": 25000,
+      "outcome": "ok",
+      "total_seconds": 3.0218502923380584,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.09922662493772805,
+        "pp.filter_cells": 0.06233279197476804,
+        "pp.filter_genes": 0.12438462511636317,
+        "pp.normalize_total": 0.009481624932959676,
+        "pp.log1p": 0.01039741700515151,
+        "pp.highly_variable_genes": 0.02930254186503589,
+        "subset": 0.0544881250243634,
+        "pp.scale": 0.008517416892573237,
+        "pp.pca": 0.2687637920025736,
+        "pp.neighbors": 0.11981470813043416,
+        "tl.umap": 1.010107166832313,
+        "tl.leiden": 0.09958637482486665,
+        "tl.rank_genes_groups": 1.125447082798928
+      },
+      "n_cells": 23828
+    },
+    {
+      "config": "scanpy",
+      "size": 50000,
+      "outcome": "ok",
+      "total_seconds": 122.83492716518231,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.7169631249271333,
+        "pp.filter_cells": 0.14180195797234774,
+        "pp.filter_genes": 0.25151699990965426,
+        "pp.normalize_total": 1.1403532910626382,
+        "pp.log1p": 0.059341083047911525,
+        "pp.highly_variable_genes": 0.83087412500754,
+        "subset": 0.1054173749871552,
+        "pp.scale": 0.19448845810256898,
+        "pp.pca": 4.876997375162318,
+        "pp.neighbors": 15.84389999997802,
+        "tl.umap": 18.605153624899685,
+        "tl.leiden": 77.41160325007513,
+        "tl.rank_genes_groups": 2.656516500050202
+      },
+      "n_cells": 47631
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 50000,
+      "outcome": "ok",
+      "total_seconds": 44.730392375262454,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.6731505410280079,
+        "pp.filter_cells": 0.1369985828641802,
+        "pp.filter_genes": 0.24435241683386266,
+        "pp.normalize_total": 1.1081455000676215,
+        "pp.log1p": 0.058853042079135776,
+        "pp.highly_variable_genes": 0.8217279589734972,
+        "subset": 0.10795950004830956,
+        "pp.scale": 0.18471237504854798,
+        "pp.pca": 1.628869083011523,
+        "pp.neighbors": 16.010687042027712,
+        "tl.umap": 19.022467625094578,
+        "tl.leiden": 0.9608441670425236,
+        "tl.rank_genes_groups": 3.7716245411429554
+      },
+      "n_cells": 47631
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 50000,
+      "outcome": "ok",
+      "total_seconds": 7.435538042336702,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.2528615000192076,
+        "pp.filter_cells": 0.17513137497007847,
+        "pp.filter_genes": 0.264992083190009,
+        "pp.normalize_total": 0.02190549997612834,
+        "pp.log1p": 0.02161104208789766,
+        "pp.highly_variable_genes": 0.054514875169843435,
+        "subset": 0.11155187501572073,
+        "pp.scale": 0.051786167081445456,
+        "pp.pca": 0.8720637091901153,
+        "pp.neighbors": 0.829177166800946,
+        "tl.umap": 2.0378332079853863,
+        "tl.leiden": 0.23747395793907344,
+        "tl.rank_genes_groups": 2.5046355829108506
+      },
+      "n_cells": 47631
+    },
+    {
+      "config": "scrust_metal",
+      "size": 50000,
+      "outcome": "ok",
+      "total_seconds": 7.514876709319651,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.21890245797112584,
+        "pp.filter_cells": 0.19222691701725125,
+        "pp.filter_genes": 0.28292837482877076,
+        "pp.normalize_total": 0.02463950007222593,
+        "pp.log1p": 0.031528625171631575,
+        "pp.highly_variable_genes": 0.06763608404435217,
+        "subset": 0.12792520807124674,
+        "pp.scale": 0.04871758399531245,
+        "pp.pca": 0.45935750007629395,
+        "pp.neighbors": 0.4118392919190228,
+        "tl.umap": 2.323905791155994,
+        "tl.leiden": 0.278184249997139,
+        "tl.rank_genes_groups": 3.0470851249992847
+      },
+      "n_cells": 47631
+    },
+    {
+      "config": "scanpy",
+      "size": 100000,
+      "outcome": "ok",
+      "total_seconds": 263.7931407473516,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.3264032499864697,
+        "pp.filter_cells": 0.3381307921372354,
+        "pp.filter_genes": 0.5980138331651688,
+        "pp.normalize_total": 1.4793661660514772,
+        "pp.log1p": 0.12861916609108448,
+        "pp.highly_variable_genes": 1.2270793330390006,
+        "subset": 0.2567736660130322,
+        "pp.scale": 0.41967474995180964,
+        "pp.pca": 12.091733125038445,
+        "pp.neighbors": 18.640011874958873,
+        "tl.umap": 48.89506374998018,
+        "tl.leiden": 172.44811391597614,
+        "tl.rank_genes_groups": 5.944157124962658
+      },
+      "n_cells": 95178
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 100000,
+      "outcome": "ok",
+      "total_seconds": 73.18054100032896,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.7897634159307927,
+        "pp.filter_cells": 0.2434374161530286,
+        "pp.filter_genes": 0.5626521671656519,
+        "pp.normalize_total": 1.1657121670432389,
+        "pp.log1p": 0.12091099983081222,
+        "pp.highly_variable_genes": 0.95552545809187,
+        "subset": 0.22867158404551446,
+        "pp.scale": 0.36678191693499684,
+        "pp.pca": 2.7310510841198266,
+        "pp.neighbors": 17.593180041993037,
+        "tl.umap": 40.26353795803152,
+        "tl.leiden": 1.8987288330681622,
+        "tl.rank_genes_groups": 6.260587957920507
+      },
+      "n_cells": 95178
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 100000,
+      "outcome": "ok",
+      "total_seconds": 15.25043420563452,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.3873267499729991,
+        "pp.filter_cells": 0.22763254190795124,
+        "pp.filter_genes": 0.4931299998424947,
+        "pp.normalize_total": 0.037460416089743376,
+        "pp.log1p": 0.04789741593413055,
+        "pp.highly_variable_genes": 0.1302210830617696,
+        "subset": 0.23238441604189575,
+        "pp.scale": 0.020041416864842176,
+        "pp.pca": 1.6895395829342306,
+        "pp.neighbors": 2.9406216661445796,
+        "tl.umap": 3.836404333822429,
+        "tl.leiden": 0.6548374579288065,
+        "tl.rank_genes_groups": 4.552937125088647
+      },
+      "n_cells": 95178
+    },
+    {
+      "config": "scrust_metal",
+      "size": 100000,
+      "outcome": "ok",
+      "total_seconds": 15.969674457795918,
+      "steps": {
+        "pp.calculate_qc_metrics": 0.46089616580866277,
+        "pp.filter_cells": 0.4854337500873953,
+        "pp.filter_genes": 0.6445328330155462,
+        "pp.normalize_total": 0.07440337492153049,
+        "pp.log1p": 0.07447116705588996,
+        "pp.highly_variable_genes": 0.13529895897954702,
+        "subset": 0.38838599994778633,
+        "pp.scale": 0.0902149579487741,
+        "pp.pca": 1.1507420840207487,
+        "pp.neighbors": 1.48901595803909,
+        "tl.umap": 4.191493625054136,
+        "tl.leiden": 0.5994847500696778,
+        "tl.rank_genes_groups": 6.185300832847133
+      },
+      "n_cells": 95178
+    },
+    {
+      "config": "scanpy",
+      "size": 250000,
+      "outcome": "ok",
+      "total_seconds": 1368.433466544142,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.8443883331492543,
+        "pp.filter_cells": 0.6068836250342429,
+        "pp.filter_genes": 1.2319428340997547,
+        "pp.normalize_total": 1.2002663752064109,
+        "pp.log1p": 0.2910861249547452,
+        "pp.highly_variable_genes": 1.2993397919926792,
+        "subset": 0.5661731669679284,
+        "pp.scale": 2.1462194591294974,
+        "pp.pca": 440.1715152079705,
+        "pp.neighbors": 23.415275958832353,
+        "tl.umap": 110.95090220798738,
+        "tl.leiden": 760.8224991669413,
+        "tl.rank_genes_groups": 23.88697429187596
+      },
+      "n_cells": 237994
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 250000,
+      "outcome": "ok",
+      "total_seconds": 176.99435879080556,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.9693173749838024,
+        "pp.filter_cells": 0.6509309581015259,
+        "pp.filter_genes": 1.3017160419840366,
+        "pp.normalize_total": 1.236316124908626,
+        "pp.log1p": 0.30616433289833367,
+        "pp.highly_variable_genes": 1.3264247078914195,
+        "subset": 0.6225081661250442,
+        "pp.scale": 2.4023334588855505,
+        "pp.pca": 11.384199624881148,
+        "pp.neighbors": 23.80376600008458,
+        "tl.umap": 107.835551999975,
+        "tl.leiden": 5.708975542103872,
+        "tl.rank_genes_groups": 18.44615445798263
+      },
+      "n_cells": 237994
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 250000,
+      "outcome": "ok",
+      "total_seconds": 67.82839050143957,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.25732266693376,
+        "pp.filter_cells": 1.0662428750656545,
+        "pp.filter_genes": 1.5178628331050277,
+        "pp.normalize_total": 0.1645459581632167,
+        "pp.log1p": 0.14864404196850955,
+        "pp.highly_variable_genes": 0.2784387501887977,
+        "subset": 0.9343244999181479,
+        "pp.scale": 0.42982595786452293,
+        "pp.pca": 5.847963917069137,
+        "pp.neighbors": 16.69279754208401,
+        "tl.umap": 10.009277875069529,
+        "tl.leiden": 1.6391482499893755,
+        "tl.rank_genes_groups": 27.841995334019884
+      },
+      "n_cells": 237994
+    },
+    {
+      "config": "scrust_metal",
+      "size": 250000,
+      "outcome": "ok",
+      "total_seconds": 51.582969875540584,
+      "steps": {
+        "pp.calculate_qc_metrics": 1.1862855828367174,
+        "pp.filter_cells": 1.0814445419237018,
+        "pp.filter_genes": 1.3339637499302626,
+        "pp.normalize_total": 0.13794433302246034,
+        "pp.log1p": 0.14647170901298523,
+        "pp.highly_variable_genes": 0.2818084161262959,
+        "subset": 0.8057204158976674,
+        "pp.scale": 0.23081345879472792,
+        "pp.pca": 2.430266459006816,
+        "pp.neighbors": 7.854495374951512,
+        "tl.umap": 10.0105032089632,
+        "tl.leiden": 1.6177957500331104,
+        "tl.rank_genes_groups": 24.465456875041127
+      },
+      "n_cells": 237994
+    },
+    {
+      "config": "scanpy",
+      "size": 500000,
+      "outcome": "killed: over 40 min"
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 377.02950208378024,
+      "steps": {
+        "pp.calculate_qc_metrics": 3.3935617501847446,
+        "pp.filter_cells": 1.4171804590150714,
+        "pp.filter_genes": 2.740342917153612,
+        "pp.normalize_total": 1.4144588329363614,
+        "pp.log1p": 0.6201821248978376,
+        "pp.highly_variable_genes": 1.9445012079086155,
+        "subset": 1.5156835420057178,
+        "pp.scale": 5.201366791967303,
+        "pp.pca": 51.98400674993172,
+        "pp.neighbors": 34.24251641682349,
+        "tl.umap": 216.01468749996275,
+        "tl.leiden": 12.410263957921416,
+        "tl.rank_genes_groups": 44.130749833071604
+      },
+      "n_cells": 476030
+    },
+    {
+      "config": "scanpy_tuned",
+      "size": 1000000,
+      "outcome": "killed: added more than 10 GB of swap"
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 112.82099779136479,
+      "steps": {
+        "pp.preprocess_backed": 19.701692041009665,
+        "pp.neighbors": 69.12481329217553,
+        "tl.umap": 20.342225708067417,
+        "tl.leiden": 3.652266750112176
+      },
+      "n_cells": 478116
+    },
+    {
+      "config": "scrust_metal",
+      "size": 500000,
+      "outcome": "ok",
+      "total_seconds": 74.75942399981432,
+      "steps": {
+        "pp.preprocess_backed": 16.663189749931917,
+        "pp.neighbors": 31.644437666982412,
+        "tl.umap": 22.79228666704148,
+        "tl.leiden": 3.659509915858507
+      },
+      "n_cells": 478116
+    },
+    {
+      "config": "scrust_cpu",
+      "size": 1000000,
+      "outcome": "ok",
+      "total_seconds": 365.7036806670949,
+      "steps": {
+        "pp.preprocess_backed": 37.32867462513968,
+        "pp.neighbors": 274.04830829193816,
+        "tl.umap": 45.40689866710454,
+        "tl.leiden": 8.919799082912505
+      },
+      "n_cells": 953436
+    },
+    {
+      "config": "scrust_metal",
+      "size": 1000000,
+      "outcome": "ok",
+      "total_seconds": 207.39628837513737,
+      "steps": {
+        "pp.preprocess_backed": 30.0127688748762,
+        "pp.neighbors": 123.44683841615915,
+        "tl.umap": 45.09815629199147,
+        "tl.leiden": 8.838524792110547
+      },
+      "n_cells": 953436
+    }
+  ]
+}

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import scipy.sparse as sp
 
-from scrust._shared import _csr_args, _dense, _extension
+from scrust._shared import _csr_args, _dense, _extension, _resolve_device
 
 if TYPE_CHECKING:
     from anndata import AnnData
@@ -16,18 +16,27 @@ __all__ = ["gearys_c", "morans_i"]
 
 
 def gearys_c(
-    adata: AnnData, *, vals: Any = None, use_graph: str = "connectivities", device: str = "auto"
+    adata: AnnData,
+    *,
+    vals: Any = None,
+    use_graph: str = "connectivities",
+    device: str | None = None,
 ) -> np.ndarray:
     """Geary's C for each gene over the neighbour graph, as `scanpy.metrics.gearys_c`.
 
     See `morans_i` for how `vals` is resolved. Low values mean strong spatial
     correlation; a constant feature has no statistic and comes back as `nan`.
     """
+    device = _resolve_device(device)
     return _autocorrelation("gearys_c", adata, vals, use_graph, device)
 
 
 def morans_i(
-    adata: AnnData, *, vals: Any = None, use_graph: str = "connectivities", device: str = "auto"
+    adata: AnnData,
+    *,
+    vals: Any = None,
+    use_graph: str = "connectivities",
+    device: str | None = None,
 ) -> np.ndarray:
     """Moran's I for each gene over the neighbour graph, as `scanpy.metrics.morans_i`.
 
@@ -36,6 +45,7 @@ def morans_i(
     explicit array. As in scanpy, an explicit 2-D array is `(n_features,
     n_cells)` and a single feature returns a scalar rather than a length-1 array.
     """
+    device = _resolve_device(device)
     return _autocorrelation("morans_i", adata, vals, use_graph, device)
 
 

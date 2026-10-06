@@ -131,7 +131,7 @@ def aggregate(
     *,
     axis: int = 0,
     layer: str | None = None,
-    device: str = "auto",
+    device: str | None = None,
 ) -> AnnData:
     """Group cells and reduce, as `scanpy.get.aggregate`.
 

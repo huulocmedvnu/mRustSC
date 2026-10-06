@@ -1,0 +1,169 @@
+{
+  "library": "scanpy",
+  "device": "cpu",
+  "pipeline_seconds": 229.28936853958294,
+  "sampled_seconds": 231.77584000000067,
+  "gross_joules": {
+    "CPU": 1314.6757987900046,
+    "GPU": 140.85289835000026,
+    "ANE": 0.0,
+    "Combined": 1385.0976449600018
+  },
+  "idle_watts": {
+    "CPU": 1.4446299298645893,
+    "GPU": 0.6614360225107608,
+    "ANE": 0.0,
+    "Combined": 1.7755055287010248
+  },
+  "net_joules": {
+    "CPU": 979.8454833064974,
+    "GPU": -12.451991373690674,
+    "ANE": 0.0,
+    "Combined": 973.5783596206766
+  },
+  "mean_watts": {
+    "CPU": 5.672186535015905,
+    "GPU": 0.6077117371249732,
+    "ANE": 0.0,
+    "Combined": 5.976022543850981
+  },
+  "pipeline": {
+    "library": "scanpy",
+    "device": "cpu",
+    "umap_parallel": false,
+    "tuned": false,
+    "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+    "input_shape": [
+      117308,
+      25574
+    ],
+    "load_seconds": 0.4060609999578446,
+    "steps": [
+      {
+        "step": "pp.calculate_qc_metrics",
+        "seconds": 1.4909761250019073,
+        "added_mb": 1407.0635528564453,
+        "shape": [
+          117308,
+          25574
+        ]
+      },
+      {
+        "step": "pp.filter_cells",
+        "seconds": 1.2127963749226183,
+        "added_mb": 2655.126853942871,
+        "shape": [
+          115868,
+          25574
+        ]
+      },
+      {
+        "step": "pp.filter_genes",
+        "seconds": 1.1228851249907166,
+        "added_mb": 2470.1267623901367,
+        "shape": [
+          115868,
+          25574
+        ]
+      },
+      {
+        "step": "pp.normalize_total",
+        "seconds": 1.2174513328354806,
+        "added_mb": 1253.8758926391602,
+        "shape": [
+          115868,
+          25574
+        ]
+      },
+      {
+        "step": "pp.log1p",
+        "seconds": 0.3459308329038322,
+        "added_mb": 0.03125,
+        "shape": [
+          115868,
+          25574
+        ]
+      },
+      {
+        "step": "pp.highly_variable_genes",
+        "seconds": 1.366453040856868,
+        "added_mb": 2450.0329666137695,
+        "shape": [
+          115868,
+          25574
+        ]
+      },
+      {
+        "step": "subset",
+        "seconds": 0.8163383749779314,
+        "added_mb": 3764.9558029174805,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "pp.scale",
+        "seconds": 1.0201646671630442,
+        "added_mb": 2653.2831268310547,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "pp.pca",
+        "seconds": 12.391583792166784,
+        "added_mb": 5410.035186767578,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "pp.neighbors",
+        "seconds": 18.129664874868467,
+        "added_mb": 8.953147888183594,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "tl.umap",
+        "seconds": 46.03241195785813,
+        "added_mb": 331.5471496582031,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "tl.leiden",
+        "seconds": 136.2250846249517,
+        "added_mb": 461.3601531982422,
+        "shape": [
+          115868,
+          2000
+        ]
+      },
+      {
+        "step": "tl.rank_genes_groups",
+        "seconds": 7.917627416085452,
+        "added_mb": 220.64078521728516,
+        "shape": [
+          115868,
+          2000
+        ]
+      }
+    ],
+    "total_seconds": 229.28936853958294,
+    "n_clusters": 37,
+    "versions": {
+      "scanpy": "1.12.4",
+      "scrust": "0.2.0",
+      "anndata": "0.13.4",
+      "numpy": "2.5.3"
+    }
+  }
+}

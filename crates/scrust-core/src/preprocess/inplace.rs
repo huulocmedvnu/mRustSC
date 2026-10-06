@@ -206,6 +206,78 @@ pub fn gene_moments<O: Offset, I: Offset>(
     Ok((means, deviations))
 }
 
+/// Stored entries per column, across all cores. A block's contribution to
+/// `filter_genes(min_cells)` when the matrix is streamed.
+pub fn column_nnz<I: Offset>(indices: &[I], n_cols: usize) -> Vec<u32> {
+    indices
+        .par_chunks((indices.len() / rayon::current_num_threads().max(1)).max(1 << 16))
+        .map(|chunk| {
+            let mut counts = vec![0u32; n_cols];
+            for index in chunk {
+                counts[index.to_usize()] += 1;
+            }
+            counts
+        })
+        .reduce(
+            || vec![0u32; n_cols],
+            |mut a, b| {
+                a.iter_mut().zip(&b).for_each(|(x, y)| *x += y);
+                a
+            },
+        )
+}
+
+/// Per-gene `sum(x)` and `sum(x^2)` in `f64`, the two accumulators behind
+/// `highly_variable_genes`; split by row blocks across all cores.
+///
+/// With `expm1` set the value entering both sums is `expm1(x)` taken in `f32`
+/// first, exactly as scanpy's `seurat` flavour recovers counts from log data.
+/// Summing a block at a time is the same arithmetic as summing every entry in
+/// turn up to `f64` reassociation, so a streamed matrix and an in-memory one
+/// give the same statistics to about 1e-15 relative.
+pub fn hvg_partial_sums<O: Offset, I: Offset>(
+    indptr: &[O],
+    indices: &[I],
+    values: &[f32],
+    n_cols: usize,
+    expm1: bool,
+) -> Result<(Vec<f64>, Vec<f64>)> {
+    let n_rows = check_indptr(indptr, values.len())?;
+    if indices.len() != values.len() {
+        return Err(Error::shape(
+            format!("{} indices", values.len()),
+            format!("{} indices", indices.len()),
+        ));
+    }
+    let block = (n_rows / rayon::current_num_threads().max(1)).max(MIN_ROWS_PER_TASK);
+    let blocks: Vec<(usize, usize)> = (0..n_rows)
+        .step_by(block)
+        .map(|s| (s, (s + block).min(n_rows)))
+        .collect();
+    Ok(blocks
+        .par_iter()
+        .map(|&(start, end)| {
+            let mut sums = vec![0f64; n_cols];
+            let mut squares = vec![0f64; n_cols];
+            for k in indptr[start].to_usize()..indptr[end].to_usize() {
+                let raw = values[k];
+                let v = f64::from(if expm1 { raw.exp_m1() } else { raw });
+                let gene = indices[k].to_usize();
+                sums[gene] += v;
+                squares[gene] += v * v;
+            }
+            (sums, squares)
+        })
+        .reduce(
+            || (vec![0f64; n_cols], vec![0f64; n_cols]),
+            |(mut a, mut b), (c, d)| {
+                a.iter_mut().zip(&c).for_each(|(x, y)| *x += y);
+                b.iter_mut().zip(&d).for_each(|(x, y)| *x += y);
+                (a, b)
+            },
+        ))
+}
+
 /// `scanpy.pp.scale` from CSR straight into a row-major dense `out` (n_rows x n_cols).
 ///
 /// One fused pass per row: fill the row with the value an implicit zero scales to, then
@@ -223,13 +295,50 @@ pub fn scale_into<O: Offset, I: Offset>(
     if n_rows < 2 {
         return Err(Error::shape("at least 2 cells", format!("{n_rows} cells")));
     }
+    let (means, deviations) = gene_moments(indptr, indices, values, n_cols)?;
+    scale_into_with(
+        indptr,
+        indices,
+        values,
+        n_cols,
+        &means,
+        &deviations,
+        zero_center,
+        max_value,
+        out,
+    )
+}
+
+/// `scale_into` with the per-gene mean and deviation supplied by the caller.
+///
+/// This is the streamed form: the moments come from a pass over the whole matrix
+/// and each row block is scaled against them, so every block lands exactly where
+/// the in-memory call would have put it.
+#[allow(clippy::too_many_arguments)]
+pub fn scale_into_with<O: Offset, I: Offset>(
+    indptr: &[O],
+    indices: &[I],
+    values: &[f32],
+    n_cols: usize,
+    means: &[f32],
+    deviations: &[f32],
+    zero_center: bool,
+    max_value: Option<f32>,
+    out: &mut [f32],
+) -> Result<()> {
+    let n_rows = check_indptr(indptr, values.len())?;
     if out.len() != n_rows * n_cols {
         return Err(Error::shape(
             format!("an output of {} values", n_rows * n_cols),
             format!("{} values", out.len()),
         ));
     }
-    let (means, deviations) = gene_moments(indptr, indices, values, n_cols)?;
+    if means.len() != n_cols || deviations.len() != n_cols {
+        return Err(Error::shape(
+            format!("{n_cols} means and deviations"),
+            format!("{} means, {} deviations", means.len(), deviations.len()),
+        ));
+    }
     let clip = |x: f32| match max_value {
         None => x,
         Some(limit) if zero_center => x.clamp(-limit, limit),
@@ -318,6 +427,35 @@ mod tests {
                 .map(|(a, b)| (a - b).abs())
                 .fold(0f32, f32::max);
             assert!(worst < 1e-5, "max abs diff {worst}");
+        }
+    }
+
+    #[test]
+    fn column_nnz_counts_every_stored_entry() {
+        let m = random_csr(700, 30, 9);
+        let counts = column_nnz(m.indices(), m.n_cols());
+        let mut expected = vec![0u32; m.n_cols()];
+        for &g in m.indices() {
+            expected[g as usize] += 1;
+        }
+        assert_eq!(counts, expected);
+    }
+
+    #[test]
+    fn hvg_partial_sums_match_a_sequential_pass() {
+        let m = random_csr(3000, 40, 11);
+        let (sums, squares) =
+            hvg_partial_sums(m.indptr(), m.indices(), m.values(), m.n_cols(), true).unwrap();
+        let mut s = vec![0f64; m.n_cols()];
+        let mut q = vec![0f64; m.n_cols()];
+        for (&g, &v) in m.indices().iter().zip(m.values()) {
+            let v = f64::from(v.exp_m1());
+            s[g as usize] += v;
+            q[g as usize] += v * v;
+        }
+        for g in 0..m.n_cols() {
+            assert!((sums[g] - s[g]).abs() <= 1e-9 * s[g].abs().max(1.0));
+            assert!((squares[g] - q[g]).abs() <= 1e-9 * q[g].abs().max(1.0));
         }
     }
 

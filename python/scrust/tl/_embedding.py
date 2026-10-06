@@ -16,6 +16,7 @@ from scrust._shared import (
     _extension,
     _neighbor_graph,
     _representation,
+    _resolve_device,
 )
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def umap(
     spread: float = 1.0,
     n_epochs: int | None = None,
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
     parallel: bool = False,
 ) -> None:
     """Lay the neighbour graph out with UMAP, writing `obsm["X_umap"]`.
@@ -60,6 +61,7 @@ def umap(
     graphs but the layout is no longer reproducible from `random_state` alone, so the
     default stays sequential and deterministic.
     """
+    device = _resolve_device(device)
     graph = _neighbor_graph(adata)
     extension = _extension()
     epochs = _DEFAULT_EPOCHS if n_epochs is None else n_epochs
@@ -98,9 +100,10 @@ def tsne(
     early_exaggeration: float = 12.0,
     learning_rate: float | None = None,
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Lay the principal components out with t-SNE, writing `obsm["X_tsne"]`."""
+    device = _resolve_device(device)
     embedding = _representation(adata, "X_pca")[:, :n_pcs]
     if learning_rate is None:
         learning_rate = _automatic_learning_rate(embedding.shape[0], early_exaggeration)

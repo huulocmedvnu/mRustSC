@@ -1,5 +1,5 @@
 use candle_core::{Device, Tensor};
-use ndarray::{Array2, ArrayView1};
+use ndarray::{s, Array2, ArrayView1};
 use rayon::prelude::*;
 
 use crate::error::{Error, Result};
@@ -27,8 +27,129 @@ const MAX_TILE_ELEMENTS: usize = 64 * 1024 * 1024;
 /// Exact rather than approximate: on the GPU the distance matrix is one tiled
 /// matmul, so the usual reason to approximate does not apply at this scale.
 pub fn knn(embedding: &Array2<f32>, k: usize, device: &Device) -> Result<KnnGraph> {
+    if device.is_cpu() {
+        return knn_cpu(embedding, k);
+    }
     let tile_rows = (MAX_TILE_ELEMENTS / embedding.nrows().max(1)).max(1);
     knn_tiled(embedding, k, device, tile_rows)
+}
+
+/// Rows of queries one thread takes at a time in [`knn_cpu`].
+const CPU_QUERY_BLOCK: usize = 256;
+/// Candidates one product covers in [`knn_cpu`]: a `256 x 8192` f32 tile is 8 MB per
+/// thread, which stays in the core's share of the cache hierarchy.
+const CPU_CANDIDATE_CHUNK: usize = 8192;
+
+/// The CPU search: every core takes a block of queries and streams the candidates past
+/// it, keeping each query's running `k` best, so no distance tile larger than one
+/// block-by-chunk product ever exists.
+///
+/// The candle path above builds a `tile_rows x n_cells` tile with one matmul and a
+/// chain of elementwise tensor ops, all on one thread, and only the selection runs
+/// across cores; at a million cells that is an hour and a half with ten cores idle.
+/// Here the product is ndarray's `dot` (Apple Accelerate under the `accelerate`
+/// feature, `matrixmultiply` otherwise) on a block the thread owns, and the expansion,
+/// zero-snap and top-k are fused into one pass over the product. Same expansion,
+/// same resolution floor, same tie rule as [`select_nearest`], so the lists agree
+/// with the tiled path except where two candidates differ by a rounding of the dot
+/// product.
+fn knn_cpu(embedding: &Array2<f32>, k: usize) -> Result<KnnGraph> {
+    let (n_cells, n_dims) = embedding.dim();
+    if n_cells == 0 || n_dims == 0 {
+        return Err(Error::shape(
+            "a non-empty (cells, dimensions) embedding",
+            format!("{n_cells} x {n_dims}"),
+        ));
+    }
+    if k == 0 {
+        return Err(Error::parameter("k", "at least 1", k));
+    }
+    if k >= n_cells {
+        return Err(Error::parameter(
+            "k",
+            "smaller than the number of cells, since a cell is not its own neighbour",
+            k,
+        ));
+    }
+    let points = Array2::from_shape_vec((n_cells, n_dims), centred(embedding))
+        .map_err(|_| Error::shape(format!("{n_cells} x {n_dims}"), "a mismatched buffer"))?;
+    let norms: Vec<f32> = points
+        .rows()
+        .into_iter()
+        .map(|row| row.iter().map(|v| v * v).sum::<f32>())
+        .collect();
+    let resolution = expansion_resolution(n_dims);
+    let by_distance_then_id =
+        |a: &(f32, u32), b: &(f32, u32)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
+
+    let blocks: Vec<usize> = (0..n_cells).step_by(CPU_QUERY_BLOCK).collect();
+    let per_block: Vec<Vec<(Vec<u32>, Vec<f32>)>> = blocks
+        .par_iter()
+        .map(|&start| {
+            let end = (start + CPU_QUERY_BLOCK).min(n_cells);
+            let height = end - start;
+            let queries = points.slice(s![start..end, ..]);
+            // Each query's running best, sorted nearest first, at most `k` long.
+            let mut best: Vec<Vec<(f32, u32)>> = vec![Vec::with_capacity(k + 1); height];
+            let mut chunk_start = 0;
+            while chunk_start < n_cells {
+                let chunk_end = (chunk_start + CPU_CANDIDATE_CHUNK).min(n_cells);
+                let candidates = points.slice(s![chunk_start..chunk_end, ..]);
+                let dots = queries.dot(&candidates.t());
+                for (offset, row) in dots.rows().into_iter().enumerate() {
+                    let query = start + offset;
+                    let query_norm = norms[query];
+                    let list = &mut best[offset];
+                    for (j, &dot) in row.iter().enumerate() {
+                        let candidate = chunk_start + j;
+                        if candidate == query {
+                            continue;
+                        }
+                        let norm_sum = query_norm + norms[candidate];
+                        let mut square = -2.0 * dot + norm_sum;
+                        if square < resolution * norm_sum {
+                            square = 0.0;
+                        }
+                        let entry = (square.max(0.0), candidate as u32);
+                        if list.len() == k
+                            && by_distance_then_id(&entry, &list[k - 1]) != std::cmp::Ordering::Less
+                        {
+                            continue;
+                        }
+                        let at = list
+                            .binary_search_by(|probe| by_distance_then_id(probe, &entry))
+                            .unwrap_or_else(|pos| pos);
+                        list.insert(at, entry);
+                        if list.len() > k {
+                            list.pop();
+                        }
+                    }
+                }
+                chunk_start = chunk_end;
+            }
+            best.into_iter()
+                .map(|list| {
+                    list.iter()
+                        .map(|&(square, column)| (column, square.sqrt()))
+                        .unzip()
+                })
+                .collect()
+        })
+        .collect();
+
+    let mut indices = Array2::<u32>::zeros((n_cells, k));
+    let mut distances = Array2::<f32>::zeros((n_cells, k));
+    for (block, rows) in blocks.iter().zip(per_block) {
+        for (offset, (neighbours, neighbour_distances)) in rows.into_iter().enumerate() {
+            indices
+                .row_mut(block + offset)
+                .assign(&ArrayView1::from(&neighbours));
+            distances
+                .row_mut(block + offset)
+                .assign(&ArrayView1::from(&neighbour_distances));
+        }
+    }
+    Ok(KnnGraph { indices, distances })
 }
 
 /// `knn` with an explicit tile height, so tests can force many small tiles.
@@ -434,6 +555,31 @@ mod tests {
         let many = knn_tiled(&embedding, 10, &Device::Cpu, 7).unwrap();
         assert_eq!(single.indices, many.indices);
         assert_eq!(single.distances, many.distances);
+    }
+
+    #[test]
+    fn the_parallel_cpu_search_matches_the_tiled_one() {
+        // More cells than one candidate chunk and more than one query block, so every
+        // boundary in `knn_cpu` is crossed; Gaussian data has no exact ties.
+        let embedding = reference_embedding(9000, 8, 11);
+        let tiled = knn_tiled(&embedding, 15, &Device::Cpu, 3000).unwrap();
+        let parallel = knn_cpu(&embedding, 15).unwrap();
+        assert_eq!(tiled.indices, parallel.indices);
+        for (a, b) in tiled.distances.iter().zip(parallel.distances.iter()) {
+            assert!((a - b).abs() <= 1e-4 * a.abs().max(1.0), "{a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn the_parallel_cpu_search_snaps_duplicates_to_zero() {
+        let mut embedding = reference_embedding(300, 6, 5);
+        let twin = embedding.row(17).to_owned();
+        embedding.row_mut(230).assign(&twin);
+        let graph = knn_cpu(&embedding, 5).unwrap();
+        assert_eq!(graph.indices[(17, 0)], 230);
+        assert_eq!(graph.distances[(17, 0)], 0.0);
+        assert_eq!(graph.indices[(230, 0)], 17);
+        assert_eq!(graph.distances[(230, 0)], 0.0);
     }
 
     #[test]
