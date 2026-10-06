@@ -9,3 +9,9 @@ scanpy (auto) on embryo_1m_counts.h5ad
 /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: UserWarning: zero-centering a sparse array/matrix densifies it.
   return dispatch(args[0].__class__)(*args, **kw)
   pp.scale                         2.146 s  +    5451 MB  (237994, 2000)
+  pp.pca                         440.172 s  +   11106 MB  (237994, 2000)
+  pp.neighbors                    23.415 s  +       6 MB  (237994, 2000)
+  tl.umap                        110.951 s  +     905 MB  (237994, 2000)
+/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:135: FutureWarning: The `igraph` implementation of leiden clustering is *orders of magnitude faster*. Set the flavor argument to (and install if needed) 'igraph' to use it.
+In the future, the default backend for leiden will be igraph instead of leidenalg. To achieve the future defaults please pass: `flavor='igraph'` and `n_iterations=2`. `directed` must also be `False` to work with igraph’s implementation.
+  ("tl.leiden", lambda a: lib.tl.leiden(a, **leiden_kwargs)),

@@ -419,7 +419,10 @@ FIGURES = {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", nargs="*")
+    parser.add_argument("--paper", action="store_true", help="untitled versions for the manuscript")
     args = parser.parse_args()
+    global PAPER
+    PAPER = args.paper
     for key, fn in FIGURES.items():
         if args.only and key not in args.only:
             continue
