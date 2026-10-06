@@ -22,6 +22,7 @@ from scrust._shared import (
     _default_device,
     _extension,
     _representation,
+    _resolve_device,
 )
 
 if TYPE_CHECKING:
@@ -226,9 +227,10 @@ def pca(
     n_comps: int = 50,
     zero_center: bool = True,
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Principal component analysis by randomised SVD."""
+    device = _resolve_device(device)
     ext, x = _extension(), adata.X
     if isinstance(x, np.ndarray) and x.ndim == 2 and _fast_path(ext, "pca_dense"):
         # Dense X (e.g. after pp.scale): straight to the device, no CSR round trip.
@@ -251,9 +253,10 @@ def neighbors(
     *,
     n_neighbors: int = 15,
     use_rep: str = "X_pca",
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Build the k-nearest-neighbour graph and its UMAP connectivities."""
+    device = _resolve_device(device)
     if n_neighbors < 2:
         raise ValueError(f"n_neighbors must be at least 2, got {n_neighbors}")
     extension = _extension()

@@ -428,3 +428,87 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ----------------------------------------------------------------------------- F8
+
+
+def _residency(path: Path):
+    """Per-sample time, P-cluster, E-cluster and GPU active residency from a powermetrics log."""
+    import re
+
+    text = path.read_text(errors="replace")
+    t, p, e, g, cpu_w, gpu_w = [], [], [], [], [], []
+    clock = 0.0
+    for sample in text.split("*** Sampled system activity")[1:]:
+        m = re.search(r"\((\d+(?:\.\d+)?)ms elapsed\)", sample)
+        if not m:
+            continue
+        clock += float(m.group(1)) / 1000.0
+
+        def grab(pattern, text=sample):
+            mm = re.search(pattern, text, re.M)
+            return float(mm.group(1)) if mm else 0.0
+
+        t.append(clock)
+        p.append(grab(r"^P-Cluster HW active residency:\s+([\d.]+)%"))
+        e.append(grab(r"^E-Cluster HW active residency:\s+([\d.]+)%"))
+        g.append(grab(r"^GPU HW active residency:\s+([\d.]+)%"))
+        cpu_w.append(grab(r"^CPU Power: (\d+) mW") / 1000.0)
+        gpu_w.append(grab(r"^GPU Power: (\d+) mW") / 1000.0)
+    return t, p, e, g, cpu_w, gpu_w
+
+
+def f8_utilisation():
+    from plotly.subplots import make_subplots
+
+    runs = [("scrust_metal", "scrust, Metal"), ("scanpy", "scanpy")]
+    logs = [(RESULTS / f"energy_bm117k_{k}.powermetrics.txt", n) for k, n in runs]
+    logs = [(p, n) for p, n in logs if p.exists()]
+    if not logs:
+        print("F8 skipped: no energy_*.powermetrics.txt")
+        return
+    fig = make_subplots(
+        rows=len(logs),
+        cols=1,
+        shared_xaxes=False,
+        subplot_titles=[n for _, n in logs],
+        vertical_spacing=0.14,
+    )
+    for row, (path, _) in enumerate(logs, start=1):
+        t, p, e, g, cpu_w, _gpu_w = _residency(path)
+        for y, name, col in (
+            (p, "P cores active %", COLORS[0]),
+            (e, "E cores active %", COLORS[1]),
+            (g, "GPU active %", COLORS[2]),
+        ):
+            fig.add_scatter(
+                x=t,
+                y=y,
+                name=name,
+                mode="lines",
+                line=dict(width=1.2, color=col),
+                row=row,
+                col=1,
+                showlegend=row == 1,
+            )
+        fig.add_scatter(
+            x=t,
+            y=[w * 10 for w in cpu_w],
+            name="CPU power (W x10)",
+            mode="lines",
+            line=dict(width=1, color=COLORS[3], dash="dot"),
+            row=row,
+            col=1,
+            showlegend=row == 1,
+        )
+        fig.update_xaxes(title_text="seconds", row=row, col=1)
+        fig.update_yaxes(title_text="%", range=[0, 105], row=row, col=1)
+    fig.update_layout(
+        title="F8. Who is busy: cluster and GPU active residency through the 117k pipeline"
+        "<br><sup>powermetrics, 100 ms samples</sup>"
+    )
+    save(fig, "F8_utilisation", 1300, 320 * len(logs) + 120)
+
+
+FIGURES["F8"] = f8_utilisation

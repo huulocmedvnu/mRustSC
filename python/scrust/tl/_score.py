@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from scrust._shared import _INDEX_DTYPE, _csr_args, _extension
+from scrust._shared import _INDEX_DTYPE, _csr_args, _extension, _resolve_device
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -38,9 +38,10 @@ def score_genes(
     n_bins: int = 25,
     score_name: str = "score",
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Mean expression of a gene set minus a binned control, as `scanpy.tl.score_genes`."""
+    device = _resolve_device(device)
     scores = _extension().score_genes(
         *_csr_args(adata.X),
         _gene_columns(adata, gene_list),
@@ -79,9 +80,10 @@ def score_genes_cell_cycle(
     *,
     s_genes: Sequence[str],
     g2m_genes: Sequence[str],
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """S and G2M scores plus the assigned phase, as `scanpy.tl.score_genes_cell_cycle`."""
+    device = _resolve_device(device)
     ctrl_size = min(len(s_genes), len(g2m_genes))
     for genes, name in ((s_genes, "S_score"), (g2m_genes, "G2M_score")):
         score_genes(adata, genes, score_name=name, ctrl_size=ctrl_size, device=device)

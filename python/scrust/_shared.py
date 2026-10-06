@@ -35,6 +35,17 @@ def _default_device() -> str:
     return settings.resolve_device()
 
 
+def _resolve_device(device: str | None) -> str:
+    """The device an API call runs on: the caller's explicit choice, else `settings.device`.
+
+    Every public function takes `device=None` and goes through here, so setting
+    `scrust.settings.device = "cpu"` really does keep the whole pipeline off the GPU.
+    """
+    from scrust.settings import settings
+
+    return settings.resolve_device(device)
+
+
 def _extension() -> ModuleType:
     """Import the compiled core on use, not on import.
 

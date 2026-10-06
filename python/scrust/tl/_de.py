@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from scrust._shared import _LABEL_DTYPE, _csr_args, _extension
+from scrust._shared import _LABEL_DTYPE, _csr_args, _extension, _resolve_device
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -42,9 +42,10 @@ def rank_genes_groups(
     groups: str | Sequence[str] = "all",
     reference: str = "rest",
     method: str = "wilcoxon",
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Rank genes by differential expression, writing `uns["rank_genes_groups"]`."""
+    device = _resolve_device(device)
     if method not in _SUPPORTED_METHODS:
         raise ValueError(f"method must be one of {_SUPPORTED_METHODS}, got {method!r}")
 

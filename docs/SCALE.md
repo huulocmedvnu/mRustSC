@@ -200,7 +200,33 @@ sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_
 sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data/bone_marrow_117k_counts.h5ad --library scrust --device auto --json benches/results/energy_bm117k_scrust_metal.json
 ```
 
-RESULTS_ENERGY
+`benches/results/energy_bm117k_*.json`, raw samples next to them. Net joules (idle draw of the
+package subtracted) for the whole 117k pipeline; the pipeline ran as the user, powermetrics as root.
+
+| run | seconds | CPU rail J | GPU rail J | **net J** | mean W | kJ per million cells |
+|---|---:|---:|---:|---:|---:|---:|
+| scanpy (defaults) | 229 | 980 | 0 | **974** | 6.0 | 8 |
+| scrust, Metal, parallel UMAP | 20 | 159 | 72 | **195** | 9.5 | 2 |
+| scrust, `settings.device="cpu"` (see note) | 19 | 161 | 72 | **197** | 9.6 | 2 |
+
+- **scrust does the same analysis for one fifth of the energy**: 195 J against 974 J, because it is
+  done 12x sooner while drawing only 1.6x the power (9.5 W against 6.0 W: scanpy keeps one core
+  busy, scrust keeps eleven).
+- **Per million cells that is about 1.7 kJ.** The published rapids-singlecell run on an L40S is
+  92 s for a million cells; an L40S is rated at 300 W and the EPYC host at 200 W, so even at half
+  load that is roughly 20 to 45 kJ for the same work: the laptop is one order of magnitude cheaper
+  in energy and one order of magnitude slower in time.
+- **The GPU rail is a quarter of scrust's energy** (72 J) and it was drawn in the "cpu" run as well.
+  That run was not CPU-only: at the time of the measurement `pp.neighbors`, `pp.pca`, `tl.umap`,
+  `tl.leiden` and `tl.rank_genes_groups` defaulted to `device="auto"` in their own signatures and
+  ignored `settings.device`, a bug the energy trace exposed and this branch fixes (every function
+  now resolves `device=None` through `settings`). The CPU row will be re-measured; until then the
+  "CPU and Metal are level" statements in sections 2, 3 and 5 are statements about two Metal runs.
+- Idle draw was 1.8 W before the scanpy run and 0.6 W before the scrust runs (the machine had
+  been busy); the net figures subtract each run's own idle.
+
+Figure F8 (`docs/figures/F8_utilisation.png`) is the P-cluster, E-cluster and GPU active residency
+over the scrust run from the raw samples.
 
 ## 5. Ablation: what each Apple-specific choice is worth
 

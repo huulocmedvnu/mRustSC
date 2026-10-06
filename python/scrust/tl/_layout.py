@@ -14,6 +14,7 @@ from scrust._shared import (
     _extension,
     _neighbor_graph,
     _representation,
+    _resolve_device,
 )
 
 if TYPE_CHECKING:
@@ -112,13 +113,14 @@ def draw_graph(
     neighbors_key: str = "neighbors",
     n_iterations: int = 500,
     random_state: int = 0,
-    device: str = "auto",
+    device: str | None = None,
 ) -> None:
     """Force-directed layout of the neighbour graph, as `scanpy.tl.draw_graph`.
 
     Writes `obsm["X_draw_graph_fa"]` and the `uns["draw_graph"]` parameters that
     `scanpy.pl.draw_graph` reads.
     """
+    device = _resolve_device(device)
     if layout != _LAYOUT:
         raise ValueError(f"layout must be 'fa' (ForceAtlas2), got {layout!r}")
 
