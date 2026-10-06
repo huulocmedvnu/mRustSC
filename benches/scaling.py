@@ -102,7 +102,7 @@ def main() -> int:
         "--streamed-from",
         type=int,
         default=500_000,
-        help="from this size metalcyte uses the streamed head (pipeline_1m.py) instead of pipeline.py",
+        help="from this size metalcyte uses the streamed head (pipeline_1m.py) instead of pipeline.py",  # noqa: E501
     )
     parser.add_argument(
         "--source", type=Path, help="the original CELLxGENE file, for cutting counts subsets"

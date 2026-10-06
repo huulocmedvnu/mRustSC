@@ -6,7 +6,7 @@ from metalcyte import *  # noqa: F403
 from metalcyte import __version__, get, gpu_available, metrics, pp, settings, tl  # noqa: F401
 
 _warnings.warn(
-    "`scrust` is now `metalcyte`: `import metalcyte as mc`. The `scrust` name will be removed in 0.4.",
+    "`scrust` is now `metalcyte`: `import metalcyte as mc`. The `scrust` name will be removed in 0.4.",  # noqa: E501
     DeprecationWarning,
     stacklevel=2,
 )
