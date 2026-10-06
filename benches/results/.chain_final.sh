@@ -1,14 +1,14 @@
 #!/bin/sh
-cd /Users/mac/Downloads/mRustSC_work/mRustSC
+cd /Users/mac/Downloads/metalcyte_work/metalcyte
 export PYTHONPATH=$PWD/python
 PY=.venv/bin/python
-D2=$HOME/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad
-D1=$HOME/Downloads/mRustSC_work/data/embryo_1m_counts.h5ad
+D2=$HOME/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad
+D1=$HOME/Downloads/metalcyte_work/data/embryo_1m_counts.h5ad
 echo "== agreement 117k"; $PY benches/agreement.py $D2 --json benches/results/agreement_bm117k.json 2>&1 | grep -v Warn
 mkdir -p benches/results/repeats
 for i in 1 2 3; do
-  echo "== repeat $i scrust metal"; $PY benches/pipeline.py $D2 --library scrust --device auto --umap-parallel --json benches/results/repeats/scrust_metal_$i.json 2>&1 | grep "total "
-  echo "== repeat $i scrust cpu"; $PY benches/pipeline.py $D2 --library scrust --device cpu --umap-parallel --json benches/results/repeats/scrust_cpu_$i.json 2>&1 | grep "total "
+  echo "== repeat $i metalcyte metal"; $PY benches/pipeline.py $D2 --library metalcyte --device auto --umap-parallel --json benches/results/repeats/scrust_metal_$i.json 2>&1 | grep "total "
+  echo "== repeat $i metalcyte cpu"; $PY benches/pipeline.py $D2 --library metalcyte --device cpu --umap-parallel --json benches/results/repeats/scrust_cpu_$i.json 2>&1 | grep "total "
   echo "== repeat $i scanpy tuned"; $PY benches/pipeline.py $D2 --library scanpy --tuned --json benches/results/repeats/scanpy_tuned_$i.json 2>&1 | grep "total "
 done
 for i in 1 2 3; do

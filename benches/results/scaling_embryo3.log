@@ -1,5 +1,14 @@
-  rows    50,000 / 500,000  rows   100,000 / 500,000  rows   150,000 / 500,000  rows   200,000 / 500,000  rows   250,000 / 500,000  rows   300,000 / 500,000  rows   350,000 / 500,000  rows   400,000 / 500,000  rows   450,000 / 500,000  rows   500,000 / 500,000
-wrote /Users/mac/Downloads/mRustSC_work/data/embryo_1m_counts_500000.h5ad (500,000 x 45,676, 284,949,728 stored values)
+  rows    50,000 / 500,000
+  rows   100,000 / 500,000
+  rows   150,000 / 500,000
+  rows   200,000 / 500,000
+  rows   250,000 / 500,000
+  rows   300,000 / 500,000
+  rows   350,000 / 500,000
+  rows   400,000 / 500,000
+  rows   450,000 / 500,000
+  rows   500,000 / 500,000
+wrote /Users/mac/Downloads/metalcyte_work/data/embryo_1m_counts_500000.h5ad (500,000 x 45,676, 284,949,728 stored values)
 == scrust_cpu at 500,000 cells
    ok, 112.8 s
 == scrust_metal at 500,000 cells

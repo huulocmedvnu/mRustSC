@@ -12,7 +12,7 @@ scanpy (auto) on embryo_1m_counts.h5ad
   pp.pca                         978.640 s  +   22176 MB  (476030, 2000)
   pp.neighbors                    33.631 s  +       7 MB  (476030, 2000)
   tl.umap                        210.767 s  +    2666 MB  (476030, 2000)
-/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:135: FutureWarning: The `igraph` implementation of leiden clustering is *orders of magnitude faster*. Set the flavor argument to (and install if needed) 'igraph' to use it.
+/Users/mac/Downloads/metalcyte_work/metalcyte/benches/pipeline.py:135: FutureWarning: The `igraph` implementation of leiden clustering is *orders of magnitude faster*. Set the flavor argument to (and install if needed) 'igraph' to use it.
 In the future, the default backend for leiden will be igraph instead of leidenalg. To achieve the future defaults please pass: `flavor='igraph'` and `n_iterations=2`. `directed` must also be `False` to work with igraph’s implementation.
   ("tl.leiden", lambda a: lib.tl.leiden(a, **leiden_kwargs)),
 /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown

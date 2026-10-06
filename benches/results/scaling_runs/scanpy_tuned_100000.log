@@ -13,21 +13,21 @@ scanpy (auto, tuned) on embryo_1m_counts.h5ad
   pp.neighbors                    17.593 s  +       8 MB  (95178, 2000)
   tl.umap                         40.264 s  +     233 MB  (95178, 2000)
   tl.leiden                        1.899 s  +     295 MB  (95178, 2000)
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: RuntimeWarning: invalid value encountered in log2
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: RuntimeWarning: invalid value encountered in log2
   self.stats[group_name, "logfoldchanges"] = np.log2(
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:609: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:609: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   self.stats[group_name, "scores"] = scores[global_indices]
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:612: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:612: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   self.stats[group_name, "pvals"] = pvals[global_indices]
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:622: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:622: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   self.stats[group_name, "pvals_adj"] = pvals_adj[global_indices]
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   self.stats[group_name, "logfoldchanges"] = np.log2(
-/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:607: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+/Users/mac/Downloads/metalcyte_work/metalcyte/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:607: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
   self.stats[group_name, "names"] = self.var_names[global_indices]
   tl.rank_genes_groups             6.261 s  +     154 MB  (95178, 2000)
-/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+/Users/mac/Downloads/metalcyte_work/metalcyte/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
   out[name] = __import__(name).__version__
-/Users/mac/Downloads/mRustSC_work/mRustSC/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+/Users/mac/Downloads/metalcyte_work/metalcyte/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
   out[name] = __import__(name).__version__
   total                           73.181 s   (30 Leiden clusters)

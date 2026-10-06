@@ -6,7 +6,7 @@
    total 22.8 s
 == one_core: RAYON_NUM_THREADS=1 
    total 49.9 s
-== no_zero_copy: SCRUST_FORCE_COPY=1 
+== no_zero_copy: METALCYTE_FORCE_COPY=1 
    total 25.1 s
 == no_accelerate:  
    failed: ModuleNotFoundError: No module named 'scanpy'

@@ -286,12 +286,12 @@ What the table says, plainly:
 `benches/results/scaling_embryo.json`, from `benches/scaling.py`: random subsamples of the 1 M-cell
 embryo atlas at 10k to 250k cells and the first 500k rows and the whole file above that, the same
 pipeline as section 2, one process per point, a swap watchdog (a run that adds more than 10 GB of
-swap is stopped) and a 40-minute cap. Up to 250k cells scrust runs the in-memory pipeline; from
+swap is stopped) and a 40-minute cap. Up to 250k cells metalcyte runs the in-memory pipeline; from
 500k it runs the streamed head and the graph steps (`pipeline_1m.py`), which is the recommended
 use at that size. Whole-pipeline seconds (the in-memory points include the marker test, the
 streamed points do not):
 
-| cells | scanpy (defaults) | scanpy (tuned) | scrust CPU | scrust Metal |
+| cells | scanpy (defaults) | scanpy (tuned) | metalcyte CPU | metalcyte Metal |
 |---:|---:|---:|---:|---:|
 | 10,000 | 30 s | 27 s | 1 s | 1 s |
 | 25,000 | 42 s | 30 s | 3 s | 3 s |
@@ -301,22 +301,22 @@ streamed points do not):
 | 500,000 | over 40 min | 377 s | 113 s | 75 s |
 | 1,000,000 | not attempted (500k did not finish) | added more than 10 GB of swap | 366 s | 207 s |
 
-- **The gap widens with size.** scrust Metal is 21x faster than scanpy's defaults at 10k cells and
+- **The gap widens with size.** metalcyte Metal is 21x faster than scanpy's defaults at 10k cells and
   26x at 250k, 19x and 7x against scanpy tuned. scanpy's defaults stop at 250k (23 minutes) and did
   not finish 500k in 40 minutes; scanpy tuned reaches 500k in 6 minutes and does not fit a million.
-- **The in-memory scrust pipeline also stops between 250k and 500k on 18 GB**, and the sweep showed
+- **The in-memory metalcyte pipeline also stops between 250k and 500k on 18 GB**, and the sweep showed
   why: `tl.rank_genes_groups` added 6 GB at 116k cells and 25 GB at 476k. The marker test's working
   set is the memory ceiling of the in-memory path and is the next engineering item
   (`docs/PLAN_APPLE_SILICON.md`, 2.3). Above 250k the streamed head is the path to use, and it
   carries a million cells at 207 s on Metal and 366 s on the CPU.
 - **The neighbour panel of F5 is the honest one.** scanpy's pynndescent index is approximate and
-  near-constant in time, about 17 s from 10k to 250k cells and 24 s at 500k, while scrust's exact
+  near-constant in time, about 17 s from 10k to 250k cells and 24 s at 500k, while metalcyte's exact
   search is quadratic: 0.05 s at 10k, 8 s at 250k, 30 s at 500k and 120 s at a million on Metal.
-  The lines cross near 400k cells. Above that size an approximate index is what scrust needs
+  The lines cross near 400k cells. Above that size an approximate index is what metalcyte needs
   (`docs/PLAN_APPLE_SILICON.md`, 2.2), and the GPU's 2.5x over the CPU search does not change
   where the crossing sits by much.
 - Figure F5 draws every step on log-log axes; the streamed points above 250k have no separate PCA
-  or marker step, which is why those two panels end at 250k for scrust.
+  or marker step, which is why those two panels end at 250k for metalcyte.
 
 ## 7. Against the NVIDIA-GPU alternative
 
@@ -356,7 +356,7 @@ The placement is the point of the project:
   the one an analyst at a bench needs: the standard pipeline on an atlas-scale dataset, on
   the machine already on the desk, in minutes, for the energy in section 4.
 
-## 8. The same biology: scrust against scanpy on the 117k atlas
+## 8. The same biology: metalcyte against scanpy on the 117k atlas
 
 `benches/results/agreement_bm117k.json`, from `benches/agreement.py`: both libraries on the same
 115,868 cells with the same seeds, every intermediate compared (Figure F11).
@@ -366,16 +366,16 @@ The placement is the point of the project:
 | highly variable genes, Jaccard of the two 2 000-gene sets | 1.000 |
 | PCA, smallest canonical correlation, leading 10 / 30 / 50 components | 0.9999 / 1.0000 / 0.876 |
 | 15-NN graph, mean fraction of neighbours shared, each library's own PCA | 0.790 |
-| 15-NN graph, same fraction with scrust's exact search on scanpy's PCA | 0.917 |
+| 15-NN graph, same fraction with metalcyte's exact search on scanpy's PCA | 0.917 |
 | Leiden, ARI / NMI between the two clusterings (37 and 36 clusters) | 0.945 / 0.957 |
-| Leiden, NMI against the author cell types, scanpy / scrust | 0.569 / 0.567 |
+| Leiden, NMI against the author cell types, scanpy / metalcyte | 0.569 / 0.567 |
 | Wilcoxon markers, median Spearman of scores over 12 cell types | 1.000 |
 | Wilcoxon markers, median overlap of the top-50 lists | 1.000 |
 
 - The two libraries select the same genes, span the same leading principal subspace (the 50th
   component is where the randomised solver's tails diverge), and rank the same marker genes.
 - The neighbour graphs share 79% of their edges when each library uses its own PCA and 92% when
-  scrust's exact search runs on scanpy's PCA: the remaining difference is pynndescent's approximation
+  metalcyte's exact search runs on scanpy's PCA: the remaining difference is pynndescent's approximation
   on scanpy's side. Leiden on those graphs agrees at ARI 0.95, and both clusterings sit at the same
   distance from the author's cell-type labels.
 
@@ -383,6 +383,6 @@ The placement is the point of the project:
 
 `benches/results/repeats/summary.json`: three runs of the 117k pipeline per configuration, mean ± sd
 of the whole pipeline. scanpy defaults 213 ± 1 s, scanpy tuned
-79.3 ± 1.5 s, scrust CPU 21.7 ± 2.4 s, scrust Metal
+79.3 ± 1.5 s, metalcyte CPU 21.7 ± 2.4 s, metalcyte Metal
 17.1 ± 0.2 s. The single runs quoted in section 2 sit within these; the marker test is
 the one step with a wide spread on the CPU (7.6 ± 2.4 s).

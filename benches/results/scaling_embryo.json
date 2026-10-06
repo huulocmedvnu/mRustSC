@@ -1,5 +1,5 @@
 {
-  "file": "/Users/mac/Downloads/mRustSC_work/data/embryo_1m_counts.h5ad",
+  "file": "/Users/mac/Downloads/metalcyte_work/data/embryo_1m_counts.h5ad",
   "points": [
     {
       "config": "scanpy",

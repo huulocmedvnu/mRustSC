@@ -1,5 +1,5 @@
-== 1M scrust cpu (parallel search)
-scrust on embryo_1m_counts.h5ad
+== 1M metalcyte cpu (parallel search)
+metalcyte on embryo_1m_counts.h5ad
       pass1_moments            4.74 s
       hvg                      0.00 s
       pass2_hv_moments         5.85 s
@@ -10,8 +10,8 @@ scrust on embryo_1m_counts.h5ad
   tl.umap                          47.84 s  +    1119 MB
   tl.leiden                        11.21 s  +    1311 MB
   total                           408.59 s   (44 Leiden clusters)
-== 117k scrust cpu (parallel search)
-scrust (cpu) on bone_marrow_117k_counts.h5ad
+== 117k metalcyte cpu (parallel search)
+metalcyte (cpu) on bone_marrow_117k_counts.h5ad
   pp.calculate_qc_metrics          1.372 s  +    1870 MB  (117308, 25574)
   pp.filter_cells                  1.065 s  +    2489 MB  (115868, 25574)
   pp.filter_genes                  1.231 s  +    2468 MB  (115868, 25574)

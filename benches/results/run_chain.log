@@ -1,5 +1,5 @@
-== scrust 1M cpu
-scrust on embryo_1m_counts.h5ad
+== metalcyte 1M cpu
+metalcyte on embryo_1m_counts.h5ad
       pass1_moments            3.43 s
       hvg                      0.00 s
       pass2_hv_moments         4.81 s

@@ -3,7 +3,7 @@
   "device": "cpu",
   "umap_parallel": false,
   "tuned": false,
-  "file": "/Users/mac/Downloads/mRustSC_work/data/embryo_1m_counts.h5ad",
+  "file": "/Users/mac/Downloads/metalcyte_work/data/embryo_1m_counts.h5ad",
   "input_shape": [
     10000,
     45676
@@ -132,7 +132,7 @@
   "n_clusters": 25,
   "versions": {
     "scanpy": "1.12.4",
-    "scrust": "0.2.0",
+    "metalcyte": "0.2.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }

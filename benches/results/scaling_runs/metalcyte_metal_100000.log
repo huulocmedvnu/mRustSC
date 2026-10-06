@@ -1,0 +1,19 @@
+metalcyte (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          0.461 s  +     672 MB  (100000, 45676)
+  pp.filter_cells                  0.485 s  +     881 MB  (95178, 45676)
+  pp.filter_genes                  0.645 s  +     871 MB  (95178, 29552)
+  pp.normalize_total               0.074 s  +     440 MB  (95178, 29552)
+  pp.log1p                         0.074 s  +     440 MB  (95178, 29552)
+  pp.highly_variable_genes         0.135 s  +     667 MB  (95178, 29552)
+  subset                           0.388 s  +    1352 MB  (95178, 2000)
+  pp.scale                         0.090 s  +     712 MB  (95178, 2000)
+  pp.pca                           1.151 s  +     981 MB  (95178, 2000)
+  pp.neighbors                     1.489 s  +       0 MB  (95178, 2000)
+  tl.umap                          4.191 s  +      89 MB  (95178, 2000)
+  tl.leiden                        0.599 s  +     121 MB  (95178, 2000)
+  tl.rank_genes_groups             6.185 s  +    5109 MB  (95178, 2000)
+/Users/mac/Downloads/metalcyte_work/metalcyte/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/metalcyte_work/metalcyte/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                           15.970 s   (32 Leiden clusters)

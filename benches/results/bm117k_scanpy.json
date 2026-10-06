@@ -2,7 +2,7 @@
   "library": "scanpy",
   "device": "cpu",
   "umap_parallel": false,
-  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
   "input_shape": [
     117308,
     25574
@@ -131,7 +131,7 @@
   "n_clusters": 37,
   "versions": {
     "scanpy": "1.12.4",
-    "scrust": "0.2.0",
+    "metalcyte": "0.2.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }
