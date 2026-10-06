@@ -49,6 +49,28 @@
       "config": "metalcyte_cpu",
       "size": 1000000,
       "outcome": "killed: added more than 10 GB of swap"
+    },
+    {
+      "config": "metalcyte_metal",
+      "size": 1000000,
+      "outcome": "ok",
+      "total_seconds": 307.6051293341443,
+      "steps": {
+        "pp.calculate_qc_metrics": 5.798010291997343,
+        "pp.filter_cells": 2.7942013340070844,
+        "pp.filter_genes": 5.11369204102084,
+        "pp.normalize_total": 0.8712685408536345,
+        "pp.log1p": 0.5286217911634594,
+        "pp.highly_variable_genes": 1.3232540839817375,
+        "subset": 4.179296541959047,
+        "pp.scale": 3.894144209101796,
+        "pp.pca": 65.13474954199046,
+        "pp.neighbors": 124.50947462511249,
+        "tl.umap": 52.407330041984096,
+        "tl.leiden": 11.133325499948114,
+        "tl.rank_genes_groups": 29.917760791024193
+      },
+      "n_cells": 952204
     }
   ]
 }

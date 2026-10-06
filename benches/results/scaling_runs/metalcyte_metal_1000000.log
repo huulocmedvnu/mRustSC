@@ -11,3 +11,9 @@ metalcyte (auto) on embryo_1m_counts.h5ad
   pp.neighbors                   124.509 s  +      91 MB  (952204, 2000)
   tl.umap                         52.407 s  +    1041 MB  (952204, 2000)
   tl.leiden                       11.133 s  +    1318 MB  (952204, 2000)
+  tl.rank_genes_groups            29.918 s  +     343 MB  (952204, 2000)
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                          307.605 s   (40 Leiden clusters)

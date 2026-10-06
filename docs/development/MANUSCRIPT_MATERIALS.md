@@ -12,30 +12,30 @@ a million cells through the standard pipeline on an Apple silicon laptop.*
 |---|---|---|---|
 | Same answers as scanpy | parity tests per algorithm (neighbours exact, UMAP ref. preservation, Leiden modularity = leidenalg quality, HVG, DE, PCA 50/50 components vs `covariance_eigh`) | `docs/VALIDATION.md`, `tests/*_audit.py`, `tests/test_streaming.py`, F9 | done |
 | Same biology on a real atlas | HVG overlap, PCA subspace, k-NN overlap, Leiden ARI, marker-gene rank agreement, metalcyte vs scanpy on the 117k atlas | `benches/agreement.py` → `benches/results/agreement_bm117k.json`, figure F11 | **to do** |
-| 5 to 11x faster than scanpy defaults, 3 to 4x than scanpy tuned, on a real atlas | 117k end-to-end, 5 configurations | `docs/SCALE.md` §2, F6 | done (single runs; repeat x3 for mean ± sd: **to do**) |
-| A million cells on 18 GB, scanpy cannot | 1M streamed head + graph; scanpy killed at scale/PCA | `docs/SCALE.md` §3, F3 | done |
-| One fifth of the energy | powermetrics, idle subtracted | `docs/SCALE.md` §4, F7, F8 | done (CPU-only row: optional) |
-| Which hardware feature buys what | ablation: GPU, Accelerate, P/E cores, zero-copy, parallel UMAP | `docs/SCALE.md` §5, F4 | done |
+| 5 to 11x faster than scanpy defaults, 3 to 4x than scanpy tuned, on a real atlas | 117k end-to-end, 5 configurations | `docs/development/MEASUREMENTS_2026-10.md` §2, F6 | done (single runs; repeat x3 for mean ± sd: **to do**) |
+| A million cells on 18 GB, scanpy cannot | 1M streamed head + graph; scanpy killed at scale/PCA | `docs/development/MEASUREMENTS_2026-10.md` §3, F3 | done |
+| One fifth of the energy | powermetrics, idle subtracted | `docs/development/MEASUREMENTS_2026-10.md` §4, F7, F8 | done (CPU-only row: optional) |
+| Which hardware feature buys what | ablation: GPU, Accelerate, P/E cores, zero-copy, parallel UMAP | `docs/development/MEASUREMENTS_2026-10.md` §5, F4 | done |
 | How it scales | seconds vs cells 10k → 1M, 4 configurations, real subsamples | `benches/scaling.py` → F5 | running |
-| Where it sits against the NVIDIA alternative | published rapids-singlecell numbers with hardware | `docs/SCALE.md` §6 | done (placement, not a benchmark) |
+| Where it sits against the NVIDIA alternative | published rapids-singlecell numbers with hardware | `docs/development/MEASUREMENTS_2026-10.md` §6 | done (placement, not a benchmark) |
 | The embedding is sensible | 1M-cell UMAP coloured by author cell type | F10 | **to do** (save the embedding from `pipeline_1m.py --save`) |
 
 ## 2. Section by section
 
 **Abstract / intro.** scanpy's defaults take 4 minutes on 117k cells and cannot start a
 million on a laptop; rapids-singlecell needs a data-centre NVIDIA card. Apple silicon laptops
-are what most analysts own. Numbers: `docs/SCALE.md` §2, §3, §6.
+are what most analysts own. Numbers: `docs/development/MEASUREMENTS_2026-10.md` §2, §3, §6.
 
 **Design (Methods 1).** Figure F1. Rust core, PyO3 zero-copy borrows, rayon over P and E cores,
 Accelerate for BLAS, Metal kernels for the quadratic step, unified memory; `f32` with `f64`
 reductions; seeded determinism except the Hogwild UMAP. Sources: `docs/ARCHITECTURE.md`,
-`docs/API_CONTRACT.md`, `docs/HOW_IT_WORKS.md`.
+`docs/development/API_CONTRACT.md`, `docs/HOW_IT_WORKS.md`.
 
 **Algorithms (Methods 2).** Per step, what is computed and how it is held to scanpy:
-`docs/VALIDATION.md`. The streamed head and the covariance PCA: `docs/SCALE.md` §3, F3.
+`docs/VALIDATION.md`. The streamed head and the covariance PCA: `docs/development/MEASUREMENTS_2026-10.md` §3, F3.
 The neighbour search on both devices: `neighbors.rs` (`knn_cpu`), `knn.rs` (tiled Metal).
 
-**Benchmark methodology (Methods 3).** `docs/BENCHMARKS.md` "How it was measured";
+**Benchmark methodology (Methods 3).** `docs/development/BENCHMARK_HISTORY.md` "How it was measured";
 `benches/pipeline.py` (end to end, one library per process, footprint by `task_vm_info`),
 `benches/energy.py` (powermetrics, idle subtracted), `benches/ablation.py`,
 `benches/scaling.py`. Machine, versions, seeds in each results JSON.
@@ -49,8 +49,8 @@ The neighbour search on both devices: `neighbors.rs` (`knn_cpu`), `knn.rs` (tile
 simdgroup-matrix attempt is documented as not yet faster; Accelerate/AMX shows nothing at
 2 000 genes; t-SNE is exact and capped at 20k; `regress_out`/`combat` cap at an 8 GiB
 working set; 17/22 `pp`, 15/20 `tl`, 3/48 `pl` of scanpy's API; CI has no GPU; macOS only
-for the GPU path (the CPU path builds anywhere). All stated in `docs/SCALE.md`,
-`docs/BENCHMARKS.md`, `docs/PLAN_APPLE_SILICON.md`.
+for the GPU path (the CPU path builds anywhere). All stated in `docs/development/MEASUREMENTS_2026-10.md`,
+`docs/development/BENCHMARK_HISTORY.md`, `docs/development/PLAN_APPLE_SILICON.md`.
 
 **Availability.** github.com/huulocmedvnu/metalcyte, MIT, `pip install` from source via maturin;
 `benches/results/` holds every number in the paper and `benches/figures.py` draws every

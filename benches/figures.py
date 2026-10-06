@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every figure of `docs/SCALE.md` and the paper, from one script.
+"""Every figure of `docs/PERFORMANCE.md`, the development notes and the paper, from one script.
 
     PYTHONPATH=$PWD/python .venv/bin/python benches/figures.py [--only F1 F4 ...]
 

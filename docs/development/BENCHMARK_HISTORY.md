@@ -1,6 +1,6 @@
 # Benchmarks
 
-**For 100 000 cells and beyond, real atlases, energy and the ablation, read [SCALE.md](SCALE.md).**
+**For 100 000 cells and beyond, real atlases, energy and the ablation, read [MEASUREMENTS_2026-10.md](MEASUREMENTS_2026-10.md).**
 This page is the per-operation sweep on bootstrapped PBMC 3k and the optimisation history.
 
 metalcyte is faster than scanpy at some things and slower at others, and the pattern is

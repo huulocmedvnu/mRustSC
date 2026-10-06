@@ -4,7 +4,7 @@ Written 2026-10-06 on branch `feat/scanpy-parity`. This is the working plan for 
 next pass over the project; it lists what is done, what is measured but not yet
 written up, what is still missing against scanpy, and the experiments and figures a
 paper needs before the claim "optimised for Apple silicon" can be made in print.
-Tick items off here as they land; `docs/SCALE.md` holds the numbers.
+Tick items off here as they land; `docs/development/MEASUREMENTS_2026-10.md` holds the numbers.
 
 ## 0. Where things stand
 
@@ -17,7 +17,7 @@ Tick items off here as they land; `docs/SCALE.md` holds the numbers.
 | scanpy on 1 M cells on the same machine | did not finish: `scale` needed 21.9 GB, PCA swapped, killed at 15 min |
 | streamed PCA held to scanpy's exact solver | done, `tests/test_streaming.py` and 50/50 components on real data |
 | energy per run (`benches/energy.py`, `benches/run_energy.sh`) | done: scanpy 974 J, metalcyte Metal 195 J |
-| placement against rapids-singlecell | written from their published numbers, `docs/SCALE.md` section 5 |
+| placement against rapids-singlecell | written from their published numbers, `docs/development/MEASUREMENTS_2026-10.md` section 5 |
 | Rust unit tests | 267 pass; Python suite not yet re-run in full after today's changes |
 | CI on `main` | red: `clippy -D warnings` and 3 scanpy-1.12.4 median tests (pre-existing) |
 
@@ -26,7 +26,7 @@ The finding that shapes the message, after the `settings.device` bug was found a
 are worth 6.6x on the UMAP optimiser; the AMX units do not show at 2 000 genes.** The claim
 is "optimised for Apple silicon" as a package (GPU for the quadratic step, every core for the
 rest, unified memory for the out-of-core head, under 10 W), and the proof is the ablation in
-`docs/SCALE.md` section 5, not a scanpy comparison.
+`docs/development/MEASUREMENTS_2026-10.md` section 5, not a scanpy comparison.
 
 ## 1. Evidence: the experiments that prove the claim
 
@@ -159,7 +159,7 @@ figure comes from one script, `benches/figures.py`, and can be regenerated.
 2. **Machine free:** build the no-Accelerate wheel, run the ablation (117k then 1 M; about
    40 min), full Python suite, then the user runs `run_energy.sh` under sudo.
 3. **Then:** 2.1 (kNN on the matrix units), re-run the 1 M pipeline and the roofline.
-4. **Then:** scaling curves (1.5), figures F4 to F8, `docs/SCALE.md` filled, PR to `main`.
+4. **Then:** scaling curves (1.5), figures F4 to F8, `docs/development/MEASUREMENTS_2026-10.md` filled, PR to `main`.
 5. **After the PR:** parity work in 2.4, approximate neighbours 2.2, streamed markers 2.3.
 
 ## 5. The paper, one paragraph

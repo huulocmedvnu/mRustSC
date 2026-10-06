@@ -5,7 +5,8 @@ interface runs the standard pipeline, from quality control to clustering and mar
 performance and efficiency core, on the AMX matrix units through Accelerate, and on the GPU through
 hand-written Metal kernels, all in the chip's unified memory. An out-of-core head puts a million cells
 through quality control, feature selection and PCA without holding the matrix. On an M3 Pro laptop
-with 18 GB, a 117 308-cell atlas goes from counts to marker genes in 20 s and a 1 001 288-cell atlas
+with 18 GB, a 117 308-cell atlas goes from counts to marker
+genes in 12 s and a 1 001 288-cell atlas
 from counts to Leiden clusters in 210 s.
 
 Results are written to the standard AnnData slots, so an analysis script written for scanpy runs on
@@ -87,16 +88,16 @@ coordinates.
 
 Measured on an Apple M3 Pro (5 performance + 6 efficiency cores, 14-core GPU, 18 GB), scanpy 1.12.4.
 Every number is in `benches/results/` next to the script that produced it, and
-[docs/SCALE.md](docs/SCALE.md) is the full account, including what was tried and did not work.
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) has the full tables and how they were measured.
 
 **A real atlas, start to finish.** 117 308 bone-marrow cells (CELLxGENE), QC to Wilcoxon markers,
 mean of three runs (`benches/pipeline.py`):
 
 | | scanpy (defaults) | scanpy (tuned) | Metalcyte, CPU | Metalcyte, Metal |
 |---|---:|---:|---:|---:|
-| whole pipeline | 213 s | 79 s | 22 s | **17 s** |
-| energy (powermetrics, idle subtracted) | 974 J | | | **195 J** |
-| PCA / neighbours / UMAP / Leiden | 9.4 / 17.1 / 43.9 / 128 s | 3.5 / 16.7 / 42.7 / 2.2 s | 1.8 / 3.9 / 4.5 / 0.6 s | 0.8 / 2.1 / 4.5 / 0.6 s |
+| whole pipeline | 213 s | 79 s | 16 s | **12 s** |
+| energy (powermetrics, idle subtracted; measured before the marker-test rewrite, when the run took 20 s) | 974 J | | | **195 J** |
+| PCA / neighbours / UMAP / Leiden / markers | 9.4 / 17.1 / 43.9 / 128.1 / 7.9 s | 3.5 / 16.7 / 42.7 / 2.2 / 7.2 s | 2.0 / 4.6 / 4.8 / 0.7 / 0.5 s | 0.8 / 2.0 / 4.8 / 0.7 / 0.5 s |
 
 "Tuned" is scanpy with the `covariance_eigh` PCA solver, `igraph` Leiden and an unseeded UMAP, the
 fastest settings it offers. The two libraries find the same biology on this atlas: the same variable
@@ -143,12 +144,11 @@ a different order. For results that must match across machines bit for bit, run 
 ## Documentation
 
 - [docs/API.md](docs/API.md): every function, argument and the AnnData slot it writes.
-- [docs/SCALE.md](docs/SCALE.md): the measurements above in full, with the methodology.
-- [docs/BENCHMARKS.md](docs/BENCHMARKS.md): per-operation timings and the optimisation history.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md): the measurements above in full, with the methodology.
 - [docs/VALIDATION.md](docs/VALIDATION.md): how each algorithm is held to scanpy.
 - [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the
   Rust core, the Metal kernels and the out-of-core head.
-- [docs/PLAN_APPLE_SILICON.md](docs/PLAN_APPLE_SILICON.md): what is next.
+- [docs/development/](docs/development/): working notes, the optimisation history and what is planned.
 
 ## Development
 

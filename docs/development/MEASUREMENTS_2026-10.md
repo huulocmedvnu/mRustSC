@@ -1,6 +1,6 @@
 # Scale: 100 000 cells, a real atlas, and a million cells on a laptop
 
-This page is the scale measurement that `docs/BENCHMARKS.md` stops short of: the
+This page is the scale measurement that `docs/development/BENCHMARK_HISTORY.md` stops short of: the
 per-operation sweep at 100 000 cells, the whole pipeline on a real 117 000-cell
 atlas, a million cells pushed through the head of the pipeline without ever holding
 the matrix, the energy each run draws, and how the numbers sit against the published
@@ -277,7 +277,7 @@ What the table says, plainly:
   elementwise passes; (iii) unified memory, which lets a million cells stream off the disk
   through buffers the CPU and GPU both read without a copy (section 3); (iv) a package that
   does all of this at under 10 W (section 4). The AMX units do not show at 2 000 genes; the
-  plan's neighbour-search rewrite (`docs/PLAN_APPLE_SILICON.md`, 2.1) is where they would.
+  plan's neighbour-search rewrite (`docs/development/PLAN_APPLE_SILICON.md`, 2.1) is where they would.
 
 ## 6. Scaling: seconds against cells
 
@@ -305,13 +305,13 @@ streamed points do not):
 - **The in-memory metalcyte pipeline also stops between 250k and 500k on 18 GB**, and the sweep showed
   why: `tl.rank_genes_groups` added 6 GB at 116k cells and 25 GB at 476k. The marker test's working
   set is the memory ceiling of the in-memory path and is the next engineering item
-  (`docs/PLAN_APPLE_SILICON.md`, 2.3). Above 250k the streamed head is the path to use, and it
+  (`docs/development/PLAN_APPLE_SILICON.md`, 2.3). Above 250k the streamed head is the path to use, and it
   carries a million cells at 207 s on Metal and 366 s on the CPU.
 - **The neighbour panel of F5 is the honest one.** scanpy's pynndescent index is approximate and
   near-constant in time, about 17 s from 10k to 250k cells and 24 s at 500k, while metalcyte's exact
   search is quadratic: 0.05 s at 10k, 8 s at 250k, 30 s at 500k and 120 s at a million on Metal.
   The lines cross near 400k cells. Above that size an approximate index is what metalcyte needs
-  (`docs/PLAN_APPLE_SILICON.md`, 2.2), and the GPU's 2.5x over the CPU search does not change
+  (`docs/development/PLAN_APPLE_SILICON.md`, 2.2), and the GPU's 2.5x over the CPU search does not change
   where the crossing sits by much.
 - Figure F5 draws every step on log-log axes; the streamed points above 250k have no separate PCA
   or marker step, which is why those two panels end at 250k for metalcyte.
@@ -384,3 +384,22 @@ of the whole pipeline. scanpy defaults 213 ± 1 s, scanpy tuned
 79.3 ± 1.5 s, metalcyte CPU 21.7 ± 2.4 s, metalcyte Metal
 17.1 ± 0.2 s. The single runs quoted in section 2 sit within these; the marker test is
 the one step with a wide spread on the CPU (7.6 ± 2.4 s).
+
+## 10. Addendum, later the same day: the marker test rewritten, numbers re-measured
+
+The scaling sweep's failure at 500 000 cells (section 6) was traced to `tl.rank_genes_groups`
+ranking the dense scaled matrix through the sparse path, which made three dense copies of it.
+A dense path that ranks a block of 64 genes at a time with the same per-gene routine
+(`rank_genes_groups_wilcoxon_dense`) gives identical statistics and, at 116 000 cells, takes
+0.44 s and 9 MB where the old path took 7.3 s and 6.2 GB. The cell and gene filters also lost
+their index-cast copies (`filter_cells_mask`, `filter_genes_mask` borrow numpy's arrays).
+
+Re-measured on the 117k atlas (three runs each): Metalcyte Metal 11.9 ± 0.2 s, CPU 15.8 ± 0.6 s
+(were 17.1 and 21.7 s); scanpy unchanged at 213 and 79 s. The in-memory pipeline now reaches
+500 000 cells (CPU 132 s, Metal 74 s) and a million cells on Metal (308 s); the CPU run at a
+million still exceeds the swap watchdog. The ablation was re-run with the same code
+(`benches/results/ablation_bm117k.json`): the whole pipeline is 12.9 s with everything on, 16.3 s
+without the GPU, 15.4 s on the performance cores only, 44.8 s on one core, 23.2 s without the
+zero-copy borrows, 40.4 s with the sequential UMAP; the conclusions of section 5 stand. The
+energy measurement (section 4) predates this rewrite and overstates the current run's energy;
+a re-measurement needs one more `sudo` pass. `docs/PERFORMANCE.md` carries the current numbers.

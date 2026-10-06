@@ -1,26 +1,26 @@
 {
-  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
   "million": false,
   "rows": [
     {
       "config": "all",
       "env": {},
       "args": [],
-      "total_seconds": 23.270139667438343,
+      "total_seconds": 12.853509044507518,
       "steps": {
-        "pp.calculate_qc_metrics": 1.4623118329327554,
-        "pp.filter_cells": 0.8393008329439908,
-        "pp.filter_genes": 1.123413042165339,
-        "pp.normalize_total": 0.15241304109804332,
-        "pp.log1p": 0.16378487506881356,
-        "pp.highly_variable_genes": 0.3251622919924557,
-        "subset": 0.843255375046283,
-        "pp.scale": 0.05445775017142296,
-        "pp.pca": 1.3679279589559883,
-        "pp.neighbors": 2.0803167500998825,
-        "tl.umap": 5.04002166679129,
-        "tl.leiden": 0.9378728750161827,
-        "tl.rank_genes_groups": 8.879901375155896
+        "pp.calculate_qc_metrics": 1.0291596250608563,
+        "pp.filter_cells": 0.42460529203526676,
+        "pp.filter_genes": 0.7605943339876831,
+        "pp.normalize_total": 0.18838175013661385,
+        "pp.log1p": 0.18746941699646413,
+        "pp.highly_variable_genes": 0.3607379999011755,
+        "subset": 0.764442834071815,
+        "pp.scale": 0.026663500117138028,
+        "pp.pca": 0.9766470829490572,
+        "pp.neighbors": 2.0204388750717044,
+        "tl.umap": 4.943154209060594,
+        "tl.leiden": 0.6662465420085937,
+        "tl.rank_genes_groups": 0.504967583110556
       }
     },
     {
@@ -30,43 +30,21 @@
         "--device",
         "cpu"
       ],
-      "total_seconds": 29.167519207578152,
+      "total_seconds": 16.30391241586767,
       "steps": {
-        "pp.calculate_qc_metrics": 1.3721024580299854,
-        "pp.filter_cells": 1.065426625078544,
-        "pp.filter_genes": 1.2305336249992251,
-        "pp.normalize_total": 0.2001374999526888,
-        "pp.log1p": 0.19461837480776012,
-        "pp.highly_variable_genes": 0.3466429589316249,
-        "subset": 0.941033500013873,
-        "pp.scale": 0.10305524989962578,
-        "pp.pca": 3.075811207992956,
-        "pp.neighbors": 4.871950540924445,
-        "tl.umap": 4.945731124840677,
-        "tl.leiden": 0.728255124995485,
-        "tl.rank_genes_groups": 10.092220917111263
-      },
-      "note": "re-measured after the settings.device fix and the parallel CPU search"
-    },
-    {
-      "config": "no_accelerate",
-      "env": {},
-      "args": [],
-      "total_seconds": 20.415295913582668,
-      "steps": {
-        "pp.calculate_qc_metrics": 0.9533774999435991,
-        "pp.filter_cells": 0.7366398328449577,
-        "pp.filter_genes": 1.066884000087157,
-        "pp.normalize_total": 0.13534829206764698,
-        "pp.log1p": 0.14888108288869262,
-        "pp.highly_variable_genes": 0.30185499996878207,
-        "subset": 0.7570577079895884,
-        "pp.scale": 0.027780374977737665,
-        "pp.pca": 0.924637374933809,
-        "pp.neighbors": 2.127085915999487,
-        "tl.umap": 4.761102874996141,
-        "tl.leiden": 0.6302511659450829,
-        "tl.rank_genes_groups": 7.844394790939987
+        "pp.calculate_qc_metrics": 0.9063889589160681,
+        "pp.filter_cells": 0.349559374852106,
+        "pp.filter_genes": 0.7314530001021922,
+        "pp.normalize_total": 0.13132595899514854,
+        "pp.log1p": 0.14578795805573463,
+        "pp.highly_variable_genes": 0.2913957079872489,
+        "subset": 0.8417290830984712,
+        "pp.scale": 0.05008133314549923,
+        "pp.pca": 2.3053009579889476,
+        "pp.neighbors": 4.644163957796991,
+        "tl.umap": 4.78478724998422,
+        "tl.leiden": 0.6553930840454996,
+        "tl.rank_genes_groups": 0.46654579089954495
       }
     },
     {
@@ -75,21 +53,21 @@
         "RAYON_NUM_THREADS": "5"
       },
       "args": [],
-      "total_seconds": 22.754252166254446,
+      "total_seconds": 15.44985250197351,
       "steps": {
-        "pp.calculate_qc_metrics": 0.8945019170641899,
-        "pp.filter_cells": 0.5945958748925477,
-        "pp.filter_genes": 1.0761566669680178,
-        "pp.normalize_total": 0.1419710828922689,
-        "pp.log1p": 0.17685054102912545,
-        "pp.highly_variable_genes": 0.36226045922376215,
-        "subset": 0.5889736250974238,
-        "pp.scale": 0.023231707978993654,
-        "pp.pca": 0.8541344162076712,
-        "pp.neighbors": 2.117859249934554,
-        "tl.umap": 7.492427999852225,
-        "tl.leiden": 0.7670338749885559,
-        "tl.rank_genes_groups": 7.66425475012511
+        "pp.calculate_qc_metrics": 0.9438967499881983,
+        "pp.filter_cells": 0.3565137090627104,
+        "pp.filter_genes": 0.7598405829630792,
+        "pp.normalize_total": 0.15485845878720284,
+        "pp.log1p": 0.1672765000257641,
+        "pp.highly_variable_genes": 0.3498656670562923,
+        "subset": 0.692280292045325,
+        "pp.scale": 0.03493000008165836,
+        "pp.pca": 0.9052865419071168,
+        "pp.neighbors": 2.030577874975279,
+        "tl.umap": 7.736201458144933,
+        "tl.leiden": 0.6737980828620493,
+        "tl.rank_genes_groups": 0.6445265840739012
       }
     },
     {
@@ -98,21 +76,21 @@
         "RAYON_NUM_THREADS": "1"
       },
       "args": [],
-      "total_seconds": 49.89524266612716,
+      "total_seconds": 44.78994916402735,
       "steps": {
-        "pp.calculate_qc_metrics": 0.8721519999671727,
-        "pp.filter_cells": 0.6545420829206705,
-        "pp.filter_genes": 1.0317756668664515,
-        "pp.normalize_total": 0.21296612499281764,
-        "pp.log1p": 0.3894066661596298,
-        "pp.highly_variable_genes": 0.6814569588750601,
-        "subset": 0.738881167024374,
-        "pp.scale": 0.08759729098528624,
-        "pp.pca": 0.9851813751738518,
-        "pp.neighbors": 2.0706955001223832,
-        "tl.umap": 33.37811229098588,
-        "tl.leiden": 0.6886716668959707,
-        "tl.rank_genes_groups": 8.10380387515761
+        "pp.calculate_qc_metrics": 0.9499460828956217,
+        "pp.filter_cells": 0.44985637511126697,
+        "pp.filter_genes": 0.9150958750396967,
+        "pp.normalize_total": 0.2552235000766814,
+        "pp.log1p": 0.4321291248779744,
+        "pp.highly_variable_genes": 0.7485840828157961,
+        "subset": 0.7178437907714397,
+        "pp.scale": 0.0853267079219222,
+        "pp.pca": 0.9768990830052644,
+        "pp.neighbors": 2.0807684999890625,
+        "tl.umap": 34.58660229179077,
+        "tl.leiden": 0.751915416913107,
+        "tl.rank_genes_groups": 1.8397583328187466
       }
     },
     {
@@ -121,22 +99,26 @@
         "METALCYTE_FORCE_COPY": "1"
       },
       "args": [],
-      "total_seconds": 25.133209835505113,
+      "total_seconds": 23.230010499013588,
       "steps": {
-        "pp.calculate_qc_metrics": 0.853618459077552,
-        "pp.filter_cells": 0.5422626670915633,
-        "pp.filter_genes": 0.9994811250362545,
-        "pp.normalize_total": 0.8474700001534075,
-        "pp.log1p": 0.9259660420939326,
-        "pp.highly_variable_genes": 0.31004962511360645,
-        "subset": 0.5669530830346048,
-        "pp.scale": 1.5860850419849157,
-        "pp.pca": 4.834774834103882,
-        "pp.neighbors": 1.9874932079110295,
-        "tl.umap": 4.727725625038147,
-        "tl.leiden": 0.6324712499044836,
-        "tl.rank_genes_groups": 6.318858874961734
+        "pp.calculate_qc_metrics": 0.9777794159017503,
+        "pp.filter_cells": 0.726350957993418,
+        "pp.filter_genes": 1.1632282910868526,
+        "pp.normalize_total": 1.3825070417951792,
+        "pp.log1p": 1.1023827909957618,
+        "pp.highly_variable_genes": 0.3457771670073271,
+        "subset": 0.6285345000214875,
+        "pp.scale": 1.5629920840729028,
+        "pp.pca": 6.475940834032372,
+        "pp.neighbors": 2.0542091249953955,
+        "tl.umap": 4.9199802910443395,
+        "tl.leiden": 0.9497342079412192,
+        "tl.rank_genes_groups": 0.9405937921255827
       }
+    },
+    {
+      "config": "no_accelerate",
+      "skipped": "/Users/mac/Downloads/mRustSC_work/silicell/.venv-noaccel/bin/python not found"
     },
     {
       "config": "sequential_umap",
@@ -144,21 +126,21 @@
       "args": [
         "--no-umap-parallel"
       ],
-      "total_seconds": 46.63984216772951,
+      "total_seconds": 40.42835979163647,
       "steps": {
-        "pp.calculate_qc_metrics": 1.008062332868576,
-        "pp.filter_cells": 0.6572643329855055,
-        "pp.filter_genes": 1.0928380829282105,
-        "pp.normalize_total": 0.12294604210183024,
-        "pp.log1p": 0.14360249997116625,
-        "pp.highly_variable_genes": 0.29821741697378457,
-        "subset": 0.6208736249245703,
-        "pp.scale": 0.02786512509919703,
-        "pp.pca": 0.8945514999795705,
-        "pp.neighbors": 2.0833030419889838,
-        "tl.umap": 31.32739287498407,
-        "tl.leiden": 0.6527219589333981,
-        "tl.rank_genes_groups": 7.710203333990648
+        "pp.calculate_qc_metrics": 1.0177436659578234,
+        "pp.filter_cells": 0.4225759580731392,
+        "pp.filter_genes": 0.7807500420603901,
+        "pp.normalize_total": 0.1264321249909699,
+        "pp.log1p": 0.15109741711057723,
+        "pp.highly_variable_genes": 0.32018362497910857,
+        "subset": 0.7357484169770032,
+        "pp.scale": 0.030669790925458074,
+        "pp.pca": 0.8931815831456333,
+        "pp.neighbors": 2.1652004171628505,
+        "tl.umap": 32.4739631251432,
+        "tl.leiden": 0.6986129579599947,
+        "tl.rank_genes_groups": 0.6122006671503186
       }
     }
   ]
