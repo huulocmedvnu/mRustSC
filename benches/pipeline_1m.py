@@ -41,7 +41,7 @@ def _timed(records: list, name: str, call, *args):
     return out
 
 
-def run_scrust(path: Path, device: str, umap_parallel: bool) -> dict:
+def run_scrust(path: Path, device: str, umap_parallel: bool, save: Path | None = None) -> dict:
     import scrust as sr
 
     sr.settings.device = device
@@ -59,6 +59,13 @@ def run_scrust(path: Path, device: str, umap_parallel: bool) -> dict:
     _timed(records, "pp.neighbors", lambda: sr.pp.neighbors(adata, n_neighbors=15, use_rep="X_pca"))
     _timed(records, "tl.umap", lambda: sr.tl.umap(adata, random_state=0, parallel=umap_parallel))
     _timed(records, "tl.leiden", lambda: sr.tl.leiden(adata, random_state=0))
+    if save is not None:
+        import anndata
+
+        kept = anndata.AnnData(obs=adata.obs.copy())
+        kept.obsm["X_umap"] = adata.obsm["X_umap"]
+        kept.obsm["X_pca"] = adata.obsm["X_pca"]
+        kept.write_h5ad(save)
     return {
         "library": "scrust",
         "device": "metal" if device == "auto" and sr.gpu_available() else "cpu",
@@ -117,6 +124,9 @@ def main() -> int:
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--umap-parallel", action="store_true")
     parser.add_argument("--json", type=Path)
+    parser.add_argument(
+        "--save", type=Path, help="write obs, X_umap and leiden to this .h5ad (scrust only)"
+    )
     args = parser.parse_args()
     print(f"{args.library} on {args.h5ad.name}", flush=True)
     result = (

@@ -1,0 +1,11 @@
+scanpy (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          0.717 s  +       2 MB  (50000, 45676)
+  pp.filter_cells                  0.142 s  +     222 MB  (47631, 45676)
+  pp.filter_genes                  0.252 s  +     219 MB  (47631, 27325)
+  pp.normalize_total               1.140 s  +      35 MB  (47631, 27325)
+  pp.log1p                         0.059 s  +       0 MB  (47631, 27325)
+  pp.highly_variable_genes         0.831 s  +      19 MB  (47631, 27325)
+  subset                           0.105 s  +     228 MB  (47631, 2000)
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: UserWarning: zero-centering a sparse array/matrix densifies it.
+  return dispatch(args[0].__class__)(*args, **kw)
+  pp.scale                         0.194 s  +    1047 MB  (47631, 2000)

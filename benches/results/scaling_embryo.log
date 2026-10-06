@@ -1,0 +1,17 @@
+== scanpy at 10,000 cells
+   ok, 29.6 s
+== scanpy_tuned at 10,000 cells
+   ok, 26.8 s
+== scrust_cpu at 10,000 cells
+   ok, 1.3 s
+== scrust_metal at 10,000 cells
+   ok, 1.4 s
+== scanpy at 25,000 cells
+   ok, 42.2 s
+== scanpy_tuned at 25,000 cells
+   ok, 29.5 s
+== scrust_cpu at 25,000 cells
+   ok, 3.2 s
+== scrust_metal at 25,000 cells
+   ok, 3.0 s
+== scanpy at 50,000 cells
