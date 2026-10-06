@@ -41,7 +41,7 @@ def _powermetrics(log: Path, interval_ms: int) -> subprocess.Popen:
     cmd = [
         "powermetrics",
         "--samplers",
-        "cpu_power,gpu_power",
+        "cpu_power,gpu_power,thermal",
         "-i",
         str(interval_ms),
         "-o",
@@ -123,6 +123,8 @@ def main() -> int:
         return 2
 
     with tempfile.TemporaryDirectory() as tmp:
+        # The pipeline runs as the invoking user (`sudo -u`), who must be able to write here.
+        os.chmod(tmp, 0o777)
         idle_log = Path(tmp) / "idle.txt"
         run_log = Path(tmp) / "run.txt"
         pipeline_json = Path(tmp) / "pipeline.json"
@@ -153,6 +155,7 @@ def main() -> int:
 
         print(f"{args.library} ({args.device}) under powermetrics ...", flush=True)
         work = _measure(run_log, args.interval_ms, run_pipeline)
+        raw_log = run_log.read_text(errors="replace") if args.json else ""
 
     idle_watts = (
         {k: v / idle["seconds"] for k, v in idle["joules"].items()} if idle["seconds"] else {}
@@ -191,8 +194,11 @@ def main() -> int:
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps(report, indent=2))
+        # The raw samples (per-rail power, cluster residency) feed the utilisation timeline.
+        raw_path = args.json.with_suffix(".powermetrics.txt")
+        raw_path.write_text(raw_log)
         if user := os.environ.get("SUDO_USER"):
-            subprocess.run(["chown", user, str(args.json)], check=False)
+            subprocess.run(["chown", user, str(args.json), str(raw_path)], check=False)
     return 0
 
 
