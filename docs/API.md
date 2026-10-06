@@ -599,11 +599,37 @@ treat any quantity that is *defined* by an exact cancellation as a place where t
 can part company. What the GPU actually buys you per operation is measured in
 [BENCHMARKS.md](BENCHMARKS.md), and it is not uniformly positive.
 
-## Out-of-core reading
+## Out-of-core: `pp.preprocess_backed`
 
-`scrust._backed` is private — it is not exported from the package root and no `pp`
-function consumes it yet — but it is the only way to touch a matrix larger than
-memory today:
+```python
+adata = sr.pp.preprocess_backed(
+    "atlas_counts.h5ad",     # counts in X, CSR, any size
+    n_top_genes=2000, n_comps=50, target_sum=1e4,
+    min_genes=200, min_cells=3, max_value=10.0,
+    block_size=None,         # rows per block; None sizes it from settings.max_memory_gb
+    obs_columns=("cell_type",),
+    device=None,             # settings.device unless given
+)
+adata.obsm["X_pca"]          # (cells kept, n_comps)
+adata.var["highly_variable"] # over every gene of the file
+adata.uns["streaming"]       # block size, device, per-pass timings, cells and genes dropped
+sr.pp.neighbors(adata, use_rep="X_pca"); sr.tl.umap(adata, parallel=True); sr.tl.leiden(adata)
+```
+
+The head of the pipeline for a matrix that does not fit memory: four passes over the row
+blocks of `X` on disk. Pass 1 drops cells under `min_genes`, normalises and log-transforms
+each block in place and accumulates per-gene presence and the sums behind
+`highly_variable_genes`; the variable genes are ranked from those sums. Pass 2 gathers the
+moments of the log data on the variable columns. Pass 3 scales each block against them
+into a dense buffer and accumulates the `(genes, genes)` scatter on the device; the top
+eigenvectors of that scatter are the principal axes (scanpy's `svd_solver="covariance_eigh"`).
+Pass 4 projects each block onto them. Peak memory is one block plus the embedding. The
+result is held to scanpy's exact solver in `tests/test_streaming.py`; `docs/SCALE.md` §3
+has the million-cell run.
+
+`normalize_total` and `log1p` also accept a backed `AnnData` (`anndata.read_h5ad(path,
+backed="r+")`) and rewrite `X` on disk a block at a time. The block reader itself is
+`scrust._backed.open_backed`:
 
 ```python
 from scrust._backed import open_backed

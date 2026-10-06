@@ -45,8 +45,11 @@ jobs:
           # at module level, so collection fails without it long before any marker is
           # applied. It is the reference the audits compare against, not an extra.
           pip install maturin ruff pytest
-          pip install "scanpy>=1.10" "leidenalg>=0.10"
-          maturin develop --release
+          pip install "scanpy>=1.10" "leidenalg>=0.10" "igraph>=0.11"
+          # `maturin develop` needs a virtualenv, which the runner's python is not:
+          # build the wheel and install it like the reference job does.
+          maturin build --release --out dist
+          pip install --find-links dist scrust
 
       - run: ruff format --check python tests benches
       - run: ruff check python tests benches
@@ -76,6 +79,6 @@ jobs:
           pip install maturin
           maturin build --release --out dist
           pip install --find-links dist scrust
-          pip install "scanpy>=1.10" pytest
+          pip install "scanpy>=1.10" "leidenalg>=0.10" "igraph>=0.11" pytest
 
       - run: pytest -m reference -rA

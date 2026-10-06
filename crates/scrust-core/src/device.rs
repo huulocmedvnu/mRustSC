@@ -45,9 +45,17 @@ impl DeviceKind {
 pub fn metal_device() -> Option<Device> {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let device = std::panic::catch_unwind(|| Device::new_metal(0).ok())
-        .ok()
-        .flatten();
+    let device = std::panic::catch_unwind(|| {
+        let device = Device::new_metal(0).ok()?;
+        // A device that enumerates but cannot allocate (GitHub's macOS virtual machines
+        // report one and then fail with "Failed to create metal resource: Buffer") is no
+        // device: round-trip one value through it before believing it.
+        let probe = candle_core::Tensor::new(&[1.0f32], &device).ok()?;
+        let back = probe.to_vec1::<f32>().ok()?;
+        (back == [1.0f32]).then_some(device)
+    })
+    .ok()
+    .flatten();
     std::panic::set_hook(previous);
     device
 }
