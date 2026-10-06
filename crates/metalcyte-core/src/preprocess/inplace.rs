@@ -278,6 +278,87 @@ pub fn hvg_partial_sums<O: Offset, I: Offset>(
         ))
 }
 
+/// `filter::filter_cells` on borrowed CSR arrays: per-row totals and occupancy summed
+/// exactly as the owned version does (sequential `f32` per row), rows in parallel.
+pub fn filter_cells_mask<O: Offset>(
+    indptr: &[O],
+    values: &[f32],
+    min_genes: Option<usize>,
+    min_counts: Option<f32>,
+) -> Result<Vec<bool>> {
+    let n_rows = check_indptr(indptr, values.len())?;
+    let (totals, occupancy): (Vec<f32>, Vec<usize>) = (0..n_rows)
+        .into_par_iter()
+        .with_min_len(MIN_ROWS_PER_TASK)
+        .map(|row| {
+            let span = indptr[row].to_usize()..indptr[row + 1].to_usize();
+            let mut total = 0.0f32;
+            let mut seen = 0usize;
+            for &value in &values[span] {
+                total += value;
+                if value > 0.0 {
+                    seen += 1;
+                }
+            }
+            (total, seen)
+        })
+        .unzip();
+    crate::preprocess::filter::threshold_mask(
+        &totals,
+        &occupancy,
+        min_genes,
+        min_counts,
+        "min_genes/min_counts",
+    )
+}
+
+/// `filter::filter_genes` on borrowed CSR arrays: per-column totals and occupancy, each
+/// row block summed on its own thread and the partial sums added in block order.
+pub fn filter_genes_mask<O: Offset, I: Offset>(
+    indptr: &[O],
+    indices: &[I],
+    values: &[f32],
+    n_cols: usize,
+    min_cells: Option<usize>,
+    min_counts: Option<f32>,
+) -> Result<Vec<bool>> {
+    let n_rows = check_indptr(indptr, values.len())?;
+    let block = (n_rows / rayon::current_num_threads().max(1)).max(MIN_ROWS_PER_TASK);
+    let blocks: Vec<(usize, usize)> = (0..n_rows)
+        .step_by(block)
+        .map(|s| (s, (s + block).min(n_rows)))
+        .collect();
+    let partial: Vec<(Vec<f32>, Vec<usize>)> = blocks
+        .par_iter()
+        .map(|&(start, end)| {
+            let mut totals = vec![0f32; n_cols];
+            let mut occupancy = vec![0usize; n_cols];
+            for k in indptr[start].to_usize()..indptr[end].to_usize() {
+                let gene = indices[k].to_usize();
+                let value = values[k];
+                totals[gene] += value;
+                if value > 0.0 {
+                    occupancy[gene] += 1;
+                }
+            }
+            (totals, occupancy)
+        })
+        .collect();
+    let mut totals = vec![0f32; n_cols];
+    let mut occupancy = vec![0usize; n_cols];
+    for (t, o) in &partial {
+        totals.iter_mut().zip(t).for_each(|(a, b)| *a += b);
+        occupancy.iter_mut().zip(o).for_each(|(a, b)| *a += b);
+    }
+    crate::preprocess::filter::threshold_mask(
+        &totals,
+        &occupancy,
+        min_cells,
+        min_counts,
+        "min_cells/min_counts",
+    )
+}
+
 /// `scanpy.pp.scale` from CSR straight into a row-major dense `out` (n_rows x n_cols).
 ///
 /// One fused pass per row: fill the row with the value an implicit zero scales to, then

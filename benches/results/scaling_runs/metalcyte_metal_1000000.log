@@ -1,11 +1,19 @@
-metalcyte on embryo_1m_counts.h5ad
-      pass1_moments            3.75 s
-      hvg                      0.00 s
-      pass2_hv_moments         4.68 s
-      pass3_scatter_eigh      13.86 s
-      pass4_project            7.10 s
-  pp.preprocess_backed             30.01 s  +    1027 MB
-  pp.neighbors                    123.45 s  +     227 MB
-  tl.umap                          45.10 s  +    1032 MB
-  tl.leiden                         8.84 s  +    1363 MB
-  total                           207.40 s   (42 Leiden clusters)
+metalcyte (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          5.798 s  +    6730 MB  (1000000, 45676)
+  pp.filter_cells                  2.794 s  +    8866 MB  (952204, 45676)
+  pp.filter_genes                  5.114 s  +    8870 MB  (952204, 36649)
+  pp.normalize_total               0.871 s  +    4419 MB  (952204, 36649)
+  pp.log1p                         0.529 s  +    4397 MB  (952204, 36649)
+  pp.highly_variable_genes         1.323 s  +    6668 MB  (952204, 36649)
+  subset                           4.179 s  +   13391 MB  (952204, 2000)
+  pp.scale                         3.894 s  +    7266 MB  (952204, 2000)
+  pp.pca                          65.135 s  +   10281 MB  (952204, 2000)
+  pp.neighbors                   124.509 s  +      91 MB  (952204, 2000)
+  tl.umap                         52.407 s  +    1041 MB  (952204, 2000)
+  tl.leiden                       11.133 s  +    1318 MB  (952204, 2000)
+  tl.rank_genes_groups            29.918 s  +     343 MB  (952204, 2000)
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                          307.605 s   (40 Leiden clusters)

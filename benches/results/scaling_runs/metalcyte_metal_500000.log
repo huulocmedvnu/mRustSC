@@ -1,11 +1,19 @@
-metalcyte on embryo_1m_counts_500000.h5ad
-      pass1_moments            1.84 s
-      hvg                      0.00 s
-      pass2_hv_moments         2.82 s
-      pass3_scatter_eigh       8.14 s
-      pass4_project            3.54 s
-  pp.preprocess_backed             16.66 s  +     982 MB
-  pp.neighbors                     31.64 s  +      63 MB
-  tl.umap                          22.79 s  +     388 MB
-  tl.leiden                         3.66 s  +     620 MB
-  total                            74.76 s   (32 Leiden clusters)
+metalcyte (auto) on embryo_1m_counts.h5ad
+  pp.calculate_qc_metrics          2.280 s  +    3358 MB  (500000, 45676)
+  pp.filter_cells                  0.941 s  +    4422 MB  (476030, 45676)
+  pp.filter_genes                  2.098 s  +    4383 MB  (476030, 34541)
+  pp.normalize_total               0.313 s  +    2207 MB  (476030, 34541)
+  pp.log1p                         0.268 s  +    2196 MB  (476030, 34541)
+  pp.highly_variable_genes         0.539 s  +    3362 MB  (476030, 34541)
+  subset                           1.289 s  +    6653 MB  (476030, 2000)
+  pp.scale                         0.372 s  +    3626 MB  (476030, 2000)
+  pp.pca                           5.615 s  +    5239 MB  (476030, 2000)
+  pp.neighbors                    31.161 s  +      60 MB  (476030, 2000)
+  tl.umap                         21.984 s  +     587 MB  (476030, 2000)
+  tl.leiden                        3.897 s  +     747 MB  (476030, 2000)
+  tl.rank_genes_groups             3.315 s  +      37 MB  (476030, 2000)
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('scanpy')` instead
+  out[name] = __import__(name).__version__
+/Users/mac/Downloads/mRustSC_work/silicell/benches/pipeline.py:202: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  out[name] = __import__(name).__version__
+  total                           74.070 s   (41 Leiden clusters)

@@ -38,7 +38,7 @@ fn column_reductions(matrix: &CsrMatrix) -> (Vec<f32>, Vec<usize>) {
 ///
 /// scanpy accepts exactly one criterion per call and raises otherwise, so the
 /// same either-or check serves cells and genes.
-fn threshold_mask(
+pub(crate) fn threshold_mask(
     totals: &[f32],
     occupancy: &[usize],
     min_occupancy: Option<usize>,

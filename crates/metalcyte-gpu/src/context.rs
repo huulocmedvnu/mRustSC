@@ -17,6 +17,12 @@ pub struct MetalContext {
 
 impl MetalContext {
     pub fn new() -> Result<Self> {
+        // `METALCYTE_DEVICE=cpu` pins a session to the CPU; the hand-written kernels obey
+        // it like the candle path does, so a runner whose Metal device enumerates but
+        // miscomputes (GitHub's macOS virtual machines) never reaches them.
+        if std::env::var("METALCYTE_DEVICE").as_deref() == Ok("cpu") {
+            return Err(Error::NoGpu);
+        }
         let device = Device::system_default().ok_or(Error::NoGpu)?;
         let queue = device.new_command_queue();
         Ok(Self {

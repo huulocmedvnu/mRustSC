@@ -57,7 +57,56 @@ fn rank_genes_groups_wilcoxon<'py>(
     Ok(result)
 }
 
+/// `rank_genes_groups_wilcoxon` on a dense row-major `(n_cells, n_genes)` matrix,
+/// borrowed from numpy: no CSR conversion, no copy, a gene-block working set.
+#[pyfunction]
+#[pyo3(signature = (data, labels, n_groups, reference, tie_correct))]
+fn rank_genes_groups_wilcoxon_dense<'py>(
+    py: Python<'py>,
+    data: &Bound<'py, numpy::PyArray2<f32>>,
+    labels: &Bound<'py, PyAny>,
+    n_groups: usize,
+    reference: Option<u32>,
+    tie_correct: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    use numpy::{PyArrayMethods, PyUntypedArrayMethods};
+    let ro = data
+        .try_readonly()
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("data: {e}")))?;
+    let shape = ro.shape().to_vec();
+    let slice = ro
+        .as_slice()
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("data must be C-contiguous"))?;
+    let labels = vec_from_py::<u32>(labels, "labels")?;
+    let comparison = py
+        .allow_threads(|| {
+            wilcoxon::rank_genes_groups_wilcoxon_dense(
+                slice,
+                shape[0],
+                shape[1],
+                &labels,
+                n_groups,
+                reference,
+                tie_correct,
+            )
+        })
+        .map_err(to_py_error)?;
+    let result = PyDict::new(py);
+    result.set_item("scores", comparison.scores.into_pyarray(py))?;
+    result.set_item("p_values", comparison.p_values.into_pyarray(py))?;
+    result.set_item(
+        "adjusted_p_values",
+        comparison.adjusted_p_values.into_pyarray(py),
+    )?;
+    result.set_item(
+        "log2_fold_changes",
+        comparison.log2_fold_changes.into_pyarray(py),
+    )?;
+    Ok(result)
+}
+
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(rank_genes_groups_wilcoxon_dense, module)?)?;
     module.add_function(wrap_pyfunction!(rank_genes_groups_wilcoxon, module)?)?;
     Ok(())
 }

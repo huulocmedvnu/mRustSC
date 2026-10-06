@@ -3,17 +3,17 @@
   "device": "cpu",
   "umap_parallel": true,
   "tuned": false,
-  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
   "input_shape": [
     117308,
     25574
   ],
-  "load_seconds": 0.4453714170958847,
+  "load_seconds": 0.3326581660658121,
   "steps": [
     {
       "step": "pp.calculate_qc_metrics",
-      "seconds": 1.3721024580299854,
-      "added_mb": 1869.5325775146484,
+      "seconds": 0.9246359588578343,
+      "added_mb": 1856.9075775146484,
       "shape": [
         117308,
         25574
@@ -21,8 +21,8 @@
     },
     {
       "step": "pp.filter_cells",
-      "seconds": 1.065426625078544,
-      "added_mb": 2489.4548873901367,
+      "seconds": 0.3335714170243591,
+      "added_mb": 2471.3298873901367,
       "shape": [
         115868,
         25574
@@ -30,8 +30,8 @@
     },
     {
       "step": "pp.filter_genes",
-      "seconds": 1.2305336249992251,
-      "added_mb": 2468.3924102783203,
+      "seconds": 0.7203439169097692,
+      "added_mb": 2445.1737060546875,
       "shape": [
         115868,
         25574
@@ -39,8 +39,8 @@
     },
     {
       "step": "pp.normalize_total",
-      "seconds": 0.2001374999526888,
-      "added_mb": 1238.3290176391602,
+      "seconds": 0.1446229589637369,
+      "added_mb": 1237.2039947509766,
       "shape": [
         115868,
         25574
@@ -48,8 +48,8 @@
     },
     {
       "step": "pp.log1p",
-      "seconds": 0.19461837480776012,
-      "added_mb": 1237.1727676391602,
+      "seconds": 0.15499733318574727,
+      "added_mb": 1237.1883926391602,
       "shape": [
         115868,
         25574
@@ -57,8 +57,8 @@
     },
     {
       "step": "pp.highly_variable_genes",
-      "seconds": 0.3466429589316249,
-      "added_mb": 1861.7982025146484,
+      "seconds": 0.29727537487633526,
+      "added_mb": 1859.9075546264648,
       "shape": [
         115868,
         25574
@@ -66,8 +66,8 @@
     },
     {
       "step": "subset",
-      "seconds": 0.941033500013873,
-      "added_mb": 3758.533950805664,
+      "seconds": 0.6572632091119885,
+      "added_mb": 3786.049575805664,
       "shape": [
         115868,
         2000
@@ -75,8 +75,8 @@
     },
     {
       "step": "pp.scale",
-      "seconds": 0.10305524989962578,
-      "added_mb": 878.2037658691406,
+      "seconds": 0.027664332883432508,
+      "added_mb": 855.422492980957,
       "shape": [
         115868,
         2000
@@ -84,8 +84,8 @@
     },
     {
       "step": "pp.pca",
-      "seconds": 3.075811207992956,
-      "added_mb": 956.5319595336914,
+      "seconds": 2.1831855829805136,
+      "added_mb": 951.5944595336914,
       "shape": [
         115868,
         2000
@@ -93,8 +93,8 @@
     },
     {
       "step": "pp.neighbors",
-      "seconds": 4.871950540924445,
-      "added_mb": 75.3125228881836,
+      "seconds": 4.419626333983615,
+      "added_mb": 85.828125,
       "shape": [
         115868,
         2000
@@ -102,8 +102,8 @@
     },
     {
       "step": "tl.umap",
-      "seconds": 4.945731124840677,
-      "added_mb": 70.90625,
+      "seconds": 4.734057292109355,
+      "added_mb": 70.9218978881836,
       "shape": [
         115868,
         2000
@@ -111,8 +111,8 @@
     },
     {
       "step": "tl.leiden",
-      "seconds": 0.728255124995485,
-      "added_mb": 102.15629577636719,
+      "seconds": 0.6403489580843598,
+      "added_mb": 104.14067077636719,
       "shape": [
         115868,
         2000
@@ -120,19 +120,19 @@
     },
     {
       "step": "tl.rank_genes_groups",
-      "seconds": 10.092220917111263,
-      "added_mb": 6236.707542419434,
+      "seconds": 0.47071875003166497,
+      "added_mb": 10.750022888183594,
       "shape": [
         115868,
         2000
       ]
     }
   ],
-  "total_seconds": 29.167519207578152,
+  "total_seconds": 15.708311419002712,
   "n_clusters": 37,
   "versions": {
     "scanpy": "1.12.4",
-    "metalcyte": "0.2.0",
+    "metalcyte": "0.3.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }

@@ -507,7 +507,77 @@ fn project_dense<'py>(
     Ok(scores.into_pyarray(py))
 }
 
+/// `filter_cells` mask straight off numpy's CSR arrays: no index cast, no copy.
+#[pyfunction]
+#[pyo3(signature = (indptr, values, min_genes=None, min_counts=None))]
+fn filter_cells_mask<'py>(
+    py: Python<'py>,
+    indptr: &Bound<'py, PyAny>,
+    values: &Bound<'py, PyArray1<f32>>,
+    min_genes: Option<usize>,
+    min_counts: Option<f32>,
+) -> PyResult<Bound<'py, PyArray1<bool>>> {
+    let ro = ro_f32(values)?;
+    let vals = ro
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("values must be C-contiguous"))?;
+    let mask = with_index_slice!(indptr, "indptr", |ip| {
+        fn run<O: Offset>(
+            py: Python<'_>,
+            ip: &[O],
+            v: &[f32],
+            min_genes: Option<usize>,
+            min_counts: Option<f32>,
+        ) -> PyResult<Vec<bool>> {
+            py.allow_threads(|| inplace::filter_cells_mask(ip, v, min_genes, min_counts))
+                .map_err(to_py_error)
+        }
+        run(py, ip, vals, min_genes, min_counts)
+    })?;
+    Ok(mask.into_pyarray(py))
+}
+
+/// `filter_genes` mask straight off numpy's CSR arrays: no index cast, no copy.
+#[pyfunction]
+#[pyo3(signature = (indptr, indices, values, n_cols, min_cells=None, min_counts=None))]
+fn filter_genes_mask<'py>(
+    py: Python<'py>,
+    indptr: &Bound<'py, PyAny>,
+    indices: &Bound<'py, PyAny>,
+    values: &Bound<'py, PyArray1<f32>>,
+    n_cols: usize,
+    min_cells: Option<usize>,
+    min_counts: Option<f32>,
+) -> PyResult<Bound<'py, PyArray1<bool>>> {
+    let ro = ro_f32(values)?;
+    let vals = ro
+        .as_slice()
+        .map_err(|_| PyValueError::new_err("values must be C-contiguous"))?;
+    let mask = with_index_slice!(indptr, "indptr", |ip| {
+        with_index_slice!(indices, "indices", |ix| {
+            fn run<O: Offset, I: Offset>(
+                py: Python<'_>,
+                ip: &[O],
+                ix: &[I],
+                v: &[f32],
+                n_cols: usize,
+                min_cells: Option<usize>,
+                min_counts: Option<f32>,
+            ) -> PyResult<Vec<bool>> {
+                py.allow_threads(|| {
+                    inplace::filter_genes_mask(ip, ix, v, n_cols, min_cells, min_counts)
+                })
+                .map_err(to_py_error)
+            }
+            run(py, ip, ix, vals, n_cols, min_cells, min_counts)
+        })
+    })?;
+    Ok(mask.into_pyarray(py))
+}
+
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(filter_cells_mask, module)?)?;
+    module.add_function(wrap_pyfunction!(filter_genes_mask, module)?)?;
     module.add_function(wrap_pyfunction!(normalize_total_inplace, module)?)?;
     module.add_function(wrap_pyfunction!(log1p_inplace, module)?)?;
     module.add_function(wrap_pyfunction!(scale_dense, module)?)?;

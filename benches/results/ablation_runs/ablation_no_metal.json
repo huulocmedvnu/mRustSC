@@ -3,17 +3,17 @@
   "device": "cpu",
   "umap_parallel": true,
   "tuned": false,
-  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
   "input_shape": [
     117308,
     25574
   ],
-  "load_seconds": 0.39272862509824336,
+  "load_seconds": 0.3181805000640452,
   "steps": [
     {
       "step": "pp.calculate_qc_metrics",
-      "seconds": 0.8812447499949485,
-      "added_mb": 1856.8919296264648,
+      "seconds": 0.9063889589160681,
+      "added_mb": 1857.8919296264648,
       "shape": [
         117308,
         25574
@@ -21,8 +21,8 @@
     },
     {
       "step": "pp.filter_cells",
-      "seconds": 0.6336897918954492,
-      "added_mb": 2423.5017166137695,
+      "seconds": 0.349559374852106,
+      "added_mb": 2423.126739501953,
       "shape": [
         115868,
         25574
@@ -30,8 +30,8 @@
     },
     {
       "step": "pp.filter_genes",
-      "seconds": 1.0500215000938624,
-      "added_mb": 2403.423614501953,
+      "seconds": 0.7314530001021922,
+      "added_mb": 2444.0956497192383,
       "shape": [
         115868,
         25574
@@ -39,8 +39,8 @@
     },
     {
       "step": "pp.normalize_total",
-      "seconds": 0.11694175004959106,
-      "added_mb": 1237.3915176391602,
+      "seconds": 0.13132595899514854,
+      "added_mb": 1237.2039947509766,
       "shape": [
         115868,
         25574
@@ -48,8 +48,8 @@
     },
     {
       "step": "pp.log1p",
-      "seconds": 0.13135854108259082,
-      "added_mb": 1237.2196426391602,
+      "seconds": 0.14578795805573463,
+      "added_mb": 1237.2040176391602,
       "shape": [
         115868,
         25574
@@ -57,8 +57,8 @@
     },
     {
       "step": "pp.highly_variable_genes",
-      "seconds": 0.2711004999000579,
-      "added_mb": 1860.7201919555664,
+      "seconds": 0.2913957079872489,
+      "added_mb": 1859.6731796264648,
       "shape": [
         115868,
         25574
@@ -66,8 +66,8 @@
     },
     {
       "step": "subset",
-      "seconds": 0.6217008749954402,
-      "added_mb": 3746.596450805664,
+      "seconds": 0.8417290830984712,
+      "added_mb": 3765.533950805664,
       "shape": [
         115868,
         2000
@@ -75,8 +75,8 @@
     },
     {
       "step": "pp.scale",
-      "seconds": 0.032822499983012676,
-      "added_mb": 883.8756408691406,
+      "seconds": 0.05008133314549923,
+      "added_mb": 866.4225158691406,
       "shape": [
         115868,
         2000
@@ -84,8 +84,8 @@
     },
     {
       "step": "pp.pca",
-      "seconds": 1.006080084014684,
-      "added_mb": 1299.0794067382812,
+      "seconds": 2.3053009579889476,
+      "added_mb": 951.4225616455078,
       "shape": [
         115868,
         2000
@@ -93,8 +93,8 @@
     },
     {
       "step": "pp.neighbors",
-      "seconds": 2.044315333943814,
-      "added_mb": 7.750022888183594,
+      "seconds": 4.644163957796991,
+      "added_mb": 61.406272888183594,
       "shape": [
         115868,
         2000
@@ -102,8 +102,8 @@
     },
     {
       "step": "tl.umap",
-      "seconds": 4.870648457901552,
-      "added_mb": 103.32817077636719,
+      "seconds": 4.78478724998422,
+      "added_mb": 91.1093978881836,
       "shape": [
         115868,
         2000
@@ -111,8 +111,8 @@
     },
     {
       "step": "tl.leiden",
-      "seconds": 0.6616012500599027,
-      "added_mb": 101.75006866455078,
+      "seconds": 0.6553930840454996,
+      "added_mb": 107.06256866455078,
       "shape": [
         115868,
         2000
@@ -120,19 +120,19 @@
     },
     {
       "step": "tl.rank_genes_groups",
-      "seconds": 6.825227749999613,
-      "added_mb": 6241.613792419434,
+      "seconds": 0.46654579089954495,
+      "added_mb": 11.796897888183594,
       "shape": [
         115868,
         2000
       ]
     }
   ],
-  "total_seconds": 19.14675308391452,
-  "n_clusters": 36,
+  "total_seconds": 16.30391241586767,
+  "n_clusters": 37,
   "versions": {
     "scanpy": "1.12.4",
-    "metalcyte": "0.2.0",
+    "metalcyte": "0.3.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }

@@ -3,17 +3,17 @@
   "device": "cpu",
   "umap_parallel": true,
   "tuned": false,
-  "file": "/Users/mac/Downloads/metalcyte_work/data/bone_marrow_117k_counts.h5ad",
+  "file": "/Users/mac/Downloads/mRustSC_work/data/bone_marrow_117k_counts.h5ad",
   "input_shape": [
     117308,
     25574
   ],
-  "load_seconds": 0.3865587080363184,
+  "load_seconds": 0.31957466597668827,
   "steps": [
     {
       "step": "pp.calculate_qc_metrics",
-      "seconds": 0.8498261668719351,
-      "added_mb": 1856.923225402832,
+      "seconds": 0.9513980830088258,
+      "added_mb": 1859.6888275146484,
       "shape": [
         117308,
         25574
@@ -21,8 +21,8 @@
     },
     {
       "step": "pp.filter_cells",
-      "seconds": 0.5813063329551369,
-      "added_mb": 2373.9235916137695,
+      "seconds": 0.34315945906564593,
+      "added_mb": 2419.689239501953,
       "shape": [
         115868,
         25574
@@ -30,8 +30,8 @@
     },
     {
       "step": "pp.filter_genes",
-      "seconds": 0.9787787089589983,
-      "added_mb": 2434.6267852783203,
+      "seconds": 0.7483763329219073,
+      "added_mb": 2429.3143997192383,
       "shape": [
         115868,
         25574
@@ -39,8 +39,8 @@
     },
     {
       "step": "pp.normalize_total",
-      "seconds": 0.0996259159874171,
-      "added_mb": 1237.5321655273438,
+      "seconds": 0.15219883294776082,
+      "added_mb": 1239.9071197509766,
       "shape": [
         115868,
         25574
@@ -48,8 +48,8 @@
     },
     {
       "step": "pp.log1p",
-      "seconds": 0.11345570790581405,
-      "added_mb": 1237.1883697509766,
+      "seconds": 0.16546695888973773,
+      "added_mb": 1237.1727676391602,
       "shape": [
         115868,
         25574
@@ -57,8 +57,8 @@
     },
     {
       "step": "pp.highly_variable_genes",
-      "seconds": 0.23861029092222452,
-      "added_mb": 1860.6264877319336,
+      "seconds": 0.3096172909718007,
+      "added_mb": 1861.7669296264648,
       "shape": [
         115868,
         25574
@@ -66,8 +66,8 @@
     },
     {
       "step": "subset",
-      "seconds": 0.5379399168305099,
-      "added_mb": 3634.8776779174805,
+      "seconds": 0.5730787499342114,
+      "added_mb": 3692.0808029174805,
       "shape": [
         115868,
         2000
@@ -75,8 +75,8 @@
     },
     {
       "step": "pp.scale",
-      "seconds": 0.025365417124703526,
-      "added_mb": 828.4381408691406,
+      "seconds": 0.02457787492312491,
+      "added_mb": 828.391242980957,
       "shape": [
         115868,
         2000
@@ -84,8 +84,8 @@
     },
     {
       "step": "pp.pca",
-      "seconds": 1.754008375108242,
-      "added_mb": 946.4538116455078,
+      "seconds": 2.0016274168156087,
+      "added_mb": 952.719482421875,
       "shape": [
         115868,
         2000
@@ -93,8 +93,8 @@
     },
     {
       "step": "pp.neighbors",
-      "seconds": 3.8990467919502407,
-      "added_mb": 48.65629577636719,
+      "seconds": 4.666234208038077,
+      "added_mb": 60.765625,
       "shape": [
         115868,
         2000
@@ -102,8 +102,8 @@
     },
     {
       "step": "tl.umap",
-      "seconds": 4.5110026251059026,
-      "added_mb": 44.328147888183594,
+      "seconds": 4.769563874928281,
+      "added_mb": 68.78125,
       "shape": [
         115868,
         2000
@@ -111,8 +111,8 @@
     },
     {
       "step": "tl.leiden",
-      "seconds": 0.5971097501460463,
-      "added_mb": 101.53134155273438,
+      "seconds": 0.6255039591342211,
+      "added_mb": 101.67194366455078,
       "shape": [
         115868,
         2000
@@ -120,19 +120,19 @@
     },
     {
       "step": "tl.rank_genes_groups",
-      "seconds": 5.523884665919468,
-      "added_mb": 6213.332542419434,
+      "seconds": 0.4467556660529226,
+      "added_mb": 2.828125,
       "shape": [
         115868,
         2000
       ]
     }
   ],
-  "total_seconds": 19.70996066578664,
+  "total_seconds": 15.777558707632124,
   "n_clusters": 37,
   "versions": {
     "scanpy": "1.12.4",
-    "metalcyte": "0.2.0",
+    "metalcyte": "0.3.0",
     "anndata": "0.13.4",
     "numpy": "2.5.3"
   }
