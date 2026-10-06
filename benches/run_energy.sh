@@ -14,7 +14,7 @@ export PYTHONPATH="$HERE/python"
 for spec in "scanpy auto" "metalcyte auto" "metalcyte cpu"; do
   set -- $spec
   lib=$1; dev=$2
-  tag="$lib"; [ "$lib" = metalcyte ] && tag="scrust_$([ "$dev" = auto ] && echo metal || echo cpu)"
+  tag="$lib"; [ "$lib" = metalcyte ] && tag="metalcyte_$([ "$dev" = auto ] && echo metal || echo cpu)"
   echo "== $tag"
   "$PY" "$HERE/benches/energy.py" "$DATA" --library "$lib" --device "$dev" --umap-parallel \
       --json "$HERE/benches/results/energy_bm117k_$tag.json"

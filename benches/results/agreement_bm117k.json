@@ -37,9 +37,9 @@
     "ari_scanpy_vs_metalcyte": 0.9449151917341103,
     "nmi_scanpy_vs_metalcyte": 0.9567882055109199,
     "ari_scanpy_vs_celltype": 0.2763000895748961,
-    "ari_scrust_vs_celltype": 0.27618875079703975,
+    "ari_metalcyte_vs_celltype": 0.27618875079703975,
     "nmi_scanpy_vs_celltype": 0.568552325287442,
-    "nmi_scrust_vs_celltype": 0.5674038347900253
+    "nmi_metalcyte_vs_celltype": 0.5674038347900253
   },
   "markers": {
     "CD4-positive, alpha-beta T cell": {
