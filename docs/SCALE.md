@@ -322,7 +322,7 @@ streamed points do not):
 
 rapids-singlecell (Dicks et al., "GPU-accelerated single-cell analysis at scale with
 rapids-singlecell", 2026, arXiv 2603.02402; NVIDIA developer blog, 12 June 2025) is the
-other GPU engine behind a scanpy-compatible interface. Its published numbers, with the hardware they
+other GPU single-cell engine. Its published numbers, with the hardware they
 were measured on, next to this page's:
 
 | pipeline | hardware | cells | total |
