@@ -160,6 +160,9 @@ pub fn knn_metal_tiled_view(
     if n_cells < k + 1 {
         return Err(Error::parameter("k", "smaller than the cell count", k));
     }
+    if std::env::var("SCRUST_KNN_KERNEL").as_deref() == Ok("simd") && n_dims <= 56 {
+        return knn_metal_simd_view(context, embedding, k);
+    }
     // Specialise the shader for this (n_dims, k): with both known at compile time the
     // query row and the top-k list live in registers. One pipeline per shape, cached.
     let name: &'static str = specialised_name(n_dims, k);
@@ -219,6 +222,267 @@ pub fn knn_metal_tiled_view(
         distances: Array2::from_shape_vec((n_cells, k), distances).map_err(|_| shape())?,
     })
 }
+
+/// Query cells per threadgroup in the simdgroup-matrix kernel: two SIMD groups of 32
+/// threads, one thread per query for the selection, two 32-row halves for the products.
+const SIMD_QUERY_TILE: usize = 64;
+/// Candidate rows per step: 64 when the padded width allows (`64 x 64 x 4 B` of
+/// candidates plus the `64 x 64` product block is 32 KiB at 64 dims), else 32.
+fn simd_candidate_tile(_padded_dims: usize) -> usize {
+    // Query tile (64 x NDP) + candidate tile (NDP x 32) + product block (32 x 64), all f32:
+    // 96 x NDP x 4 + 8 KiB, which is under 32 KiB up to NDP = 56 and must be checked.
+    32
+}
+const SIMD_KERNEL_NAME: &str = "knn_simd";
+
+/// Exact k nearest neighbours with the distance products on `simdgroup_float8x8`
+/// matrices. **Experimental, opt-in** (`SCRUST_KNN_KERNEL=simd`), and as written it is
+/// slower than the tiled kernel: 3.1 s against 2.2 s on 115 868 cells x 50 dims.
+///
+/// The tiled kernel forms every squared distance as a scalar loop of `n_dims` fused
+/// multiply-adds reading the candidate row out of threadgroup memory. Here the `64 x 32`
+/// block of query-candidate dot products is built from 8 x 8 `simdgroup_load` /
+/// `simdgroup_multiply_accumulate` steps (queries and dimension-major candidates both
+/// staged in threadgroup memory), stored candidate-major, and the per-query thread does
+/// the expansion, zero-snap and top-k insertion on its own column. Removing the
+/// products alone takes the run from 3.25 s to 0.76 s, so the 8 x 8 steps are the cost:
+/// with only 16 accumulators per SIMD group the kernel issues two 8 x 8 loads per
+/// multiply-accumulate, and on an M3 Pro that is no faster than the FMA loop. A
+/// gemm-grade blocking (MLX's 64 x 64 output tiles, loads amortised over 8 accumulators
+/// per load) is what it would take, and is left as the next step in
+/// `docs/PLAN_APPLE_SILICON.md`. Same expansion, resolution floor and tie rule as the
+/// CPU search in `scrust_core::neighbors`.
+///
+/// The embedding is laid out with its width padded to a multiple of 8 and its height to
+/// a multiple of 64 so every simdgroup load is a full tile; padded rows are zero and are
+/// never selected, padded columns contribute nothing to a product.
+pub fn knn_metal_simd_view(
+    context: &MetalContext,
+    embedding: ArrayView2<'_, f32>,
+    k: usize,
+) -> Result<KnnGraph> {
+    let (n_cells, n_dims) = embedding.dim();
+    if k == 0 || k > TILED_MAX_K {
+        return Err(Error::parameter("k", "between 1 and 64", k));
+    }
+    if n_dims == 0 || n_dims > TILED_MAX_DIMS {
+        return Err(Error::parameter("embedding", "1 to 128 dimensions", n_dims));
+    }
+    if n_cells < k + 1 {
+        return Err(Error::parameter("k", "smaller than the cell count", k));
+    }
+    let padded_dims = n_dims.div_ceil(8) * 8;
+    let padded_cells = n_cells.div_ceil(SIMD_QUERY_TILE) * SIMD_QUERY_TILE;
+
+    let candidate_tile = simd_candidate_tile(padded_dims);
+    let name: &'static str = simd_name(padded_dims, k);
+    let source = KNN_SIMD_SOURCE
+        .replace("__NDP__", &padded_dims.to_string())
+        .replace("__CT__", &format!("{candidate_tile}u"))
+        .replace("__K__", &k.to_string())
+        .replace("knn_simd(", &format!("{name}("));
+    let pipeline = context.pipeline(name, &source)?;
+
+    // Centred coordinates straight into the padded shared buffer: the padding columns
+    // and rows are zeroed first, the real rows are written in place by `centre_into`
+    // through a strided view of the same buffer.
+    let input = context.empty_buffer::<f32>(padded_cells * padded_dims);
+    let dest = unsafe {
+        std::slice::from_raw_parts_mut(input.contents() as *mut f32, padded_cells * padded_dims)
+    };
+    dest.fill(0.0);
+    let norm_sq = {
+        let mut tight = vec![0.0f32; n_cells * n_dims];
+        let norms = centre_into(embedding, &mut tight);
+        for (row, src) in tight.chunks_exact(n_dims).enumerate() {
+            dest[row * padded_dims..row * padded_dims + n_dims].copy_from_slice(src);
+        }
+        norms
+    };
+    let mut norms_padded = norm_sq;
+    norms_padded.resize(padded_cells, 0.0);
+    let norms = context.buffer(&norms_padded);
+    let out_indices = context.empty_buffer::<u32>(n_cells * k);
+    let out_distances = context.empty_buffer::<f32>(n_cells * k);
+
+    let command = context.queue().new_command_buffer();
+    let encoder = command.new_compute_command_encoder();
+    encoder.set_compute_pipeline_state(&pipeline);
+    encoder.set_buffer(0, Some(&input), 0);
+    encoder.set_buffer(1, Some(&out_indices), 0);
+    encoder.set_buffer(2, Some(&out_distances), 0);
+    set_u32(encoder, 3, n_cells as u32);
+    set_u32(encoder, 4, padded_cells as u32);
+    set_u32(encoder, 5, n_dims as u32);
+    encoder.set_buffer(6, Some(&norms), 0);
+    let threadgroup_bytes =
+        (candidate_tile + SIMD_QUERY_TILE) * padded_dims * 4 + SIMD_QUERY_TILE * candidate_tile * 4;
+    if threadgroup_bytes > context.device().max_threadgroup_memory_length() as usize {
+        return Err(Error::parameter(
+            "embedding",
+            "a width whose query and candidate tiles fit threadgroup memory (about 56 dimensions)",
+            n_dims,
+        ));
+    }
+    encoder.set_threadgroup_memory_length(0, (candidate_tile * padded_dims * 4) as u64);
+    encoder.set_threadgroup_memory_length(1, (SIMD_QUERY_TILE * candidate_tile * 4) as u64);
+    encoder.set_threadgroup_memory_length(2, (SIMD_QUERY_TILE * padded_dims * 4) as u64);
+    let groups = padded_cells / SIMD_QUERY_TILE;
+    encoder.dispatch_thread_groups(
+        MTLSize::new(groups as u64, 1, 1),
+        MTLSize::new(SIMD_QUERY_TILE as u64, 1, 1),
+    );
+    encoder.end_encoding();
+    command.commit();
+    command.wait_until_completed();
+    if command.status() != MTLCommandBufferStatus::Completed {
+        return Err(Error::Kernel {
+            name: SIMD_KERNEL_NAME,
+            message: format!("dispatch ended in state {:?}", command.status()),
+        });
+    }
+    let indices = unsafe { MetalContext::read::<u32>(&out_indices, n_cells * k) };
+    let distances = unsafe { MetalContext::read::<f32>(&out_distances, n_cells * k) };
+    let shape = || Error::shape(format!("({n_cells}, {k})"), "a buffer of another size");
+    Ok(KnnGraph {
+        indices: Array2::from_shape_vec((n_cells, k), indices).map_err(|_| shape())?,
+        distances: Array2::from_shape_vec((n_cells, k), distances).map_err(|_| shape())?,
+    })
+}
+
+fn simd_name(padded_dims: usize, k: usize) -> &'static str {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Mutex<HashMap<(usize, usize), &'static str>>> = OnceLock::new();
+    let mut names = NAMES
+        .get_or_init(Default::default)
+        .lock()
+        .expect("name cache poisoned");
+    names
+        .entry((padded_dims, k))
+        .or_insert_with(|| Box::leak(format!("knn_simd_d{padded_dims}_k{k}").into_boxed_str()))
+}
+
+const KNN_SIMD_SOURCE: &str = r#"
+#include <metal_stdlib>
+#include <metal_simdgroup_matrix>
+using namespace metal;
+
+constant float F32_EPSILON = 1.1920928955078125e-07f;
+#define NDP __NDP__
+#define KK __K__
+#define QT 64u
+#define CT __CT__
+
+inline bool closer(float lhs_distance, uint lhs_cell, float rhs_distance, uint rhs_cell) {
+    return lhs_distance < rhs_distance
+        || (lhs_distance == rhs_distance && lhs_cell < rhs_cell);
+}
+
+kernel void knn_simd(device const float* embedding [[buffer(0)]],
+                     device uint* out_cells [[buffer(1)]],
+                     device float* out_distances [[buffer(2)]],
+                     constant uint& n_cells [[buffer(3)]],
+                     constant uint& n_pad [[buffer(4)]],
+                     constant uint& n_dims [[buffer(5)]],
+                     device const float* norm_sq [[buffer(6)]],
+                     threadgroup float* cand_t [[threadgroup(0)]],
+                     threadgroup float* dots [[threadgroup(1)]],
+                     threadgroup float* qtile [[threadgroup(2)]],
+                     uint group [[threadgroup_position_in_grid]],
+                     uint lane [[thread_position_in_threadgroup]],
+                     uint sg [[simdgroup_index_in_threadgroup]]) {
+    uint qbase = group * QT;
+    uint query = qbase + lane;
+    bool active = query < n_cells;
+    // The query block, read from device memory once and kept for every candidate step.
+    for (uint i = lane; i < QT * NDP; i += QT) {
+        qtile[i] = embedding[(ulong)qbase * NDP + i];
+    }
+
+    float best_d[KK];
+    uint best_c[KK];
+    for (uint s = 0; s < KK; s++) { best_d[s] = INFINITY; best_c[s] = 0xFFFFFFFFu; }
+    float worst_d = INFINITY;
+    uint worst_c = 0xFFFFFFFFu;
+    float own_norm = norm_sq[query];
+    const float scale = (float(n_dims) + 2.0f) * F32_EPSILON;
+    threadgroup const float* qblock = qtile + sg * 32u * NDP;
+
+    for (uint base = 0; base < n_cells; base += CT) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // Candidates land dimension-major, cand_t[d * CT + c], so the B tiles below are
+        // plain row-major 8 x 8 loads with no transpose.
+        for (uint i = lane; i < CT * NDP; i += QT) {
+            uint c = i / NDP;
+            uint d = i % NDP;
+            uint row = base + c;
+            cand_t[d * CT + c] = row < n_pad ? embedding[(ulong)row * NDP + d] : 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // This SIMD group's 32 queries x CT candidates, in blocks of 8 x 8, CT/8 column
+        // blocks at a time so the accumulators stay in registers.
+        for (uint cbase = 0; cbase < CT; cbase += 32) {
+            simdgroup_float8x8 acc[4][4];
+            for (uint qb = 0; qb < 4; qb++) {
+                for (uint cb = 0; cb < 4; cb++) {
+                    acc[qb][cb] = simdgroup_float8x8(0.0f);
+                }
+            }
+            for (uint kk = 0; kk < NDP; kk += 8) {
+                simdgroup_float8x8 b[4];
+                for (uint cb = 0; cb < 4; cb++) {
+                    simdgroup_load(b[cb], cand_t + kk * CT + cbase + cb * 8, CT);
+                }
+                for (uint qb = 0; qb < 4; qb++) {
+                    simdgroup_float8x8 a;
+                    simdgroup_load(a, qblock + (ulong)(qb * 8) * NDP + kk, NDP);
+                    for (uint cb = 0; cb < 4; cb++) {
+                        simdgroup_multiply_accumulate(acc[qb][cb], a, b[cb], acc[qb][cb]);
+                    }
+                }
+            }
+            // Stored transposed, candidate-major: the selection below has thread `lane`
+            // read `dots[c * QT + lane]`, so the 32 lanes of a SIMD group touch 32
+            // consecutive words and no two share a bank.
+            for (uint qb = 0; qb < 4; qb++) {
+                for (uint cb = 0; cb < 4; cb++) {
+                    simdgroup_store(acc[qb][cb], dots + (cbase + cb * 8) * QT + sg * 32u + qb * 8, QT, ulong2(0, 0), true);
+                }
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (!active) { continue; }
+        uint limit = min(CT, n_cells - base);
+        for (uint c = 0; c < limit; c++) {
+            uint cell = base + c;
+            float norm_sum = own_norm + norm_sq[cell];
+            float squared = fma(-2.0f, dots[c * QT + lane], norm_sum);
+            if (squared < scale * norm_sum) { squared = 0.0f; }
+            squared = max(squared, 0.0f);
+            if (cell == query || !closer(squared, cell, worst_d, worst_c)) { continue; }
+            uint slot = KK - 1;
+            while (slot > 0 && closer(squared, cell, best_d[slot - 1], best_c[slot - 1])) {
+                best_d[slot] = best_d[slot - 1];
+                best_c[slot] = best_c[slot - 1];
+                slot--;
+            }
+            best_d[slot] = squared;
+            best_c[slot] = cell;
+            worst_d = best_d[KK - 1];
+            worst_c = best_c[KK - 1];
+        }
+    }
+    if (active) {
+        for (uint s = 0; s < KK; s++) {
+            out_cells[(ulong)query * KK + s] = best_c[s];
+            out_distances[(ulong)query * KK + s] = sqrt(best_d[s]);
+        }
+    }
+}
+"#;
 
 /// A stable, leaked kernel name per (n_dims, k), so the pipeline cache can key on it.
 fn specialised_name(n_dims: usize, k: usize) -> &'static str {
@@ -559,16 +823,51 @@ mod tests {
         })
     }
 
+    /// The two graphs name the same neighbours, except where two candidates sit within
+    /// `rel` of each other and the `|a|^2 + |b|^2 - 2 a.b` expansion (which the matrix
+    /// kernels and the CPU core path both use) ranks them the other way round from the
+    /// direct `|a - b|^2` the reference takes. Every distance must agree to `rel`.
+    fn assert_graphs_agree(got: &KnnGraph, want: &KnnGraph, rel: f32) {
+        assert_eq!(got.indices.dim(), want.indices.dim());
+        for row in 0..got.indices.nrows() {
+            let g: Vec<(u32, f32)> = got
+                .indices
+                .row(row)
+                .iter()
+                .copied()
+                .zip(got.distances.row(row).iter().copied())
+                .collect();
+            let w: Vec<(u32, f32)> = want
+                .indices
+                .row(row)
+                .iter()
+                .copied()
+                .zip(want.distances.row(row).iter().copied())
+                .collect();
+            for ((gi, gd), (wi, wd)) in g.iter().zip(&w) {
+                assert!(
+                    (gd - wd).abs() <= rel * wd.abs().max(1e-6),
+                    "row {row}: distance {gd} != {wd}"
+                );
+                if gi != wi {
+                    // A swap is only acceptable among near-ties: the stranger must be at a
+                    // distance the reference also has in this row, to `rel`.
+                    let near = w
+                        .iter()
+                        .any(|(_, d)| (d - gd).abs() <= rel * d.abs().max(1e-6));
+                    assert!(
+                        near,
+                        "row {row}: neighbour {gi} at {gd} is not a near-tie of the reference"
+                    );
+                }
+            }
+        }
+    }
+
     fn assert_matches_reference(embedding: &Array2<f32>, k: usize, context: &MetalContext) {
         let gpu = knn_metal(context, embedding, k).unwrap();
         let cpu = cpu_knn(embedding, k);
-        assert_eq!(gpu.indices, cpu.indices);
-        for (got, want) in gpu.distances.iter().zip(cpu.distances.iter()) {
-            assert!(
-                (got - want).abs() <= 1e-5 * want.abs().max(1e-6),
-                "distance {got} != {want}"
-            );
-        }
+        assert_graphs_agree(&gpu, &cpu, 1e-4);
     }
 
     #[test]
@@ -699,14 +998,37 @@ mod tests {
             let embedding = Array2::from_shape_vec((n_cells, n_dims), data).unwrap();
             let got = knn_metal_tiled(&context, &embedding, k).unwrap();
             let want = cpu_knn(&embedding, k);
-            assert_eq!(
-                got.indices, want.indices,
-                "indices differ at n={n_cells} d={n_dims} k={k}"
-            );
-            let worst = (&got.distances - &want.distances)
-                .iter()
-                .fold(0f32, |m, v| m.max(v.abs()));
-            assert!(worst <= 1e-5, "distance gap {worst}");
+            assert_graphs_agree(&got, &want, 1e-4);
+        }
+    }
+
+    #[test]
+    fn simdgroup_kernel_matches_the_brute_force_reference() {
+        let Ok(context) = MetalContext::new() else {
+            return; // no GPU on this machine
+        };
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(23);
+        // Widths that need padding (30 -> 32, 50 -> 56) and one that does not (128); cell
+        // counts that are not multiples of the 64-query or 32-candidate tiles; duplicates.
+        for (n_cells, n_dims, k) in [
+            (1037usize, 50usize, 15usize),
+            (300, 56, 64),
+            (97, 3, 1),
+            (130, 30, 7),
+        ] {
+            let mut data: Vec<f32> = (0..n_cells * n_dims)
+                .map(|_| rng.gen_range(-2.0..2.0))
+                .collect();
+            for row in (7..n_cells).step_by(7) {
+                let src = (row / 2) * n_dims;
+                let (a, b) = data.split_at_mut(row * n_dims);
+                b[..n_dims].copy_from_slice(&a[src..src + n_dims]);
+            }
+            let embedding = Array2::from_shape_vec((n_cells, n_dims), data).unwrap();
+            let got = knn_metal_simd_view(&context, embedding.view(), k).unwrap();
+            let want = cpu_knn(&embedding, k);
+            assert_graphs_agree(&got, &want, 1e-4);
         }
     }
 }

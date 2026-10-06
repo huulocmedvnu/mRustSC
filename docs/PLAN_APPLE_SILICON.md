@@ -79,12 +79,19 @@ step. The figure shows where each library's slope changes and where scanpy stops
 ## 2. Engineering: what has to change for the claims to hold at 1 M and beyond
 
 ### 2.1 Neighbour search on the matrix units (highest value)
-Rewrite `knn_metal_tiled` as two stages: distance tiles by a Metal matmul (`q · cᵀ`
-for a 4 096 x 65 536 tile is 1 GB of f32, then `|q|² + |c|² - 2 q·c`), followed by a
-per-row top-k merge kernel over the tile. The matmul runs at several TFLOP/s on Metal
-and through Accelerate on the CPU; the merge is the only custom code left. Target: the
-1 M neighbour step from 120 s to under 30 s on both devices. Keep the exact zero-snap
-rule from `neighbors.rs` so duplicate cells still get connectivity 1.
+**CPU side: done.** `neighbors::knn_cpu` spreads query blocks over every core with a
+per-thread Accelerate product and a fused top-k: 116k cells 79 s → 4.9 s, 1 M cells
+5 294 s → 307 s. **GPU side: tried, not yet a win.** `knn_metal_simd_view` builds the
+products from `simdgroup_float8x8` steps with queries and dimension-major candidates
+staged in threadgroup memory; it is correct (held to the brute-force reference) but
+3.1 s against the tiled kernel's 2.2 s at 116k x 50, and an ablation of its own shows
+the 8 x 8 steps are the whole cost (0.76 s without them). It is opt-in
+(`SCRUST_KNN_KERNEL=simd`). What it needs is gemm-grade blocking: 64 x 64 output tiles
+per threadgroup with eight accumulators amortising every load, as MLX's gemm does; or
+the alternative two-stage design (one large Metal matmul per tile, then a merge
+kernel), which is bandwidth-bound at about 50 s for a million cells because the
+distance tile has to be written and read once. Either is a day's work with a Metal
+profiler; neither was in reach today. The tiled FMA kernel stays the default.
 
 ### 2.2 Approximate neighbours above 1 M
 Exact brute force is quadratic; at 5 M cells it is 25x the 1 M cost. Add an index
