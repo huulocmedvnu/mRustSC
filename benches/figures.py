@@ -212,7 +212,7 @@ def f1_chip_and_library():
         ("Highly variable genes", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("Scaling", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("PCA", "GPU", "CPU and AMX", "SSD, row blocks, GPU"),
-        ("k-NN graph", "GPU", "CPU, 11 threads", "in memory, GPU"),
+        ("k-NN graph", "GPU, exact; CPU approximate above 200k", "CPU, 11 threads", "in memory, as at left"),
         ("UMAP", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
         ("Leiden", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
         ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
@@ -359,8 +359,7 @@ def f3_streaming():
             "Scaling parameters",
         ),
         (
-            "Pass 3",
-            "15.4 s",
+            "Pass 3", "15.3 s",
             "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
             "50 principal axes<br>(subspace iteration)",
         ),
