@@ -16,7 +16,7 @@ __all__ = ["leiden", "louvain"]
 
 
 def _connectivities(adata: AnnData, neighbors_key: str) -> Any:
-    """The weighted graph to cluster, resolved the way scanpy resolves it.
+    """The weighted graph to cluster.
 
     `uns[neighbors_key]` names the `obsp` key; without it the conventional
     `obsp["connectivities"]` is used, which is also where the error lives.
@@ -35,10 +35,10 @@ def _write_clusters(
     partition: tuple[np.ndarray, float, int],
     params: dict[str, Any],
 ) -> None:
-    """Store a partition the way scanpy stores one.
+    """Store a partition as a categorical `obs` column and its parameters in `uns`.
 
-    The core numbers communities `0..n-1` by descending size, so listing the
-    categories in numeric order is already scanpy's natural sort of the labels.
+    The core numbers communities `0..n-1` by descending size. The categories are
+    listed in that numeric order, so cluster 0 is the largest.
     """
     labels, modularity, n_communities = partition
     adata.obs[key_added] = pd.Categorical(
@@ -58,7 +58,11 @@ def leiden(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Leiden clustering, writing `obs[key_added]` as `scanpy.tl.leiden` does."""
+    """Leiden clustering (Traag et al. 2019) of the neighbour graph.
+
+    Writes the cluster of each cell to `obs[key_added]` and the parameters and
+    modularity to `uns[key_added]`.
+    """
     device = _resolve_device(device)
     graph = _connectivities(adata, neighbors_key)
     partition = _extension().leiden(
@@ -89,7 +93,11 @@ def louvain(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Louvain clustering, writing `obs[key_added]` as `scanpy.tl.louvain` does."""
+    """Louvain clustering (Blondel et al. 2008) of the neighbour graph.
+
+    Writes the cluster of each cell to `obs[key_added]` and the parameters and
+    modularity to `uns[key_added]`.
+    """
     device = _resolve_device(device)
     graph = _connectivities(adata, neighbors_key)
     partition = _extension().louvain(

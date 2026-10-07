@@ -45,11 +45,11 @@ VIRTUAL_ENV=.venv .venv/bin/maturin build --release   # writes target/wheels/*.w
 Always build with `--release`. Without it, the compiler skips its optimisations and the
 calculations run so slowly that the package seems broken.
 
-Metalcyte does not require scanpy. The examples use scanpy to read files and to plot, so install it
-too if you want to run them:
+The example script and the tutorial draw their figures with `metalcyte.pl`. Install matplotlib and
+seaborn to run them:
 
 ```bash
-.venv/bin/pip install scanpy
+.venv/bin/pip install "matplotlib>=3.7" "seaborn>=0.13"
 ```
 
 ### Apple Accelerate (macOS on Apple silicon)
@@ -120,17 +120,18 @@ print(adata.obsm["X_pca"].shape)
 ## Running the tests
 
 You run the tests from a copy of the source code, after installing the extension with
-`maturin develop --release`. The whole suite needs scanpy. pytest loads every test file through
-`tests/conftest.py`, and that file imports scanpy.
+`maturin develop --release`. Many tests compare Metalcyte with a reference implementation, so the
+suite needs the `dev` and `reference` extras. [VALIDATION.md](VALIDATION.md) describes these tests.
 
 ```bash
-.venv/bin/pip install pytest scanpy
+VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --extras dev,reference
 PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
 ```
 
 `pyproject.toml` defines two test labels (markers):
 
-- `reference`: comparisons with scanpy that need the PBMC 3k dataset download.
+- `reference`: comparisons with the reference implementation that need the PBMC 3k dataset
+  download.
 - `slow`: tests that run umap-learn or scikit-learn in full, which takes minutes. Only
   `tests/test_umap_audit.py` has this label.
 

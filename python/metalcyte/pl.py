@@ -7,7 +7,7 @@ differential-expression ranking from `uns["rank_genes_groups"]`. The GPU draws a
 points of an embedding into one image through Metal (`render_embedding`). A million
 cells draw in milliseconds, and a notebook shows them as a single picture. matplotlib
 adds the axes, legend and colour bar. The module needs only matplotlib, plus seaborn for
-colour palettes if it is installed. It never imports scanpy.
+colour palettes if it is installed.
 
 All functions share one style: plain axes, a light grid and a sans-serif font. Clusters
 use plotly's qualitative palettes. Gene expression uses the continuous colormap
@@ -263,8 +263,7 @@ def _pack_rgba(colours: np.ndarray, alpha: float) -> np.ndarray:
 
 
 def _category_colours(adata: AnnData, key: str, palette: str) -> list:
-    """One colour per level: `uns[f"{key}_colors"]` when scanpy or a user set it, else
-    the palette."""
+    """One colour per level: `uns[f"{key}_colors"]` when it is set, else the palette."""
     levels = list(adata.obs[key].astype("category").cat.categories)
     stored = adata.uns.get(f"{key}_colors")
     if stored is not None and len(stored) == len(levels):
@@ -392,9 +391,9 @@ def embedding(
 ) -> Axes | list[Axes] | None:
     """Scatter plot of `obsm[basis]`, drawn on the GPU, coloured by `obs` columns or genes.
 
-    Mirrors `scanpy.pl.embedding`: `color` may be one key or several (one panel each,
-    `ncols` across). A categorical column draws one colour per level and a legend, in the
-    right margin or, with `legend_loc="on data"`, as labels at each level's median; a numeric
+    `color` may be one key or several. Each key gets its own panel, `ncols` panels across.
+    A categorical column draws one colour per level and a legend. The legend sits in the
+    right margin, or with `legend_loc="on data"` as labels at each level's median. A numeric
     column or a gene draws a colour bar. The points are rasterised by Metal into an image of
     `figsize * dpi` pixels, so a million cells draw in milliseconds and the figure stays
     light. `xlim`/`ylim` zoom into a window of the embedding.

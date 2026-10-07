@@ -4,10 +4,10 @@ Metalcyte does the computation in a compiled Rust library. It runs the heaviest 
 on the Mac's graphics processor (GPU) through Apple's Metal interface. The CPU and the
 GPU share one memory, so data does not need to be copied between them.
 
-The functions are grouped as in scanpy. `pp` holds preprocessing, `tl` the analysis
-tools, `metrics` the scores, and `get` the helpers that pull tables out of the results.
-Every function takes an `AnnData` and writes its result into the slot scanpy uses. Your
-existing code and plots keep working.
+The functions sit in five modules. `pp` holds preprocessing, `tl` the analysis tools,
+`metrics` the scores, `get` the helpers that pull tables out of the results, and `pl`
+the plots. Every function takes an `AnnData` and writes its result into a fixed slot of
+it, such as `obs["leiden"]` or `obsm["X_umap"]`.
 """
 
 from metalcyte import get, metrics, pp, tl

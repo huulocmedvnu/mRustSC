@@ -17,8 +17,8 @@ tools.
 git clone https://github.com/huulocmedvnu/metalcyte
 cd metalcyte
 python3 -m venv .venv
-.venv/bin/pip install maturin pytest ruff scanpy leidenalg
-VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
+.venv/bin/pip install maturin
+VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --extras dev,reference,plot
 ```
 
 ## Before opening a pull request
@@ -31,8 +31,8 @@ cargo test --workspace --release
 METALCYTE_TEST_DEVICE=auto .venv/bin/pytest
 ```
 
-New numerical code needs a test that compares its output with scanpy's output and states how close
-the two must be, as described in [docs/VALIDATION.md](docs/VALIDATION.md). Each claim about speed
+New numerical code needs a test that compares its output with a reference implementation and
+states how close the two must be, as described in [docs/VALIDATION.md](docs/VALIDATION.md). Each claim about speed
 or memory needs a script in `benches/` that reproduces it.
 
 ## Repository layout

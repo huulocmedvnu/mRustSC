@@ -12,8 +12,8 @@ matrix. It reads the rows of `X` in blocks and goes through the file three times
 2. **scatter**: Metalcyte scales the highly variable genes of each block with the
    per-gene means and variances from pass 1. It then adds the block's `(g, g)` gene by
    gene scatter matrix to a running total on the GPU. The principal axes are the top
-   eigenvectors of that matrix. This is the method of scanpy's
-   `svd_solver="covariance_eigh"`.
+   eigenvectors of that matrix. This is PCA by eigendecomposition of the gene by gene
+   covariance matrix.
 3. **project**: Metalcyte scales each block again and multiplies it by the loadings.
    This gives the block's rows of `X_pca`.
 

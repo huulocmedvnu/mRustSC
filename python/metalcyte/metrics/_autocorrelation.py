@@ -25,10 +25,10 @@ def gearys_c(
     use_graph: str = "connectivities",
     device: str | None = None,
 ) -> np.ndarray:
-    """Geary's C for each gene over the neighbour graph, as `scanpy.metrics.gearys_c`.
+    """Geary's C for each gene over the neighbour graph.
 
     See `morans_i` for how `vals` is resolved. Low values mean strong spatial
-    correlation; a constant feature has no statistic and comes back as `nan`.
+    correlation. A constant feature has no statistic and comes back as `nan`.
     """
     device = _resolve_device(device)
     return _autocorrelation("gearys_c", adata, vals, use_graph, device)
@@ -41,12 +41,11 @@ def morans_i(
     use_graph: str = "connectivities",
     device: str | None = None,
 ) -> np.ndarray:
-    """Moran's I for each gene over the neighbour graph, as `scanpy.metrics.morans_i`.
+    """Moran's I for each gene over the neighbour graph.
 
-    `vals` may be omitted, in which case every gene of `adata.X` is scored, or it
-    may name one gene or one `obs` column, name several of them, or be an
-    explicit array. As in scanpy, an explicit 2-D array is `(n_features,
-    n_cells)` and a single feature returns a scalar rather than a length-1 array.
+    Without `vals`, every gene of `adata.X` is scored. `vals` may also name one gene
+    or one `obs` column, name several of them, or be an explicit array. An explicit
+    2-D array has shape `(n_features, n_cells)`. A single feature returns a scalar.
     """
     device = _resolve_device(device)
     return _autocorrelation("morans_i", adata, vals, use_graph, device)
@@ -72,7 +71,7 @@ def _features(adata: AnnData, vals: Any) -> tuple[Any, bool]:
     """Resolve `vals` to a cells-by-features matrix, and whether it is a single one.
 
     The core scores columns of a cells-by-genes matrix, which is `adata.X`'s own
-    layout, so the only case that needs transposing is scanpy's explicit
+    layout. The only case that needs transposing is an explicit
     `(n_features, n_cells)` array.
     """
     if vals is None:

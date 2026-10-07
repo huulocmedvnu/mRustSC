@@ -24,14 +24,14 @@ if TYPE_CHECKING:
 
 __all__ = ["tsne", "umap"]
 
-# Defaults the scanpy-facing signatures do not expose but the core still requires.
+# Defaults that the core requires and the Python signatures do not expose.
 _DEFAULT_EPOCHS = 200
 _UMAP_LEARNING_RATE = 1.0
 _UMAP_NEGATIVE_SAMPLE_RATE = 5
 _TSNE_COMPONENTS = 2
 _TSNE_ITERATIONS = 1000
-# scikit-learn's `learning_rate="auto"`. scanpy still passes its legacy 1000,
-# which is far too large for small datasets.
+# The automatic t-SNE learning rate is n_obs / early_exaggeration / 4, with this floor.
+# A fixed rate of 1000 is far too large for small datasets.
 _MINIMUM_LEARNING_RATE = 50.0
 
 

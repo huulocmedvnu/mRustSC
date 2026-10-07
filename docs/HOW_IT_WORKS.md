@@ -24,9 +24,8 @@ You can notice three effects of this design:
 
 - **Only Python knows about AnnData.** Rust receives three flat arrays and a column count. Python
   handles layers, `raw`, views and masks, or declines them.
-- **Only Python sets default values.** Python passes every value that the Rust code needs. When a
-  Metalcyte default differs from scanpy's, the difference is one line in `python/metalcyte/`.
-  [API.md](API.md) says where.
+- **Only Python sets default values.** Python passes every value that the Rust code needs. Each
+  default is one line in `python/metalcyte/`, and [API.md](API.md) states its value.
 - **Matrices are cells by genes, stored as `float32` with `uint32` indices.** Metalcyte converts a
   `float64` matrix on the way in, so results come back as `float32` even if you passed 64-bit
   numbers. p-values are the exception and stay `float64`. A small rank-sum p-value would become
@@ -51,9 +50,9 @@ Three points limit this:
 
 - **The GPU does not speed up every step, so some steps do not use it.** Element-by-element work on
   a sparse matrix (log transform, total-count normalisation, scaling) is small and limited by memory
-  speed. Metalcyte is slower than scanpy on several of these steps. The GPU helps most with PCA and
-  the neighbour graph. The largest speedups over scanpy, in the marker test and PAGA, come from
-  plain Rust code on the CPU. [PERFORMANCE.md](PERFORMANCE.md) shows both.
+  speed. The GPU helps most with PCA and the neighbour graph. The fastest steps after those, the
+  marker test and PAGA, run as plain Rust code on the CPU. [PERFORMANCE.md](PERFORMANCE.md) gives
+  the timings.
 - **Only one hand-written GPU program (kernel) runs in a normal call: `knn`.**
   `crates/metalcyte-gpu` holds kernels for sparse matrix products (CSR SpMM), column moments, row
   scaling, k-NN, the UMAP optimisation (SGD) and the t-SNE gradient. Each is tested against the
@@ -117,21 +116,20 @@ Two practical points follow:
 
 A sparse matrix in CSR format can hold "no entry" or "an entry with value 0.0". The neighbour graph
 contains many entries of the second kind. Two identical cells are at distance zero, and the graph
-stores that zero. On 120 cells, of which 60 are exact duplicates, `sc.pp.neighbors(n_neighbors=10)`
+stores that zero. On 120 cells, of which 60 are exact duplicates, `pp.neighbors(n_neighbors=10)`
 stores 540 zeros out of 1080 entries, half the graph. Each function that reads the graph must decide
 whether these entries count. The two such functions in Metalcyte decide in opposite ways.
 
-- **PAGA counts every stored entry, whatever its value.** scanpy sets all graph values to one before
-  building PAGA (`ones.data = np.ones(len(ones.data))`, `_paga.py:182-183`). So the `nonzero()` call
-  inside `get_igraph_from_adjacency` sees only ones and drops none of them. If Metalcyte skipped
-  zero-valued entries, one connectivity in the duplicate-heavy graph above would be 0.096 too high.
+- **PAGA counts every stored entry, whatever its value.** Two identical cells are still neighbours,
+  so their edge counts. If Metalcyte skipped zero-valued entries, one connectivity in the
+  duplicate-heavy graph above would be 0.096 too high.
 - **The diffusion map counts only entries with a non-zero weight.** It spreads values along the
   edge weights, so an edge of weight zero carries nothing and cannot join two parts of the graph.
   So its check for a connected graph ignores stored zeros. If only stored zeros hold a graph
   together, Metalcyte reports it as disconnected and raises an error. Otherwise it would return a
   useless map (spectrum `[1.0000001, 1.0, ...]`). This check is stricter on purpose than
   `scipy.sparse.csgraph.connected_components`, which counts every stored entry and calls such a
-  graph connected. scanpy uses the scipy function.
+  graph connected.
 
 The source code explains both choices, at `paga.rs::count_edges` and
 `diffusion.rs::component_count`. If you write new code that reads `obsp`, decide which of the two
@@ -145,8 +143,8 @@ arrays as they are. A matrix that is 95% zeros is never expanded into a full (de
 Two steps do create a dense matrix, and you should plan for them:
 
 - Scaling with `zero_center=True` returns a dense `(cells, genes)` array and stores it in `adata.X`.
-  That takes 400 MB at 50 000 x 2 000 and 4 GB at 50 000 x 20 000. scanpy does the same. This is
-  why you keep only the highly variable genes before scaling.
+  That takes 400 MB at 50 000 x 2 000 and 4 GB at 50 000 x 20 000. This is why you keep only the
+  highly variable genes before scaling.
 - The exact t-SNE builds an `(n, n)` matrix of cell-to-cell similarities, so it stops at 20 000
   cells. Above that, `tl.tsne` switches to FIt-SNE, a fast approximation. FIt-SNE keeps
   similarities only between nearest neighbours. It estimates the pushing-apart force between all
@@ -163,10 +161,10 @@ the output is exactly the same, bit for bit, as the in-memory result (`benches/b
 Reading the file and making the matrix dense peaks at 4.34 GB. [API.md](API.md) documents both
 functions.
 
-## What "agrees with scanpy" means
+## How results are checked
 
-scanpy is the reference. The kind of agreement we test depends on the algorithm. A test of the wrong
-kind would prove nothing.
+The tests compare each function with a reference implementation of the same method. The kind of
+agreement we test depends on the algorithm. A test of the wrong kind would prove nothing.
 
 - **Calculations with one correct answer** (total-count normalisation, the log transform, scaling)
   are compared value by value.
@@ -175,11 +173,11 @@ kind would prove nothing.
   reaches when it runs again with a different seed. On PBMC 3k, umap-learn agrees with itself on
   about half of each cell's neighbours. A required agreement above that level would test nothing.
 - **Methods that minimise a stated quantity** (t-SNE) are judged on that quantity. The test asks
-  whether the final KL divergence is as low as scanpy's. It does not ask whether both runs ended at
-  the same layout.
+  whether the final KL divergence is as low as the reference's. It does not ask whether both runs
+  ended at the same layout.
 - **PCA** is compared on the components that a randomised solver can determine reliably, and on the
   variances of all components (the spectrum). On PBMC 3k that is the first 7 of 50 components.
-  Beyond those, scanpy's own randomised solver does not match scanpy's arpack solver either.
+  Beyond those, two exact solvers and a randomised one do not agree with each other either.
 
 [VALIDATION.md](VALIDATION.md) gives every number behind these statements, measured by the
 reference test suite.
@@ -188,7 +186,6 @@ reference test suite.
 
 Every random step takes an explicit seed. On one device, the same seed gives exactly the same
 bytes. Across devices, the seed fixes the steps of the algorithm, but the last few bits of the
-arithmetic can differ, as explained above. This holds within Metalcyte only. A Metalcyte UMAP with
-`random_state=0` will not match a scanpy UMAP with `random_state=0`. They are different programs of a
-method that uses random numbers. The comparison with the reference range, described above, measures
-how close they are.
+arithmetic can differ, as explained above. This holds within Metalcyte only. A UMAP from another
+program with `random_state=0` will not match a Metalcyte UMAP with `random_state=0`. The comparison
+with the reference range, described above, measures how close two such layouts are.

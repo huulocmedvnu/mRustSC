@@ -22,7 +22,7 @@ def subsample(
     random_state: int = 0,
     copy: bool = False,
 ) -> AnnData | None:
-    """Keep a random subset of cells, as `scanpy.pp.subsample`."""
+    """Keep a random subset of cells, drawn without replacement."""
     return sample(adata, fraction, n=n_obs, replace=False, random_state=random_state, copy=copy)
 
 
@@ -35,7 +35,7 @@ def sample(
     random_state: int = 0,
     copy: bool = False,
 ) -> AnnData | None:
-    """scanpy's newer sampling entry point, which also allows replacement."""
+    """Keep a random subset of cells, given as a fraction or a number, with optional replacement."""
     n = _resolve_size(adata.n_obs, fraction, n, replace=replace)
     indices = np.asarray(
         _extension().subsample(adata.n_obs, n, replace, random_state), dtype=np.intp
@@ -50,8 +50,8 @@ def sample(
 def _resolve_size(n_obs: int, fraction: float | None, n: int | None, *, replace: bool) -> int:
     """The number of cells to draw, from whichever of the two the caller gave.
 
-    scanpy raises `TypeError` for both or neither and `ValueError` for a fraction
-    that cannot be honoured, so the same two exception types are raised here.
+    Giving both or neither raises `TypeError`. A fraction that cannot be honoured
+    raises `ValueError`.
     """
     if (fraction is None) is (n is None):
         given = "both" if n is not None else "neither"
@@ -74,7 +74,7 @@ def downsample_counts(
     replace: bool = False,
     copy: bool = False,
 ) -> AnnData | None:
-    """Randomly remove counts to lower each cell's total, as `scanpy.pp.downsample_counts`."""
+    """Randomly remove counts to lower each cell's total, or the total of the whole matrix."""
     if (counts_per_cell is None) is (total_counts is None):
         raise ValueError("Must specify exactly one of `total_counts` or `counts_per_cell`.")
     if copy:

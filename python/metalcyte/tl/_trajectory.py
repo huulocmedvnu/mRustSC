@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 
 __all__ = ["diffmap", "dpt", "paga"]
 
-# scanpy's `tl.dpt` falls back to `tl.diffmap`'s own default when no map is
-# stored, not to `n_dcs`; a later `dpt` with a larger `n_dcs` fails there too.
+# When no diffusion map is stored, `tl.dpt` computes one with this many components.
+# It does not use `n_dcs`, so a later `dpt` with a larger `n_dcs` fails.
 _DIFFMAP_COMPONENTS = 15
 
 
@@ -35,15 +35,18 @@ def diffmap(
     neighbors_key: str = "neighbors",
     device: str | None = None,
 ) -> None:
-    """Diffusion map of the neighbour graph, as `scanpy.tl.diffmap`."""
+    """Diffusion map of the neighbour graph (Coifman and Lafon 2006, Haghverdi et al. 2015).
+
+    Writes the components to `obsm["X_diffmap"]` and the eigenvalues to
+    `uns["diffmap_evals"]`. The first, trivial component is kept.
+    """
     device = _resolve_device(device)
     if neighbors_key == "neighbors":
         graph = _neighbor_graph(adata)
     else:
         graph = adata.obsp[adata.uns[neighbors_key]["connectivities_key"]]
     embedding, eigenvalues = _extension().diffmap(*_csr_args(graph), n_comps, device)
-    # scanpy keeps the trivial first component in `X_diffmap`; only `pl.diffmap`
-    # skips it, and `tl.dpt` reads it back and uses it.
+    # The trivial first component stays in `X_diffmap` because `tl.dpt` reads it back.
     adata.obsm["X_diffmap"] = np.asarray(embedding, dtype=_VALUE_DTYPE)
     adata.uns["diffmap_evals"] = np.asarray(eigenvalues, dtype=_VALUE_DTYPE)
 
@@ -56,12 +59,12 @@ def dpt(
     min_group_size: float = 0.01,
     device: str | None = None,
 ) -> None:
-    """Diffusion pseudotime from `uns["iroot"]`, as `scanpy.tl.dpt`.
+    """Diffusion pseudotime (Haghverdi et al. 2016) from the root cell in `uns["iroot"]`.
 
-    With `n_branchings > 0`, also detects branchings and writes `obs["dpt_groups"]`, a
-    categorical partition, using a native port of scanpy's Haghverdi 2016 algorithm
-    (`metalcyte.tl._dpt_branching`). Branch labels are arbitrary, so parity with scanpy is an
-    adjusted Rand index, pinned in `tests/test_dpt_branching_audit.py`.
+    Writes the pseudotime of each cell to `obs["dpt_pseudotime"]`. With
+    `n_branchings > 0` it also detects branches with the Haghverdi et al. 2016
+    algorithm (`metalcyte.tl._dpt_branching`). It writes them as a categorical column
+    to `obs["dpt_groups"]`. The branch numbers are arbitrary.
     """
     device = _resolve_device(device)
     if "X_diffmap" not in adata.obsm:
@@ -94,11 +97,11 @@ def dpt(
 def paga(
     adata: AnnData, groups: str | None = None, *, model: str = "v1.2", device: str | None = None
 ) -> None:
-    """Build a graph of how clusters connect (PAGA), writing `uns["paga"]`, as `scanpy.tl.paga`.
+    """Build a graph of how clusters connect (PAGA, Wolf et al. 2019) and write `uns["paga"]`.
 
-    `device` is accepted for signature consistency and ignored: coarse-graining a
-    neighbour graph is a single memory-bound pass over its stored entries into a
-    matrix the size of the group count, which a GPU cannot make faster.
+    `device` is accepted so all tools share one signature, and it is ignored. The
+    computation is one pass over the neighbour graph into a small group by group
+    matrix, and a GPU cannot make that faster.
     """
     device = _resolve_device(device)
     # Imported here because this module is shared with feat/diffusion, which
@@ -120,7 +123,7 @@ def paga(
     if "distances" not in adata.obsp:
         raise KeyError("adata.obsp has no 'distances'; run metalcyte.pp.neighbors first")
 
-    # scanpy abstracts over the *distance* graph, which is directed: an entry
+    # PAGA abstracts over the *distance* graph, which is directed. An entry
     # (cell, neighbour) is one edge, and the pair is only symmetric by accident.
     column = adata.obs[groups]
     if not isinstance(column.dtype, pd.CategoricalDtype):
@@ -135,7 +138,7 @@ def paga(
         len(column.cat.categories),
     )
 
-    # scanpy stores both as float64 CSR, the tree with each edge once.
+    # Both are stored as float64 CSR, the tree with each edge once.
     def _sparse(flat: np.ndarray) -> sp.csr_matrix:
         return sp.csr_matrix(np.asarray(flat, dtype=np.float64).reshape(n_groups, n_groups))
 

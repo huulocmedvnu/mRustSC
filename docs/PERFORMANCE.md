@@ -151,8 +151,8 @@ size (`benches/knn_methods.py`).
 | 953 436 | 15.9 s | 118.1 s | 282.5 s | 0.961 |
 
 The exact search is faster on the GPU up to about 100 000 cells. On the CPU it is faster up to
-about 50 000 cells. The exact graph matches scanpy's cell for cell, but it becomes slow at large
-sizes. So by default `pp.neighbors` switches to the approximate search above 200 000 cells.
+about 50 000 cells. The exact search finds the true nearest neighbours, but it becomes slow at
+large sizes. So by default `pp.neighbors` switches to the approximate search above 200 000 cells.
 
 ```bash
 PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
@@ -289,6 +289,10 @@ Some terms in the table:
 - t-SNE is exact up to 20 000 cells and FFT-accelerated above that. It takes 13 s for the
   117 308-cell atlas and 54 s for the 953 436 embryo cells (1 000 iterations, from the 50
   principal components).
+- The exact t-SNE method (`method="exact"`) costs `O(n^2)` and is slower than scanpy's t-SNE once
+  the data is not small. Against scanpy it is 1.42x faster at 499 cells, 0.25x at 2 638, and 0.06x
+  at 10 000 cells (271.7 s against scanpy's 15.4 s). At 10 000 cells `tl.umap` is 4.84x faster
+  than scanpy's UMAP.
 - `regress_out` and `combat` produce a dense result that must fit within 60% of the machine's
   memory. They read the input in blocks of genes.
 - Metalcyte is built and tested only on macOS on Apple silicon. The automatic test machines

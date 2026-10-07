@@ -1,4 +1,4 @@
-"""Settings that apply to the whole session, like `scanpy.settings`. Owned by feat/accessors.
+"""Settings that apply to the whole session. Owned by feat/accessors.
 
 This module uses only the Python standard library and does nothing when imported.
 Importing `metalcyte` must not add a logging handler, check for a GPU, or change any
@@ -21,7 +21,7 @@ __all__ = ["Settings", "Verbosity", "settings"]
 
 
 class Verbosity(IntEnum):
-    """How much the library says while it works, as `scanpy.Verbosity`."""
+    """How much the library says while it works, from `error` (0) to `debug` (4)."""
 
     error = 0
     warning = 1
@@ -33,7 +33,7 @@ class Verbosity(IntEnum):
 # The names `metalcyte_core::DeviceKind::parse` accepts; keep the two in step.
 DEVICES = ("auto", "cpu", "gpu", "metal")
 
-# Line prefixes matching scanpy's log formatter, so output reads the same.
+# The prefix printed before each log line at each verbosity level.
 _PREFIXES = {
     Verbosity.error: "ERROR: ",
     Verbosity.warning: "WARNING: ",
@@ -44,7 +44,7 @@ _PREFIXES = {
 
 
 def _as_verbosity(value: Verbosity | str | int) -> Verbosity:
-    """Accept a `Verbosity`, its name or its level, as `scanpy.settings.verbosity` does."""
+    """Accept a `Verbosity`, its name or its level."""
     try:
         return Verbosity[value.lower()] if isinstance(value, str) else Verbosity(value)
     except (KeyError, ValueError):
@@ -69,9 +69,9 @@ _COERCIONS = {"verbosity": _as_verbosity, "device": _as_device}
 class Settings:
     """Process-wide defaults.
 
-    Mirrors the parts of `scanpy.settings` that change behaviour rather than
-    plotting: chatter, the default device, and the memory ceiling that the
-    chunked paths size their blocks against.
+    These settings change how the analysis runs. They set how much is logged, the
+    default device, and the memory limit that the chunked paths use to size their
+    blocks.
     """
 
     verbosity: Verbosity = Verbosity.warning

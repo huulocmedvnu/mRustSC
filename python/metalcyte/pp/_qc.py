@@ -18,20 +18,17 @@ if TYPE_CHECKING:
 
 __all__ = ["calculate_qc_metrics", "filter_genes_dispersion", "normalize_per_cell", "sqrt"]
 
-# scanpy names its columns after what is being counted; `calculate_qc_metrics`
-# exposes both words as arguments, and every caller leaves them at these values.
+# The QC column names are built from what is counted (counts) and over what (genes).
 _EXPR_TYPE = "counts"
 _VAR_TYPE = "genes"
 
-# Counts are integers, so scanpy's per-cell and per-gene occupancy counts are too.
+# Counts are integers, so the per-cell and per-gene occupancy counts are too.
 _COUNT_DTYPE = np.int32
 
-# `normalize_per_cell` drops cells below this many counts before normalising;
-# scanpy exposes it as `min_counts` and defaults it to 1.
+# `normalize_per_cell` drops cells below this many counts before normalising.
 _MIN_COUNTS = 1
 
-# The dispersion cut-offs `filter_genes_dispersion` falls back on when no
-# `n_top_genes` is given, straight from scanpy's defaults.
+# The dispersion cut-offs `filter_genes_dispersion` uses when no `n_top_genes` is given.
 _MIN_DISPERSION = 0.5
 _MIN_MEAN = 0.0125
 _MAX_MEAN = 3.0
@@ -45,15 +42,18 @@ def calculate_qc_metrics(
     log1p: bool = True,
     inplace: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame] | None:
-    """Per-cell and per-gene QC metrics, as `scanpy.pp.calculate_qc_metrics`.
+    """Per-cell and per-gene quality-control metrics, written to `obs` and `var`.
 
-    `qc_vars` names boolean columns of `adata.var` — `"mt"` for the
-    mitochondrial genes, say — and each one adds the totals and the percentage
-    of a cell's counts that fall in it.
+    Per cell it records the number of genes detected, the total counts and the
+    percentage of counts in the top 50, 100, 200 and 500 genes. Per gene it records
+    the number of cells, the mean and total counts and the dropout percentage.
+    `qc_vars` names boolean columns of `adata.var`, such as `"mt"` for the
+    mitochondrial genes. Each one adds the total and the percentage of a cell's
+    counts that fall in that gene set.
     """
     import pandas as pd
 
-    # scanpy sorts the requested depths, and the columns come out in that order.
+    # The requested depths are sorted, and the columns come out in that order.
     percent_top = sorted(percent_top) if percent_top else []
     subsets = [np.asarray(adata.var[name], dtype=bool) for name in qc_vars]
     cells, genes = _extension().qc_metrics(*_csr_args(adata.X), percent_top, subsets)
@@ -94,11 +94,10 @@ def calculate_qc_metrics(
 
 
 def _insert_log1p_columns(metrics: pd.DataFrame, columns: Sequence[str]) -> None:
-    """Add `log1p_<column>` directly after each of `columns`, where scanpy puts it.
+    """Add `log1p_<column>` directly after each of `columns`.
 
-    The transform is a display convenience on a column already computed, which is
-    why it lives here and not in the core — scanpy derives these columns in its
-    Python layer too, from exactly these values.
+    The transform is a display convenience on a column already computed, so it
+    lives here and not in the Rust core.
     """
     for column in columns:
         metrics.insert(
@@ -109,17 +108,14 @@ def _insert_log1p_columns(metrics: pd.DataFrame, columns: Sequence[str]) -> None
 def normalize_per_cell(
     adata: AnnData, *, counts_per_cell_after: float | None = None, inplace: bool = True
 ) -> sp.csr_matrix | None:
-    """scanpy's legacy per-cell normalisation, kept because pipelines still call it.
+    """Older per-cell normalisation, kept because existing pipelines still call it.
 
-    It is `normalize_total` with two habits of its own, both preserved here: the
-    pre-normalisation totals are recorded in `adata.obs["n_counts"]`, and cells
-    with no counts at all are dropped instead of being left unscaled. Dropping
-    them first is also what makes the default target — the median count — the
-    median over the *remaining* cells, as scanpy takes it.
+    It is `normalize_total` with two extra steps. It records the totals before
+    normalisation in `adata.obs["n_counts"]`. It drops cells with no counts at all.
+    The default target is the median count over the remaining cells.
 
-    Those two are part of the legacy semantics rather than of writing back a
-    matrix, so they happen whatever `inplace` says; only the normalised matrix is
-    returned instead of stored when it is `False`.
+    Both extra steps happen whatever `inplace` says. With `inplace=False` only the
+    normalised matrix is returned instead of stored.
     """
     cells, _ = _extension().qc_metrics(*_csr_args(adata.X), [], [])
     adata.obs["n_counts"] = np.asarray(cells["total_counts"], dtype=_VALUE_DTYPE)
@@ -128,7 +124,7 @@ def normalize_per_cell(
 
 
 def sqrt(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
-    """Square-root transform, as `scanpy.pp.sqrt`."""
+    """Square-root transform of `adata.X`."""
     rooted = _csr_from_parts(_extension().sqrt(*_csr_args(adata.X)), adata.shape)
     if not inplace:
         return rooted
@@ -143,15 +139,14 @@ def filter_genes_dispersion(
     n_top_genes: int | None = None,
     inplace: bool = True,
 ) -> pd.DataFrame | None:
-    """scanpy's older dispersion-based gene filter, from before `highly_variable_genes`.
+    """Older dispersion-based gene filter that selects genes by fixed cut-offs.
 
-    The dispersions are `highly_variable_genes`' own, so the two agree by
-    construction. What survives from the legacy function is its selection rule:
-    without `n_top_genes` it keeps every gene inside a fixed window of mean
-    expression and above a dispersion cut-off, rather than a fixed count.
+    The dispersions come from `highly_variable_genes`, so the two agree. Without
+    `n_top_genes` the filter keeps every gene with a mean expression between 0.0125
+    and 3 and a normalised dispersion above 0.5. With `n_top_genes` it keeps that
+    many genes.
 
-    Unlike scanpy's version this never subsets `adata`; the flag is written to
-    `adata.var["highly_variable"]`, which is scanpy's `subset=False` behaviour.
+    It never subsets `adata`. The flag is written to `adata.var["highly_variable"]`.
     """
     # The cut-off rule ranks nothing, so it needs the statistics rather than the
     # flag; asking for every gene keeps the one core call that produces both.
@@ -168,10 +163,10 @@ def filter_genes_dispersion(
 
 
 def _within_dispersion_cutoffs(table: pd.DataFrame) -> np.ndarray:
-    """scanpy's cut-off selection: a window on the mean, a floor on the dispersion.
+    """Cut-off selection: a window on the mean and a floor on the dispersion.
 
-    A gene whose dispersion is undefined is treated as having none rather than
-    being dropped, which is how scanpy keeps it out of the selection.
+    A gene whose dispersion is undefined is treated as having a dispersion of 0,
+    so it stays out of the selection.
     """
     means = table["means"].to_numpy()
     dispersions = np.nan_to_num(table["dispersions_norm"].to_numpy())

@@ -1,4 +1,4 @@
-"""Preprocessing, like `scanpy.pp`.
+"""Preprocessing: quality control, filtering, normalisation, gene selection, PCA and neighbours.
 
 Each area of work has its own module. This file only re-exports their functions, so
 adding an area never means editing the same file twice.

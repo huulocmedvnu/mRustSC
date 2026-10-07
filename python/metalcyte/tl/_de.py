@@ -1,4 +1,4 @@
-"""Find genes that differ between groups of cells, like `scanpy.tl.rank_genes_groups`.
+"""Find genes that differ between groups of cells and rank them.
 
 This is called differential expression (DE).
 """
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = ["filter_rank_genes_groups", "rank_genes_groups"]
 
-# scanpy's dtype per `uns["rank_genes_groups"]` field; its plotting reads these.
+# The dtype of each `uns["rank_genes_groups"]` field. Plotting reads these.
 _DE_FIELD_DTYPES = {
     "names": "O",
     "scores": "float32",
@@ -32,11 +32,11 @@ _DE_FIELD_DTYPES = {
 _SUPPORTED_METHODS = ("wilcoxon", "t-test", "t-test_overestim_var", "logreg")
 _TIE_CORRECT = False
 
-# scanpy reports neither p-values nor fold changes for `logreg`: a coefficient is
-# not a test statistic, so its `uns` entry holds only `names` and `scores`.
+# `logreg` reports neither p-values nor fold changes. A coefficient is not a test
+# statistic, so its `uns` entry holds only `names` and `scores`.
 _LOGREG_FIELDS = ("names", "scores")
 
-# sklearn's `max_iter`, which scanpy does not override.
+# The iteration limit of the logistic regression fit, as in scikit-learn.
 _LOGREG_MAX_ITER = 100
 
 
@@ -95,11 +95,11 @@ def _write_ranking(
     method: str,
     gene_names: np.ndarray,
 ) -> None:
-    """Rank the core's per-group statistics by score and write scanpy's slot."""
+    """Rank the core's per-group statistics by score and write `uns[key_added]`."""
     rows = [label_names.index(name) for name in group_names]
     scores = np.asarray(result["scores"])
-    # scanpy reverses an ascending argsort, which flips the order of tied
-    # scores; sorting the negated array instead would not match it.
+    # Reversing an ascending argsort flips the order of tied scores. Sorting the
+    # negated array would give a different order for ties.
     order = {row: np.argsort(scores[row])[::-1] for row in rows}
     columns = {
         "names": [gene_names[order[row]] for row in rows],
@@ -243,8 +243,8 @@ def _compare(
             *csr, codes, n_labels, reference_index, _TIE_CORRECT, device
         )
     if method == "logreg":
-        # One multinomial fit over every labelled cell, as scanpy does: a named
-        # reference takes part as a further class, not as a comparison.
+        # One multinomial fit over every labelled cell. A named reference takes
+        # part as one more class, not as a comparison.
         return extension.rank_genes_groups_logreg(*csr, codes, n_labels, _LOGREG_MAX_ITER, device)
     t_test = {
         "t-test": extension.rank_genes_groups_t_test,
@@ -290,7 +290,7 @@ def _labels(adata: AnnData, groupby: str, label_names: Sequence[str]) -> np.ndar
 
 
 def _record_array(columns: Sequence[np.ndarray], group_names: Sequence[str], dtype: str):
-    """Build the one-field-per-group structured array scanpy's accessors expect."""
+    """Build the structured array with one field per group that `get.rank_genes_groups_df` reads."""
     return np.rec.fromarrays(
         [np.asarray(column, dtype=dtype) for column in columns],
         dtype=[(name, dtype) for name in group_names],
@@ -307,10 +307,13 @@ def filter_rank_genes_groups(
     max_out_group_fraction: float = 0.5,
     min_fold_change: float = 2.0,
 ) -> None:
-    """Hide marker genes that fail the expression-fraction and fold-change filters, as scanpy does.
+    """Hide marker genes that fail the expression-fraction and fold-change filters.
 
-    The result keeps the shape of `uns[key]` and replaces the names of the genes
-    that fail with `NaN`, which is what scanpy's plotting expects to find.
+    A gene passes when it is expressed in more than `min_in_group_fraction` of the
+    group, in less than `max_out_group_fraction` of the other cells, and has a fold
+    change above `min_fold_change`. The result keeps the shape of `uns[key]`.
+    The names of the genes that fail are replaced with `NaN`. It is written to
+    `uns[key_added]`.
     """
     # Imported here, and the two helpers defined here, because another branch
     # owns the rest of this file: this keeps the diff inside one function.
@@ -328,7 +331,7 @@ def filter_rank_genes_groups(
     def log_fold_change(inside, outside) -> np.ndarray:
         """Log2 fold change, undoing the log the counts were stored in.
 
-        The 1e-9 is scanpy's guard against a gene expressed in neither group.
+        The 1e-9 guards against a gene expressed in neither group.
         """
         base = adata.uns.get("log1p", {}).get("base")
         expm1 = np.expm1 if base is None else (lambda values: np.expm1(values * np.log(base)))
@@ -346,9 +349,8 @@ def filter_rank_genes_groups(
     params = result["params"]
     if groupby is None:
         groupby = params["groupby"]
-    # The stored statistics describe one particular comparison, so scanpy only
-    # reuses them when that is the comparison being filtered, and recomputes
-    # them from X otherwise.
+    # The stored statistics describe one particular comparison. They are reused
+    # only when that is the comparison being filtered, and recomputed from X otherwise.
     same_params = params["groupby"] == groupby and params["reference"] == "rest"
     use_logfolds = same_params and "logfoldchanges" in result
     use_fractions = same_params and "pts_rest" in result
