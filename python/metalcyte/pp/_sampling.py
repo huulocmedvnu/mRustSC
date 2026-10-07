@@ -1,4 +1,4 @@
-"""Subsampling cells and counts. Owned by feat/sampling."""
+"""Take random subsets of cells or of counts. Owned by feat/sampling."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def downsample_counts(
     replace: bool = False,
     copy: bool = False,
 ) -> AnnData | None:
-    """Thin the counts themselves, as `scanpy.pp.downsample_counts`."""
+    """Randomly remove counts to lower each cell's total, as `scanpy.pp.downsample_counts`."""
     if (counts_per_cell is None) is (total_counts is None):
         raise ValueError("Must specify exactly one of `total_counts` or `counts_per_cell`.")
     if copy:

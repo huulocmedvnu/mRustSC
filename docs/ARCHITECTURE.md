@@ -2,6 +2,8 @@
 
 ## Layers
 
+Metalcyte has four parts. Python code sits on top and Rust code below it.
+
 ```
 python/metalcyte/{pp,tl,get,metrics}   AnnData plumbing and defaults
         │
@@ -12,94 +14,89 @@ crates/metalcyte-core                  data types and every algorithm, written a
         └── crates/metalcyte-gpu       Metal context and hand written kernels
 ```
 
-Dependencies point downwards. Each layer knows only about the one below it, and
-each has one job:
+Each layer uses only the layer below it, and each layer has one job:
 
-- **Python** holds defaults, argument names and the AnnData slot a result lands
-  in. It performs no arithmetic.
-- **Bindings** convert between numpy/scipy and Rust types, and map
-  `metalcyte_core::Error` to Python exceptions. They hold no defaults, which is
-  why every binding argument is required.
-- **Core** holds the algorithms and the data types. It knows nothing about Python
-  or AnnData.
-- **GPU** holds Metal: the device, the pipeline cache, and the kernels. It sits
-  beside the core and depends on `metalcyte-core`. The bindings depend on it too,
-  for the one kernel (`knn`) that is wired in. See below.
+- **Python** sets default values and argument names, and decides where in the AnnData object each
+  result goes. It does no calculations.
+- **Bindings** (PyO3, the library that connects Python and Rust) convert numpy and scipy arrays
+  into Rust types and back. They turn `metalcyte_core::Error` into Python exceptions. They hold no
+  default values, so every binding argument is required.
+- **Core** holds the algorithms and the data types. It knows nothing about Python or AnnData.
+- **GPU** holds the Metal code: the device, a cache of compiled GPU programs, and the kernels
+  (hand-written GPU programs). It sits beside the core and depends on `metalcyte-core`. The bindings
+  also depend on it, for the one kernel (`knn`) that is connected. See below.
 
-## The GPU path is candle
+## The GPU code is candle
 
-Everything expressible as tensor algebra is written once against
-`candle_core::Tensor` and takes a `Device`. The same source runs on the CPU and
-on the Apple GPU, so the CPU path is the same implementation and serves as the
-correctness oracle the GPU path is tested against. This is the way a Python
-caller reaches the GPU: `DeviceKind` resolves to a `candle_core::Device`, the
-binding hands it to the core, and candle's Metal backend does the arithmetic.
+candle is a Rust library for array (tensor) calculations that runs on the CPU or on the Apple GPU.
+Every calculation that candle can express is written once with `candle_core::Tensor` and receives a
+`Device`. The same source code runs on both devices. The CPU version serves as the reference that
+the GPU version is tested against. This is how a Python call reaches the GPU. `DeviceKind` becomes a
+`candle_core::Device`, the binding passes it to the core, and candle's Metal code does the
+calculation.
 
-Not every algorithm uses that device. `pca`, `neighbors`, `tsne`,
-`diffusion`, `batch`, `layout`, `autocorrelation`, `scoring` and `de/glm` build
-tensors on it. `umap`, `cluster`, `normalize`, `hvg`, `de/wilcoxon` and
-`de/parametric` take the argument as `_device` and run on the CPU regardless,
-because their inner loops are graph or rank work and have no tensor algebra to
-offload. Passing `device="gpu"` is a request, and each of those modules says in
-its own docs why it declines.
+Some algorithms ignore the device. `pca`, `neighbors`, `tsne`, `diffusion`, `batch`, `layout`,
+`autocorrelation`, `scoring` and `de/glm` run on it. `umap`, `cluster`, `normalize`, `hvg`,
+`de/wilcoxon` and `de/parametric` receive it as `_device` and always run on the CPU. Their inner
+loops walk graphs or rank values, and contain no matrix calculations to move to the GPU. So
+`device="gpu"` is a request. The documentation of each of those modules says why it runs on the CPU.
 
-## `metalcyte-gpu` is a sidecar, not a layer
+## `metalcyte-gpu` sits beside the core
 
-`metalcyte-gpu` holds four hand written Metal kernels, `knn`, `spmm`,
-`tsne_gradient` and `umap_sgd`, for the loops candle cannot express: nearest
-neighbour selection, sparse products that would have to be densified first,
-and the fused attract and repel steps of t-SNE and UMAP. Expressing those with
-tensor ops would mean materialising an `(n, n)` matrix that only exists to be
-thrown away.
+`metalcyte-gpu` holds four hand-written Metal kernels: `knn`, `spmm`, `tsne_gradient` and
+`umap_sgd`. They do work that candle cannot express directly. That work is choosing the nearest
+neighbours, multiplying sparse matrices without making them dense first, and the combined attract
+and repel steps of t-SNE and UMAP. With candle, each of these would need a full `(n, n)` matrix
+that is built only to be discarded.
 
-**One of them, `knn`, is reachable from Python.** `crates/metalcyte-py/Cargo.toml`
-depends on `metalcyte-gpu`, and the `embedding` binding dispatches a Metal caller's
-k-NN to `knn_metal`, falling back to the candle path on the CPU or where no Metal
-context builds (`metalcyte-py/src/embedding.rs`). To stay a drop-in for the CPU
-oracle it reproduces the core k-NN's mean-centering and squared-distance snapping
-in the MSL, and the device parity test holds the two devices' neighbour lists equal.
+**Python can reach one of them, `knn`.** `crates/metalcyte-py/Cargo.toml` depends on
+`metalcyte-gpu`. For a call on Metal, the `embedding` binding sends the k-NN search to `knn_metal`.
+On the CPU, or when Metal fails to start, it uses the candle version
+(`metalcyte-py/src/embedding.rs`). The kernel must give the same answer as the CPU reference. So
+its MSL code (Metal Shading Language) repeats two steps of the core k-NN: it centres the data on the
+mean, and it sets tiny squared distances to zero. The device comparison test requires both devices
+to return the same neighbour lists.
 
-**The other three are not.** `spmm` has no Python-reachable consumer, since the
-core PCA multiplies a centred sparse matrix with a rank-one correction and the
-kernel offers only a plain sparse times dense product. `tsne_gradient` is unwired.
-`umap_sgd` is left unwired on purpose: it is Hogwild, so wiring it would make a
-UMAP layout depend on whether the caller has a GPU. Each is still tested against
-a brute-force CPU reference in its own module. Outside of k-NN, read a claim
-about "the GPU path" in this repository as candle unless it names a kernel.
+**Python cannot reach the other three.** `spmm` has no caller. The core PCA multiplies a centred
+sparse matrix, which needs an extra rank-one correction, and the kernel computes only a plain sparse
+times dense product. `tsne_gradient` is not connected. `umap_sgd` is left unconnected on purpose. It
+uses Hogwild updates, where parallel threads change the layout at the same time without locks, so
+results vary from run to run. Connecting it would make a UMAP layout depend on whether the computer
+has a GPU. Each kernel is still tested against a simple CPU version in its own module. Outside of
+k-NN, when this repository mentions "the GPU path", it means candle, unless it names a kernel.
 
 If a kernel and its reference ever disagree, the core version is right.
 
 ## Data flow
 
-`AnnData.X` is CSR. The three CSR arrays cross the FFI boundary directly, which
-avoids densifying a matrix that is 90-95% zeros. Inside the core, algorithms
-densify a row block at a time when they need a tensor, so peak memory stays
-bounded by the tile size and does not grow with the matrix.
+`AnnData.X` is a sparse matrix in CSR format. Python passes its three CSR arrays straight to Rust,
+so a matrix that is 90-95% zeros is never expanded into a full (dense) matrix. When an algorithm in
+the core needs a dense array, it expands one block of rows at a time. Peak memory then depends on
+the block size and does not grow with the matrix.
 
-Apple silicon has unified memory, so a Metal buffer over a Rust slice is a view,
-and no copy crosses a bus. That is the property that makes GPU acceleration worth
-it at single-cell matrix sizes, where a discrete GPU would spend more time on
-transfers than on arithmetic.
+On Apple silicon the CPU and the GPU share the same memory (unified memory). The GPU reads the data
+where Rust stored it, and nothing is copied. This is why the GPU helps even with single-cell matrix
+sizes. A separate graphics card would spend more time copying data than calculating.
 
 ## Conventions
 
-- Matrices are cells by genes, matching AnnData.
-- `f32` for expression data and for every tensor: the Apple GPU has no `f64`,
-  and scanpy's own results are `f32` after normalisation. Two exceptions, both
-  because `f32` loses the answer outright: CPU reductions accumulate in `f64`
-  and round once at the end (per gene moments in `scale`, the rank sums in
-  `wilcoxon`), and p-values stay `f64` throughout, since a rank sum p-value
-  routinely underflows `f32` to exactly zero.
-- Randomness takes an explicit seed. Same seed, same bytes, except where a
-  kernel documents a deliberate race, which must be stated in its module docs.
-- `snake_case` for functions and modules, `PascalCase` for types, names long
-  enough to explain themselves.
-- Errors are `metalcyte_core::Error`. Nothing panics on user input.
+- Matrices are cells by genes, as in AnnData.
+- Expression data and all tensors use `f32` (32-bit floating point). The Apple GPU has no `f64`,
+  and scanpy's own results are `f32` after normalisation. There are two exceptions, both where
+  `f32` would lose the answer completely. CPU sums are computed in `f64` and rounded once at the end
+  (per-gene moments in `scale`, the rank sums in `wilcoxon`). p-values stay `f64` everywhere,
+  because a rank-sum p-value is often too small for `f32` and would become exactly zero.
+- Every random step takes an explicit seed. The same seed gives the same bytes. The exception is a
+  kernel whose threads race on purpose, and its module documentation must say so.
+- Functions and modules use `snake_case`, types use `PascalCase`, and names are long enough to
+  explain themselves.
+- Errors are `metalcyte_core::Error`. Bad user input never makes the program crash (panic).
 
 ## Correctness
 
-scanpy defines correct. The form of agreement differs per algorithm: element
-wise for deterministic transforms, set overlap for selections, neighbourhood
-preservation for stochastic embeddings. It is fixed in
-[development/API_CONTRACT.md](development/API_CONTRACT.md) so that no change can
-quietly weaken its own bar. Measured results live in [VALIDATION.md](VALIDATION.md).
+scanpy defines the correct answer. The kind of agreement depends on the algorithm. Calculations with
+one correct answer are compared value by value. Selections are compared by the overlap of the
+selected sets. Embeddings that depend on random numbers are compared by how well they keep each
+cell's neighbours. These rules are fixed in
+[development/API_CONTRACT.md](development/API_CONTRACT.md), so that no change can quietly lower its
+own standard. The measured results are in [VALIDATION.md](VALIDATION.md).

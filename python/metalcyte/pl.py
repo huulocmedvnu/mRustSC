@@ -1,18 +1,18 @@
-"""Native plotting for metalcyte: embeddings rasterised on the GPU, matplotlib around them.
+"""Plots for metalcyte results. The GPU draws the cells and matplotlib draws the rest.
 
-`mc.pl` draws the figures a single-cell analysis needs from the AnnData slots metalcyte
-writes: the embeddings in `obsm` (`umap`, `tsne`, `pca`, `embedding`) coloured by an `obs`
-column or a gene, the PCA spectrum from `uns["pca"]`, and the differential-expression
-ranking from `uns["rank_genes_groups"]`. The embedding scatters are rendered by Metal
-into one bitmap (`render_embedding`), so a million cells draw in milliseconds and a
-notebook shows them as a single image; matplotlib supplies the axes, legend and colour
-bar. It depends only on matplotlib (and seaborn for palettes when present); it never
-imports scanpy.
+`mc.pl` draws the standard single-cell figures from the `AnnData` slots that metalcyte
+writes. These are the embeddings in `obsm` (`umap`, `tsne`, `pca`, `embedding`) coloured
+by an `obs` column or a gene, the PCA variance plot from `uns["pca"]`, and the
+differential-expression ranking from `uns["rank_genes_groups"]`. The GPU draws all the
+points of an embedding into one image through Metal (`render_embedding`). A million
+cells draw in milliseconds, and a notebook shows them as a single picture. matplotlib
+adds the axes, legend and colour bar. The module needs only matplotlib, plus seaborn for
+colour palettes if it is installed. It never imports scanpy.
 
-Every function shares the house style: clean spines, a subtle grid, a modern sans-serif,
-categorical clusters in plotly's qualitative palettes and gene expression in a
-perceptual continuous colormap (``plasma``, plotly's default). `save` writes the figure
-and `show` displays it; by default a figure is shown only when it is not saved.
+All functions share one style: plain axes, a light grid and a sans-serif font. Clusters
+use plotly's qualitative palettes. Gene expression uses the continuous colormap
+``plasma``, plotly's default. `save` writes the figure to a file and `show` displays it.
+By default a figure is shown only when it is not saved.
 """
 
 from __future__ import annotations
@@ -292,7 +292,7 @@ def render_embedding(
     background: str = "white",
     device: str | None = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Rasterise `obsm[basis]` on the GPU into an RGBA image, `(height, width, 4)` uint8.
+    """Draw `obsm[basis]` on the GPU as an RGBA image, a `(height, width, 4)` uint8 array.
 
     This is the primitive behind `embedding`, `umap`, `tsne` and `pca`: a million cells
     become one bitmap in a few milliseconds, so a notebook shows them as a single image
@@ -390,7 +390,7 @@ def embedding(
     show: bool | None = None,
     save: str | Path | None = None,
 ) -> Axes | list[Axes] | None:
-    """Scatter of `obsm[basis]`, rendered on the GPU, coloured by `obs` columns or genes.
+    """Scatter plot of `obsm[basis]`, drawn on the GPU, coloured by `obs` columns or genes.
 
     Mirrors `scanpy.pl.embedding`: `color` may be one key or several (one panel each,
     `ncols` across). A categorical column draws one colour per level and a legend, in the

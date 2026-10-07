@@ -1,4 +1,4 @@
-"""Community detection on the neighbour graph. Owned by feat/leiden."""
+"""Find clusters (communities) of cells in the neighbour graph. Owned by feat/leiden."""
 
 from __future__ import annotations
 

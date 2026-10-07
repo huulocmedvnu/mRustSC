@@ -1,4 +1,4 @@
-"""Quality-control metrics and the legacy normalisation helpers. Owned by feat/qc-metrics."""
+"""Quality-control (QC) metrics and older normalisation helpers. Owned by feat/qc-metrics."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def filter_genes_dispersion(
     n_top_genes: int | None = None,
     inplace: bool = True,
 ) -> pd.DataFrame | None:
-    """The pre-`highly_variable_genes` dispersion filter scanpy still ships.
+    """scanpy's older dispersion-based gene filter, from before `highly_variable_genes`.
 
     The dispersions are `highly_variable_genes`' own, so the two agree by
     construction. What survives from the legacy function is its selection rule:

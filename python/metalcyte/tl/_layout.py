@@ -1,4 +1,7 @@
-"""Dendrograms, force-directed layouts and embedding densities. Owned by feat/layout."""
+"""Dendrograms, force-directed graph layouts and cell density in an embedding.
+
+Owned by feat/layout.
+"""
 
 from __future__ import annotations
 
@@ -136,7 +139,7 @@ def draw_graph(
 def embedding_density(
     adata: AnnData, *, basis: str = "umap", groupby: str | None = None, key_added: str | None = None
 ) -> None:
-    """Kernel density of cells in an embedding, as `scanpy.tl.embedding_density`.
+    """Estimate how densely cells are packed in an embedding, as `scanpy.tl.embedding_density`.
 
     Writes `obs["<basis>_density_<groupby>"]` and its `uns` parameters. Densities
     are scaled to `[0, 1]` *within* each group, so they compare cells inside a

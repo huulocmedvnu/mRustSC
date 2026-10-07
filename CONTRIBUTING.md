@@ -5,8 +5,8 @@ Bug reports, feature requests and pull requests are welcome.
 ## Reporting a bug
 
 Open an issue with the Metalcyte version (`mc.__version__`), the macOS version, the chip, a minimal
-example that reproduces the problem and the full error message. State whether the problem also
-occurs with `METALCYTE_DEVICE=cpu`.
+example that reproduces the problem and the full error message. Say whether the problem also
+happens on the CPU, with `METALCYTE_DEVICE=cpu` set in the environment.
 
 ## Development setup
 
@@ -31,14 +31,14 @@ cargo test --workspace --release
 METALCYTE_TEST_DEVICE=auto .venv/bin/pytest
 ```
 
-New numerical code needs a test against scanpy's output with a stated tolerance, as described in
-[docs/VALIDATION.md](docs/VALIDATION.md). Performance claims need a script in `benches/` that
-reproduces them.
+New numerical code needs a test that compares its output with scanpy's output and states how close
+the two must be, as described in [docs/VALIDATION.md](docs/VALIDATION.md). Each claim about speed
+or memory needs a script in `benches/` that reproduces it.
 
 ## Repository layout
 
 - `crates/metalcyte-core`: algorithms in Rust
-- `crates/metalcyte-gpu`: Metal kernels
-- `crates/metalcyte-py`: Python bindings (PyO3)
+- `crates/metalcyte-gpu`: GPU programs (Metal kernels)
+- `crates/metalcyte-py`: the connection between Python and Rust (PyO3 bindings)
 - `python/metalcyte`: the Python interface
 - `tests`, `benches`, `docs`

@@ -6,56 +6,72 @@
 [![CI](https://github.com/huulocmedvnu/metalcyte/actions/workflows/ci.yml/badge.svg)](https://github.com/huulocmedvnu/metalcyte/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huulocmedvnu/metalcyte/blob/main/LICENSE)
 
-**Single-cell RNA-seq analysis at atlas scale on an Apple silicon laptop.**
+**Single-cell RNA-seq analysis of atlas-sized datasets on an Apple silicon laptop.**
 
-Metalcyte is a Rust engine with a scanpy-compatible Python interface. It runs the standard
-single-cell pipeline on every CPU core, on the matrix coprocessor through Apple Accelerate and on
-the integrated GPU through Metal kernels, all within the chip's unified memory. An out-of-core mode
-processes count matrices larger than the machine's memory.
+Metalcyte runs the standard single-cell RNA-seq analysis, from raw counts to clusters and marker
+genes, on a Mac with an Apple M-series chip. You call it from Python with the same function names
+as scanpy, and it writes its results where scanpy expects them. The calculations run in Rust, a
+compiled programming language, and use all parts of the chip:
+
+- all CPU cores at once,
+- the chip's matrix unit, which multiplies matrices quickly, through Apple's Accelerate maths
+  library,
+- the graphics processor (GPU), through small programs written for Apple's Metal interface.
+
+On Apple silicon the CPU and the GPU share one pool of memory, so Metalcyte does not copy the data
+between them. Metalcyte can also analyse datasets that are too large to fit in the computer's
+memory. It reads the count matrix from disk in blocks, keeping only one block in memory at a time.
 
 ![UMAP of 4 062 980 human embryonic cells coloured by cell type](https://raw.githubusercontent.com/huulocmedvnu/metalcyte/main/docs/figures/embryo4m_umap.png)
 
-*The complete survey of human embryonic development, 4 062 980 cells by 45 676 genes, processed
-from raw counts to clusters in 9 minutes on a laptop with 18 GB of memory.*
+*The complete survey of human embryonic development, 4 062 980 cells by 45 676 genes. Metalcyte
+took it from raw counts to clusters in 9 minutes on a laptop with 18 GB of memory.*
 
-## Highlights
+## Main results
 
-- **Fast.** A 117 308-cell bone-marrow atlas goes from counts to marker genes in 12 s, against
-  213 s for scanpy at its defaults.
-- **Memory-frugal.** A million cells run within 18 GB, and 4 million cells peak at about 9 GB.
-- **Energy-efficient.** The same analysis uses one seventh of scanpy's energy.
-- **Validated.** Every algorithm is tested against scanpy's output with a stated tolerance.
-- **Drop-in.** Results go to the standard AnnData slots, so scanpy's plotting and downstream
-  tools read them unchanged.
+- **Fast.** A bone-marrow atlas of 117 308 cells goes from counts to marker genes in 12 s. scanpy
+  with its default settings takes 213 s.
+- **Low memory use.** A million cells fit within 18 GB of memory. The 4 million cells above used
+  about 9 GB at most.
+- **Low energy use.** The same analysis uses one seventh of the energy that scanpy uses.
+- **Checked against scanpy.** Each algorithm has a test that compares its output with scanpy's
+  output and states how close the two must be.
+- **Works with scanpy.** Metalcyte stores its results in the standard places of the AnnData
+  object. scanpy's plotting and analysis functions read them without changes.
 
 ## Features
 
-**Preprocessing.** Quality-control metrics, cell and gene filtering, library-size normalisation,
-log and square-root transforms, highly variable gene selection (Seurat and Cell Ranger
-flavours), scaling, and principal component analysis on the GPU.
+**Preprocessing.** Quality-control metrics, filtering of cells and genes, normalisation to the
+same total count per cell, log and square-root transforms, selection of highly variable genes
+(Seurat and Cell Ranger methods), scaling, and principal component analysis (PCA) on the GPU.
 
-**Out-of-core analysis.** Quality control, normalisation, feature selection, scaling and PCA in
-four streamed passes over an h5ad file on disk, without loading the matrix.
+**Datasets larger than memory.** Quality control, normalisation, selection of variable genes,
+scaling and PCA work on an h5ad file on disk. Metalcyte reads the file four times from start to end
+and never loads the whole matrix.
 
-**Batch correction and integration.** Regression of covariates, ComBat, and Harmony integration
-on all cores.
+**Batch correction and integration.** Removal of unwanted variation, such as differences in total counts per cell
+(`regress_out`), ComBat, and Harmony integration, all running on every CPU core.
 
-**Neighbour graphs.** Exact k-nearest-neighbour search on the GPU and approximate search by
-NN-descent for large datasets, selected automatically by dataset size.
+**Neighbour graphs.** For each cell, Metalcyte finds its most similar cells. Up to 200 000 cells it
+compares every pair of cells on the GPU (exact search). Above that size it uses NN-descent, a faster
+method that finds almost all of the true neighbours (approximate search). It picks the method from
+the number of cells.
 
-**Embeddings.** UMAP with a parallel optimiser, t-SNE with FFT-accelerated interpolation on the
-GPU, diffusion maps, force-directed layouts and PAGA.
+**Embeddings.** Two-dimensional maps of the cells for plotting: UMAP, computed on several cores in
+parallel, and t-SNE, with a fast approximation on the GPU for large datasets (FIt-SNE). Also
+diffusion maps, force-directed layouts and PAGA.
 
-**Clustering and trajectories.** Leiden and Louvain community detection, diffusion pseudotime
-and dendrograms of clusters.
+**Clustering and trajectories.** Leiden and Louvain clustering of the neighbour graph, diffusion
+pseudotime, and dendrograms of clusters.
 
-**Marker genes.** Wilcoxon rank-sum, t-test and logistic-regression marker tests, a Wilcoxon test
-streamed from disk for datasets beyond memory, marker overlap, and gene-set and cell-cycle scoring.
+**Marker genes.** Wilcoxon rank-sum, t-test and logistic-regression tests for genes that
+distinguish clusters. A Wilcoxon test that reads the counts from disk, for datasets larger than
+memory. Overlap between marker lists, and scoring of gene sets and cell-cycle phase.
 
 **Spatial and clustering metrics.** Moran's I, Geary's C, modularity and confusion matrices.
 
-**Plotting.** Embedding scatter plots rasterised on the GPU, which draw millions of points in
-about a second.
+**Plotting.** Scatter plots of embeddings. The GPU draws the points, so a plot of millions of cells
+takes about a second.
 
 The full reference is in [docs/API.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/API.md).
 
@@ -68,7 +84,7 @@ pip install metalcyte
 pip install "metalcyte[plot]"   # with matplotlib for plotting
 ```
 
-Neither Rust nor Xcode is required. To build from source, see [docs/INSTALL.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md).
+The package comes ready to run, so you do not need Rust or Xcode. To build it yourself from the source code, see [docs/INSTALL.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md).
 
 ## Quick start
 
@@ -95,7 +111,7 @@ mc.tl.rank_genes_groups(adata, "leiden", method="wilcoxon")
 mc.pl.umap(adata, color="leiden")
 ```
 
-For a dataset larger than memory, start from the counts file on disk:
+If the dataset is larger than memory, give Metalcyte the path of the counts file on disk:
 
 ```python
 adata = mc.pp.preprocess_backed("atlas_counts.h5ad", n_top_genes=2000, n_comps=50)
@@ -108,8 +124,8 @@ A step-by-step tutorial is in [docs/tutorials/pbmc3k_clustering.ipynb](https://g
 
 ## Benchmarks
 
-Apple M3 Pro, 18 GB of memory, scanpy 1.12.4. Full methodology in
-[docs/PERFORMANCE.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/PERFORMANCE.md).
+All timings come from an Apple M3 Pro laptop with 18 GB of memory and scanpy 1.12.4. The methods
+are described in [docs/PERFORMANCE.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/PERFORMANCE.md).
 
 | Dataset | Cells | scanpy | Metalcyte | Metalcyte memory |
 |---|---:|---:|---:|---:|
@@ -117,17 +133,18 @@ Apple M3 Pro, 18 GB of memory, scanpy 1.12.4. Full methodology in
 | Human embryo, counts to clusters | 1 001 288 | did not finish¹ | **103 s** | under 1.5 GB per step |
 | Human embryo, full survey | 4 062 980 | not run | **538 s** | about 9 GB at peak |
 
-¹ scanpy's scaling step needed 21.9 GB on the 18 GB machine, and the run was stopped after
-15 minutes of swapping.
+¹ scanpy's scaling step needed 21.9 GB on the 18 GB machine. The computer then moved memory to disk
+(swapping), and we stopped the run after 15 minutes.
 
 | Energy, 117 308 cells | Time | Energy |
 |---|---:|---:|
 | scanpy | 237 s | 1 228 J |
 | Metalcyte | 13 s | **168 J** |
 
-Agreement with scanpy on the bone-marrow atlas: the same highly variable genes, the same principal
-subspace, Leiden clusterings at an adjusted Rand index of 0.95 and the same marker genes. Details in
-[docs/VALIDATION.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/VALIDATION.md).
+On the bone-marrow atlas, Metalcyte and scanpy select the same highly variable genes, and their
+principal components span the same space. Their Leiden clusterings agree with an adjusted Rand index of 0.95 (1.0
+means identical clusters, 0 means chance agreement). They report the same marker genes. Details are
+in [docs/VALIDATION.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/VALIDATION.md).
 
 ## Documentation
 

@@ -1,4 +1,7 @@
-"""Differential expression, mirroring `scanpy.tl.rank_genes_groups`."""
+"""Find genes that differ between groups of cells, like `scanpy.tl.rank_genes_groups`.
+
+This is called differential expression (DE).
+"""
 
 from __future__ import annotations
 
@@ -304,7 +307,7 @@ def filter_rank_genes_groups(
     max_out_group_fraction: float = 0.5,
     min_fold_change: float = 2.0,
 ) -> None:
-    """Blank out genes failing the expression-fraction filters, as scanpy does.
+    """Hide marker genes that fail the expression-fraction and fold-change filters, as scanpy does.
 
     The result keeps the shape of `uns[key]` and replaces the names of the genes
     that fail with `NaN`, which is what scanpy's plotting expects to find.

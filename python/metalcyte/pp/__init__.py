@@ -1,7 +1,7 @@
-"""Preprocessing, mirroring `scanpy.pp`.
+"""Preprocessing, like `scanpy.pp`.
 
-One module per area of responsibility; this file only re-exports, so adding an
-area never means editing the same file twice.
+Each area of work has its own module. This file only re-exports their functions, so
+adding an area never means editing the same file twice.
 """
 
 from metalcyte._streaming import preprocess_backed

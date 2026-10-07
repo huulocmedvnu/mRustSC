@@ -1,4 +1,4 @@
-"""Comparing labellings. Owned by feat/metrics."""
+"""Compare two sets of cell labels, for example two clusterings. Owned by feat/metrics."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def _ordered(labels: pd.Series) -> Any:
 
 
 def modularity(adata: AnnData, keys: str, *, neighbors_key: str = "neighbors") -> float:
-    """Newman modularity of a labelling on the neighbour graph.
+    """Newman modularity: how well a set of labels splits the neighbour graph into communities.
 
     `keys` names a column of `adata.obs`; its categories become the partition.
     The graph is the connectivities `neighbors_key` points at, so a labelling and

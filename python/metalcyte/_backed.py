@@ -1,18 +1,17 @@
-"""Row blocks read straight from an `.h5ad`, for matrices that do not fit in memory.
+"""Read the count matrix of an `.h5ad` file from disk in blocks of cells.
 
-Nothing here is wired into `metalcyte.pp` yet — those functions still take an
-in-memory `AnnData`. This is the piece they adopt when they stop doing that, so
-the surface is deliberately the smallest one a chunked preprocessing step needs:
-open a file, iterate row blocks, close it.
+This module lets Metalcyte work with count matrices that are too large for the
+computer's memory. It opens a file, hands out the rows of `X` in blocks, and closes
+the file. `pp.preprocess_backed`, `tl.rank_genes_groups_backed`, and
+`pp.normalize_total` and `pp.log1p` on a backed `AnnData` use it.
 
     with open_backed("atlas.h5ad") as backed:
         for start, block in backed.blocks():
             ...  # `block` is a scipy CSR matrix of at most `block_size` cells
 
-The matrix is never read whole: `anndata`'s backed mode leaves `X` on disk and
-each block is one HDF5 read of the slice it covers. Peak memory is therefore the
-block, not the dataset, and the block is sized against
-`metalcyte.settings.max_memory_gb`.
+The full matrix is never loaded. In `anndata`'s backed mode, `X` stays on disk, and
+each block is one read of its slice from the HDF5 file. Memory use is set by the size
+of one block. Metalcyte chooses the block size from `metalcyte.settings.max_memory_gb`.
 """
 
 from __future__ import annotations
@@ -78,7 +77,7 @@ def block_size_for(
 
 
 class BackedMatrix:
-    """An open `.h5ad` handing out row blocks of `X`.
+    """An open `.h5ad` file that returns the rows of `X` in blocks of cells.
 
     Build one with `open_backed`. It owns the open HDF5 file, so use it as a
     context manager or call `close` when done.
@@ -182,7 +181,7 @@ class BackedMatrix:
 
 
 def open_backed(path: str | os.PathLike[str]) -> BackedMatrix:
-    """Open an `.h5ad` in backed mode, leaving `X` on disk.
+    """Open an `.h5ad` file in backed mode, so `X` stays on disk and is read in blocks.
 
     Raises `FileNotFoundError` if the file does not exist, `ValueError` if it is
     not an `.h5ad`, and `TypeError` if its `X` cannot be sliced by rows — a
@@ -269,7 +268,7 @@ def _median_matching_core(totals: np.ndarray) -> float | None:
 
 
 def normalize_total_backed(adata: anndata.AnnData, target_sum: float | None) -> None:
-    """`pp.normalize_total` for a backed AnnData: stream row blocks and rewrite `X` on disk.
+    """`pp.normalize_total` for a backed AnnData. It reads `X` in blocks and rewrites it on disk.
 
     With `target_sum` given, each block is scaled by the same core routine the in-memory
     path uses, so the result is bit-for-bit identical to the in-memory one — normalisation
@@ -298,7 +297,7 @@ def normalize_total_backed(adata: anndata.AnnData, target_sum: float | None) -> 
 
 
 def log1p_backed(adata: anndata.AnnData) -> None:
-    """`pp.log1p` for a backed AnnData: stream row blocks and rewrite `X` on disk in place.
+    """`pp.log1p` for a backed AnnData. It reads `X` in blocks and overwrites it on disk.
 
     log1p is element-wise, so a block's result is bit-for-bit the in-memory result.
     """

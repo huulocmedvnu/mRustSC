@@ -1,9 +1,9 @@
-"""Removing unwanted variation. Owned by feat/regress-combat.
+"""Remove unwanted variation, such as batch effects. Owned by feat/regress-combat.
 
-Plumbing only: this module resolves `obs` column names to a numeric design,
-hands the matrix to the Rust core, and writes the dense result back to
-`adata.X`. The arithmetic — including the intercept column and the one-hot
-encoding's effect on the fit — belongs to the core.
+This module only moves data. It turns `obs` column names into a numeric design matrix,
+passes the expression matrix to the Rust core, and writes the dense result back to
+`adata.X`. The Rust core does all the arithmetic, including the intercept column and the
+handling of one-hot encoded categories.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ __all__ = ["combat", "regress_out"]
 def regress_out(
     adata: AnnData, keys: str | Sequence[str], *, device: str | None = None, inplace: bool = True
 ) -> np.ndarray | None:
-    """Regress each gene on `keys` and keep the residuals, as `scanpy.pp.regress_out`."""
+    """Remove the effect of the `keys` covariates from each gene, as `scanpy.pp.regress_out`."""
     keys = [keys] if isinstance(keys, str) else list(keys)
     if not keys:
         raise ValueError("regress_out needs at least one obs column to regress on")
@@ -56,7 +56,7 @@ def combat(
     device: str | None = None,
     inplace: bool = True,
 ) -> np.ndarray | None:
-    """Empirical Bayes batch correction, as `scanpy.pp.combat`."""
+    """Correct batch effects with the ComBat empirical Bayes method, as `scanpy.pp.combat`."""
     covariates = list(covariates or [])
     if key in covariates:
         raise ValueError(f"the batch key {key!r} cannot also be a covariate")

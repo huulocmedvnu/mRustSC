@@ -1,4 +1,4 @@
-"""Pulling tidy frames out of an AnnData. Owned by feat/accessors."""
+"""Build tidy pandas tables from an `AnnData`. Owned by feat/accessors."""
 
 from __future__ import annotations
 

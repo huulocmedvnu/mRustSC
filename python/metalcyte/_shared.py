@@ -1,7 +1,7 @@
-"""AnnData plumbing shared by every module.
+"""Helpers for reading and writing `AnnData` objects, shared by every module.
 
-Kept out of the feature modules so that adding a feature never means editing a
-file another feature also edits.
+They live in their own file so that adding one feature does not require editing a
+file that another feature also uses.
 """
 
 from __future__ import annotations
