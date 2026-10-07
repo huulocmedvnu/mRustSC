@@ -1,9 +1,9 @@
 """Read the count matrix of an `.h5ad` file from disk in blocks of cells.
 
-This module lets Metalcyte work with count matrices that are too large for the
-computer's memory. It opens a file, hands out the rows of `X` in blocks, and closes
-the file. `pp.preprocess_backed`, `tl.rank_genes_groups_backed`, and
-`pp.normalize_total` and `pp.log1p` on a backed `AnnData` use it.
+This module lets Metalcyte work with count matrices larger than memory. It opens a
+file, hands out the rows of `X` in blocks, and closes the file. `pp.preprocess_backed`,
+`tl.rank_genes_groups_backed`, and `pp.normalize_total` and `pp.log1p` on a backed
+`AnnData` use it.
 
     with open_backed("atlas.h5ad") as backed:
         for start, block in backed.blocks():

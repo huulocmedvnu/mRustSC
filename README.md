@@ -11,17 +11,15 @@
 
 Metalcyte runs the standard single-cell RNA-seq analysis, from raw counts to clusters and marker
 genes, on a Mac with an Apple M-series chip. You call it from Python, and it stores its results in
-an AnnData object, the standard data format for single-cell data in Python. The calculations run in Rust, a
-compiled programming language, and use all parts of the chip:
+an AnnData object. The calculations run in Rust and use all parts of the chip:
 
-- all CPU cores at once,
-- the chip's matrix unit, which multiplies matrices quickly, through Apple's Accelerate maths
-  library,
-- the graphics processor (GPU), through small programs written for Apple's Metal interface.
+- all CPU cores,
+- the AMX matrix coprocessor, through Apple's Accelerate,
+- the GPU, through Metal compute kernels.
 
-On Apple silicon the CPU and the GPU share one pool of memory, so Metalcyte does not copy the data
-between them. Metalcyte can also analyse datasets that are too large to fit in the computer's
-memory. It reads the count matrix from disk in blocks, keeping only one block in memory at a time.
+On Apple silicon the CPU and the GPU share one pool of memory, so Metalcyte does not copy data
+between them. Metalcyte can also analyse datasets larger than memory. It reads the count matrix
+from disk in blocks and keeps one block in memory at a time.
 
 ![UMAP of 4 062 980 human embryonic cells coloured by cell type](https://raw.githubusercontent.com/huulocmedvnu/metalcyte/main/docs/figures/embryo4m_umap.png)
 
@@ -36,36 +34,33 @@ took it from raw counts to clusters in 9 minutes on a laptop with 18 GB of memor
 - **Low energy use.** The analysis of those 117 308 cells uses 168 J of energy.
 - **Tested.** Each algorithm has a test that checks its numerical output against a reference
   result and states the tolerance.
-- **Standard data format.** Results are stored in the usual places of the AnnData object, so other
-  Python tools for single-cell data can read them.
+- **Standard AnnData layout.** Results are stored in the usual AnnData slots, so other single-cell
+  tools can read them.
 
 ## Features
 
-**Preprocessing.** Quality-control metrics, filtering of cells and genes, normalisation to the
-same total count per cell, log and square-root transforms, selection of highly variable genes
-(Seurat and Cell Ranger methods), scaling, and principal component analysis (PCA) on the GPU.
+**Preprocessing.** Quality-control metrics, filtering of cells and genes, total-count
+normalisation, log and square-root transforms, highly variable gene selection (Seurat and Cell
+Ranger methods), scaling, and PCA on the GPU.
 
-**Datasets larger than memory.** Quality control, normalisation, selection of variable genes,
+**Datasets larger than memory.** Quality control, normalisation, HVG selection,
 scaling and PCA work on an h5ad file on disk. Metalcyte reads the file four times from start to end
 and never loads the whole matrix.
 
-**Batch correction and integration.** Removal of unwanted variation, such as differences in total counts per cell
+**Batch correction and integration.** Regression of unwanted covariates such as total counts
 (`regress_out`), ComBat, and Harmony integration, all running on every CPU core.
 
-**Neighbour graphs.** For each cell, Metalcyte finds its most similar cells. Up to 200 000 cells it
-compares every pair of cells on the GPU (exact search). Above that size it uses NN-descent, a faster
-method that finds almost all of the true neighbours (approximate search). It picks the method from
-the number of cells.
+**Neighbour graphs.** Up to 200 000 cells, Metalcyte computes exact k-nearest neighbours on the
+GPU. Above that size it uses NN-descent, an approximate search that finds almost all true
+neighbours. It picks the method from the number of cells.
 
-**Embeddings.** Two-dimensional maps of the cells for plotting: UMAP, computed on several cores in
-parallel, and t-SNE, with a fast approximation on the GPU for large datasets (FIt-SNE). Also
-diffusion maps, force-directed layouts and PAGA.
+**Embeddings.** UMAP, computed on several cores in parallel, and t-SNE, with FIt-SNE
+interpolation on the GPU for large datasets. Also diffusion maps, force-directed layouts and PAGA.
 
 **Clustering and trajectories.** Leiden and Louvain clustering of the neighbour graph, diffusion
 pseudotime, and dendrograms of clusters.
 
-**Marker genes.** Wilcoxon rank-sum, t-test and logistic-regression tests for genes that
-distinguish clusters. A Wilcoxon test that reads the counts from disk, for datasets larger than
+**Marker genes.** Wilcoxon rank-sum, t-test and logistic-regression tests. A Wilcoxon test that reads the counts from disk, for datasets larger than
 memory. Overlap between marker lists, and scoring of gene sets and cell-cycle phase.
 
 **Spatial and clustering metrics.** Moran's I, Geary's C, modularity and confusion matrices.
@@ -84,7 +79,7 @@ pip install metalcyte
 pip install "metalcyte[plot]"   # with matplotlib for plotting
 ```
 
-The package comes ready to run, so you do not need Rust or Xcode. To build it yourself from the source code, see [docs/INSTALL.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md).
+The wheels are prebuilt, so you do not need Rust or Xcode. To build from source, see [docs/INSTALL.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md).
 
 ## Quick start
 

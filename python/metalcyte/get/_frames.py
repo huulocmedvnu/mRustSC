@@ -22,7 +22,7 @@ _DE_COLUMNS = ("names", "scores", "logfoldchanges", "pvals", "pvals_adj")
 _LOGREG_COLUMNS = ("names", "scores")
 
 _AGGREGATIONS = ("count_nonzero", "mean", "median", "sum", "var")
-# Degrees of freedom for `var`: the sample variance, with n - 1 in the denominator.
+# Degrees of freedom for `var`, the sample variance.
 _DOF = 1
 
 

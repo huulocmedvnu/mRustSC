@@ -32,5 +32,5 @@ abstract: >-
   Metalcyte analyses single-cell RNA-seq data on Macs with Apple silicon. You call it from
   Python, and its calculations run in Rust. It runs
   preprocessing, PCA, neighbour graphs, UMAP, t-SNE, clustering and marker gene tests on the
-  CPU cores, the chip's matrix unit and the GPU. It can also analyse datasets too large for
-  the computer's memory, by reading the count matrix from disk in blocks.
+  CPU cores, the AMX matrix coprocessor and the GPU. It can also analyse datasets larger than
+  memory, by reading the count matrix from disk in blocks.

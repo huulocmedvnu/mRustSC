@@ -1,7 +1,4 @@
-"""Find genes that differ between groups of cells and rank them.
-
-This is called differential expression (DE).
-"""
+"""Differential expression (DE) between groups of cells."""
 
 from __future__ import annotations
 

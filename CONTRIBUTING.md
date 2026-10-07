@@ -32,13 +32,13 @@ METALCYTE_TEST_DEVICE=auto .venv/bin/pytest
 ```
 
 New numerical code needs a test that compares its output with a reference implementation and
-states how close the two must be, as described in [docs/VALIDATION.md](docs/VALIDATION.md). Each claim about speed
+states the tolerance, as described in [docs/VALIDATION.md](docs/VALIDATION.md). Each claim about speed
 or memory needs a script in `benches/` that reproduces it.
 
 ## Repository layout
 
 - `crates/metalcyte-core`: algorithms in Rust
-- `crates/metalcyte-gpu`: GPU programs (Metal kernels)
-- `crates/metalcyte-py`: the connection between Python and Rust (PyO3 bindings)
+- `crates/metalcyte-gpu`: Metal kernels
+- `crates/metalcyte-py`: PyO3 bindings
 - `python/metalcyte`: the Python interface
 - `tests`, `benches`, `docs`

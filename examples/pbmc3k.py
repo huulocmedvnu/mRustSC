@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cluster 2 700 peripheral blood mononuclear cells (PBMC 3k) with metalcyte.
+"""Cluster the PBMC 3k dataset (2 700 cells) with metalcyte.
 
     MPLBACKEND=Agg PYTHONPATH=$PWD/python .venv/bin/python examples/pbmc3k.py
 

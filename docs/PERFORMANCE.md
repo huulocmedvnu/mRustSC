@@ -2,16 +2,14 @@
 
 All numbers on this page come from one laptop. It is an Apple MacBook Pro with the M3 Pro chip.
 The chip has 5 performance cores, 6 efficiency cores, a 14-core GPU and 18 GB of unified memory.
-Unified memory means the CPU and the GPU share the same memory, so data does not have to be
-copied between them. The software was macOS 26.6, Python 3.12, scanpy 1.12.4 and Metalcyte 0.3.0.
+The CPU and the GPU share this memory, so data is not copied between them. The software was macOS 26.6, Python 3.12, scanpy 1.12.4 and Metalcyte 0.3.0.
 
 The data files, scripts, raw results and figure code are in the repository under `benches/`.
 Each section gives the one command that reproduces its table. The notes under
 `docs/development/` give the longer account, including measurements that did not turn out as
 expected.
 
-In the tables, "Metal" means Metalcyte used the Mac's GPU through Apple's Metal interface. "CPU"
-means it used only the processor cores.
+In the tables, "Metal" means Metalcyte ran on the GPU. "CPU" means it used only the CPU cores.
 
 ## A real atlas, start to finish
 
@@ -62,15 +60,12 @@ same random seeds (`benches/agreement.py`). A value of 1.00 means full agreement
 The two libraries select the same genes and find the same leading principal components. They
 also rank the same marker genes. The neighbour graphs differ a little. scanpy finds neighbours
 with an approximate search, and Metalcyte uses an exact one at this size. The two clusterings
-still agree with an adjusted Rand index (ARI) of 0.94. ARI measures how well two clusterings
-match, where 1 is a perfect match and 0 is chance level.
+still agree with an adjusted Rand index of 0.94.
 
 ## A million cells on an 18 GB laptop
 
 This test uses 1 001 288 human embryo cells from CZ CELLxGENE. Metalcyte runs the first steps
-"out of core", so it never holds the whole count matrix in memory. It reads the
-count matrix from disk in blocks of cells and keeps only one block in memory at a time. These
-first steps are quality control, filters, normalisation, log transform, variable genes, scaling
+out of core, reading the count matrix from disk in blocks of cells. These first steps are quality control, filters, normalisation, log transform, variable genes, scaling
 and PCA. Metalcyte then builds the neighbour graph, UMAP and Leiden clusters in memory, from the
 much smaller PCA result. 953 436 cells pass the filters. The table gives seconds per step from
 one run.
@@ -88,7 +83,7 @@ You can ask for the exact neighbour search instead (`method="exact"`). Then the 
 
 scanpy ran on the same file and machine. It read the counts, filtered, normalised and selected
 genes in about four minutes. Its scaling step then added 21.9 GB of memory use. Its PCA then
-used 16 GB of swap, which is disk space the system uses when memory runs out. We stopped it at
+used 16 GB of swap. We stopped it at
 15 minutes.
 
 The in-memory pipeline of Metalcyte also handles a million cells on this laptop when it uses the
@@ -129,13 +124,11 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/scaling.py data/embryo_1m_counts
 
 ## Exact and approximate neighbour search
 
-To build the neighbour graph, Metalcyte finds the 15 closest cells to each cell in PCA space.
-The exact search compares every pair of cells. Its cost grows with the square of the number of
-cells. The approximate search uses NN-descent. NN-descent starts from rough neighbour lists,
-which here come from a random-projection forest. It then improves each list by checking the
-neighbours of a cell's neighbours. It runs on all cores. Recall is the share of the true (exact)
-neighbours that the approximate lists contain. A recall of 1 means every true neighbour was
-found.
+Metalcyte builds a 15-nearest-neighbour graph in PCA space. The exact search compares every
+pair of cells, so its cost grows with the square of the number of cells. The approximate search
+runs NN-descent on all cores, initialised from a random-projection forest. NN-descent refines each
+list by checking the neighbours of a cell's neighbours. Recall is the fraction of the exact
+neighbours that the approximate lists contain.
 
 The test used subsamples of the embryo atlas's 50-dimensional PCA embedding, with one run per
 size (`benches/knn_methods.py`).
@@ -191,8 +184,8 @@ cores. Streamed markers on 2 000 genes took 8.4 s.
 ## Other steps at a million cells
 
 These are single runs on the 953 436-cell embryo embedding (50 principal components) on the
-M3 Pro. "FFT-accelerated" t-SNE computes the long-range forces between cells on a grid with a
-fast Fourier transform. This makes it fast on large data.
+M3 Pro. "FFT-accelerated" t-SNE (FIt-SNE) interpolates the long-range forces between cells on a
+grid.
 
 | step | Metalcyte | note |
 |---|---:|---|
@@ -252,11 +245,10 @@ change. Times vary by about 2 s from run to run.
 
 Some terms in the table:
 
-- Accelerate is Apple's library of fast maths routines. Its matrix routines (BLAS) run on the
-  AMX units, which are matrix-multiplication units built into the CPU.
-- Zero-copy means Metalcyte reads numpy's arrays in place, without making a copy.
-- The parallel UMAP optimiser lets all cores update the layout at the same time without waiting
-  for each other (a lock-free optimiser). The sequential version uses one core.
+- Accelerate provides Apple's BLAS, which runs on the AMX matrix coprocessor.
+- Zero-copy means Metalcyte reads numpy's arrays in place.
+- The parallel UMAP optimiser is a lock-free (Hogwild) optimiser that runs on all cores. The
+  sequential version uses one core.
 
 | configuration | what is off | whole | PCA | neighbours | UMAP | markers |
 |---|---|---:|---:|---:|---:|---:|
@@ -283,7 +275,7 @@ Some terms in the table:
   the exact graph above 200 000 cells, you pay that higher cost.
 - The approximate search does not give exactly the same result on every run. Its parallel
   updates make the graph vary slightly between runs, and so the number of clusters can vary.
-- The Metal neighbour-search kernel (a program that runs on the GPU) reaches about 15% of the
+- The Metal neighbour-search kernel reaches about 15% of the
   chip's peak arithmetic speed. A version that uses the GPU's matrix units is in the code. You
   must switch it on yourself, and it is not yet faster.
 - t-SNE is exact up to 20 000 cells and FFT-accelerated above that. It takes 13 s for the
@@ -295,5 +287,5 @@ Some terms in the table:
   than scanpy's UMAP.
 - `regress_out` and `combat` produce a dense result that must fit within 60% of the machine's
   memory. They read the input in blocks of genes.
-- Metalcyte is built and tested only on macOS on Apple silicon. The automatic test machines
-  (continuous integration) have no usable GPU, so the GPU tests run on a local Mac.
+- Metalcyte is built and tested only on macOS on Apple silicon. The CI runners have no usable
+  GPU, so the GPU tests run on a local Mac.

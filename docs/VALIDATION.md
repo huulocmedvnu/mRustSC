@@ -1,8 +1,7 @@
 # Validation
 
-This page shows how we check that Metalcyte gives correct results. We compare it against scanpy,
-the standard Python library for single-cell analysis, and against the other reference packages
-that scanpy relies on. Three kinds of test do this, and each answers a different question.
+This page shows how we check that Metalcyte gives correct results. We compare it against scanpy
+and against the other reference packages that scanpy relies on. Three kinds of test do this, and each answers a different question.
 
 * **Unit tests** (`cargo test --workspace`) check each Rust function on its own, on inputs the
   author chose.
@@ -31,10 +30,10 @@ every time.
 
 ### The Accelerate build passes the same tests
 
-Accelerate is Apple's library of fast maths routines. The `accelerate` build option makes the
-dense matrix maths on the CPU use Apple's vecLib BLAS (see [INSTALL.md](INSTALL.md)). It does
+The `accelerate` build option routes the dense matrix work on the CPU through Apple's vecLib BLAS
+(see [INSTALL.md](INSTALL.md)). It does
 not change the algorithms. It sends ndarray's `.dot()` and candle's CPU backend through a
-different BLAS library. The sparse-matrix (CSR) code never uses it. We hold this build to the
+different BLAS library. The CSR code never uses it. We hold this build to the
 same standard as the pure-Rust build, and it passes:
 
 | build | command | result |
@@ -44,10 +43,10 @@ same standard as the pure-Rust build, and it passes:
 
 `cargo clippy --workspace` reports no warnings with either build option. There is one caveat.
 The pure-Rust build has a unit test, `umap_sgd::is_reproducible_only_in_structure...`, that can
-fail at random on its own. It checks the parallel UMAP optimiser, where threads write to shared
-memory without waiting for each other ("Hogwild"), so its result varies a little by design. It
+fail at random on its own. It checks the lock-free (Hogwild) parallel UMAP optimiser, whose result
+varies a little by design. It
 passes with `--features accelerate`. Both builds compute the same algorithm. They differ only in
-the order of floating-point additions, which changes the last digits. So the reference and audit
+the order of floating-point additions. So the reference and audit
 numbers below are not repeated for each build. They hold for either build.
 
 ## Deterministic steps: compared value by value
@@ -62,8 +61,6 @@ at `rtol=1e-5, atol=1e-6`. The table gives the largest absolute difference on PB
 | `pp.scale` | 1.8e-6 (rel 1.8e-7) | f32 rounding of mean and variance |
 | `pp.filter_cells` / `pp.filter_genes` | 0.0 | same cells, same genes kept |
 
-"Bit-identical" means the two results are exactly the same numbers, down to the last bit.
-
 ## Gene and neighbour selection: overlap of the chosen sets
 
 | step | criterion | measured (PBMC 3k) |
@@ -73,20 +70,18 @@ at `rtol=1e-5, atol=1e-6`. The table gives the largest absolute difference on PB
 | `pp.neighbors(method="approximate")` | mean recall against the exact lists ≥ 0.95 | **0.99** |
 
 The exact search finds the same k nearest cells as scanpy, so the overlap is complete. The
-approximate search uses NN-descent. NN-descent starts from rough neighbour lists from a
-random-projection forest and improves them by checking each cell's neighbours' neighbours. We
-measure it by recall at k = 15. Recall is the share of the exact neighbours that the approximate
-lists contain (`tests/test_neighbors_approximate` in `tests/test_reference.py`). On the embryo
+approximate search uses NN-descent, initialised from a random-projection forest. We measure it by
+recall at k = 15, the fraction of the exact neighbours that the approximate lists contain (`tests/test_neighbors_approximate` in `tests/test_reference.py`). On the embryo
 embedding, `benches/knn_methods.py` measures a recall of 0.98 at 100 000 cells and 0.96 at
 953 000.
 
 ## t-SNE above 20 000 cells
 
-Above 20 000 cells, t-SNE uses an FFT method. It computes the long-range forces between cells on
-a grid with a fast Fourier transform. We compare it with the exact method on the same input
+Above 20 000 cells, t-SNE uses an FFT method (FIt-SNE) that interpolates the long-range forces
+between cells on a grid. We compare it with the exact method on the same input
 (tests in `crates/metalcyte-core/src/tsne_fft.rs`):
 
-- The grid forces agree with the exact forces to within 2% of the root-mean-square (RMS) force at
+- The grid forces agree with the exact forces to within 2% of the RMS force at
   the default grid.
 - Ten planted clusters stay separated.
 - The t-SNE objective of the FFT layout is within 15% of the exact method's (measured: 1.37
@@ -127,7 +122,7 @@ component. Its variance ratios stay within the range that a randomised SVD varie
 
 ## UMAP: how well neighbourhoods are kept
 
-UMAP uses random numbers, and two runs with different seeds give different layouts. So we use a
+UMAP is stochastic, and two runs with different seeds give different layouts. So we use a
 relative standard. We measure how many of each cell's neighbours in scanpy's layout are also
 near it in Metalcyte's layout (K_REF=15 in the reference layout, K_CAND=30 in the candidate). We
 call this neighbourhood preservation. We also measure it for scanpy against scanpy with a new
@@ -153,9 +148,9 @@ mistake. So the UMAP audit also compares Metalcyte term by term with a copy of u
 
 ## t-SNE: the quality score
 
-t-SNE minimises a defined score, the KL divergence. Lower is better. So the test asks whether
+t-SNE minimises the KL divergence. So the test asks whether
 Metalcyte reaches a KL divergence no worse than scanpy's. We allow 5%, because Metalcyte uses
-32-bit numbers (f32) and a different random start. Both libraries use scikit-learn's `auto`
+f32 and a different random start. Both libraries use scikit-learn's `auto`
 learning rate. scanpy's older default of 1000 makes scanpy's own KL about ten times worse at
 these sizes, which would make Metalcyte look better than it is.
 
@@ -181,13 +176,12 @@ table gives the largest relative difference over all groups and both datasets.
 | `pvals_adj` | ~2e-13 |
 
 Scores and fold changes are bit-identical. The p-values differ only in the last digits of a
-`float64` number. This comes from adding a long list of numbers in a different order. It holds
+`float64` number, from a different summation order. It holds
 for every cell type in PBMC 3k, including the Megakaryocytes, which have only 8 cells.
 
 ## PAGA: connection strengths compared value by value
 
-PAGA builds a simplified graph of how clusters connect. `tests/test_paga.py` compares the
-connection strengths with scanpy's v1.2 model. It also requires the same spanning tree.
+`tests/test_paga.py` compares the PAGA connectivities with scanpy's v1.2 model. It also requires the same spanning tree.
 
 | dataset | max relative deviation | tree |
 | --- | --- | --- |
@@ -224,19 +218,19 @@ its parameter lists, without collection.
 | `dpt` branching | `test_dpt_branching_audit.py` | scanpy `tl.dpt(n_branchings>0)`, adjusted Rand index | 4 |
 | `harmony` | `test_harmony_audit.py` | `harmonypy 2.0.0` (iLISI, objective convergence) | 3 |
 
-`test_backed_streaming.py` checks that the out-of-core path gives the same result as the
-in-memory path. (The out-of-core path reads the data from disk in blocks.) Where we can run the
+`test_backed_streaming.py` checks that the out-of-core path, which reads the data from disk in
+blocks, gives the same result as the in-memory path. Where we can run the
 reference package on the same input, we do. In three places we cannot call the inner code
 directly: umap-learn's SGD inner loop, scikit-learn's t-SNE gradient and scanpy's
 `transitions_sym` spectrum. There we copy the reference code into the test. A separate test then
 checks the copy against the installed package.
 
-Two known differences are marked with `xfail(strict=True)`. This means the test reports an error
-on the day a difference disappears, so we will notice. The first is in PCA. The Gram
+Two known differences are marked with `xfail(strict=True)`, so the test fails on the day a
+difference disappears. The first is in PCA. The Gram
 eigendecomposition loses about half the digits of the smallest singular values (3.6e-4 against
 an exact f64 reference, where scikit-learn gives 6.3e-7). The second is in UMAP. A random
-starting layout does not recover the overall arrangement of the clusters, which a spectral
-starting layout would.
+initialisation does not recover the global arrangement of the clusters, which a spectral
+initialisation would.
 
 `chunked` and `sparse` are internal modules. No scanpy or scipy function does the same thing, so
 there is nothing to compare them against. Their audits (`test_chunked_audit.py`,
@@ -256,9 +250,8 @@ The audits compare with scanpy on one device at a time. `METALCYTE_TEST_DEVICE`
 same tests on the GPU. Both settings pass on Apple silicon.
 
 The CPU and GPU run the same candle code, so they run the same algorithm. They can still give
-slightly different numbers. With 32-bit numbers (f32), the order of additions changes the last
-digits. A GPU adds numbers in a different order from a single CPU thread, so its result can
-differ by a few units in the last place (ulps). So `tests/test_device_parity.py` (4 tests)
+slightly different numbers. In f32, a GPU sums in a different order from a single CPU thread, so
+its result can differ by a few ulps. So `tests/test_device_parity.py` (4 tests)
 compares the two devices with each other. This is a separate check from comparing either device
 with scanpy.
 
@@ -297,7 +290,7 @@ in place by a test that fails if the behaviour changes.
   the layout depends only on the graph. If it kept only `column > row`, a graph stored as a lower
   triangle would have no attraction at all. The layout would then use only repulsion, with no
   warning. The masses taken from row counts would have the same error.
-* **Scaling computes each gene's mean and variance in 64-bit numbers (f64).** In f32, the mean of
+* **Scaling computes each gene's mean and variance in f64.** In f32, the mean of
   a constant gene is off by one unit in the last place. The whole column then comes back as a
   constant `-sqrt((n-1)/n)` in place of 0. Without zero-centering this value is of order 1e7.
 * **The neighbour graph and t-SNE centre the coordinates before expanding `|a-b|²`.** Without
@@ -324,8 +317,8 @@ also return early when `MetalContext::new()` fails. The audits run on the device
 tells you about the CPU code. Most users run on the GPU (see "CPU or GPU" above), and that path
 is checked only on a machine with a Metal device.
 
-**Python can reach one Metal kernel, `knn`. It cannot reach the other three.** A kernel is a
-small program that runs on the GPU. `crates/metalcyte-py` depends on `metalcyte-gpu`. It sends a
+**Python can reach one Metal kernel, `knn`. It cannot reach the other three.**
+`crates/metalcyte-py` depends on `metalcyte-gpu`. It sends a
 Metal user's k-nearest-neighbour search to `knn_metal` (`metalcyte-py/src/embedding.rs`). We
 validate this kernel in two ways on Apple silicon:
 
@@ -379,7 +372,7 @@ each function accepts and what it leaves out.
 scanpy's method (Haghverdi 2016) and writes the branches to `obs["dpt_groups"]`. Branch labels
 are arbitrary. So we measure agreement with the adjusted Rand index (ARI) of the two groupings,
 following the clustering rule in [development/API_CONTRACT.md](development/API_CONTRACT.md).
-ARI is 1 for identical groupings and about 0 for chance agreement. To test only the branching
+To test only the branching
 step, `tests/test_dpt_branching_audit.py` gives Metalcyte and scanpy's `dpt` the **same**
 diffusion map. So any difference must come from the branching code and not from the diffusion
 map.
@@ -395,8 +388,8 @@ that the branches fall in the same place. The test passes on the CPU and on Meta
 
 ## Harmony batch correction: checked by how well batches mix
 
-`pp.harmony_integrate` removes batch effects. It works by repeated steps and starts from a
-random k-means clustering. So it does not reproduce `harmonypy` (a compiled C++ program) exactly.
+`pp.harmony_integrate` removes batch effects. It is iterative and starts from a
+random k-means clustering, so it does not reproduce `harmonypy` exactly.
 For batch correction, the right check is whether the batches mix and whether the method
 converges. `tests/test_harmony_audit.py` measures this on PBMC 3k, after adding an artificial
 batch shift to the PCA embedding:
