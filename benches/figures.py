@@ -214,7 +214,7 @@ def f1_chip_and_library():
         ("k-NN graph", "GPU exact, CPU approx. >200k", "CPU, 11 threads", "as at left"),
         ("UMAP", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
         ("Leiden", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
-        ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
+        ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
     ]
     yh = 34.5
     for x, name in zip(xs, cols, strict=True):

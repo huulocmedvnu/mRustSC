@@ -73,7 +73,7 @@ Metalcyte is built and tested on macOS on Apple silicon; other platforms are unt
 | module | functions |
 |---|---|
 | `mc.pp` | `calculate_qc_metrics`, `filter_cells`, `filter_genes`, `normalize_total`, `normalize_per_cell`, `log1p`, `sqrt`, `highly_variable_genes`, `filter_genes_dispersion`, `scale`, `regress_out`, `combat`, `harmony_integrate`, `pca`, `neighbors`, `subsample`, `sample`, `downsample_counts`, `preprocess_backed` |
-| `mc.tl` | `umap`, `tsne`, `leiden`, `louvain`, `paga`, `diffmap`, `dpt`, `draw_graph`, `embedding_density`, `dendrogram`, `rank_genes_groups` (Wilcoxon, t-test, t-test with overestimated variance, logistic regression), `filter_rank_genes_groups`, `marker_gene_overlap`, `score_genes`, `score_genes_cell_cycle` |
+| `mc.tl` | `umap`, `tsne`, `leiden`, `louvain`, `paga`, `diffmap`, `dpt`, `draw_graph`, `embedding_density`, `dendrogram`, `rank_genes_groups` (Wilcoxon, t-test, t-test with overestimated variance, logistic regression), `rank_genes_groups_backed` (Wilcoxon over the counts file on disk), `filter_rank_genes_groups`, `marker_gene_overlap`, `score_genes`, `score_genes_cell_cycle` |
 | `mc.metrics` | `morans_i`, `gearys_c`, `confusion_matrix`, `modularity` |
 | `mc.get` | `obs_df`, `var_df`, `rank_genes_groups_df`, `aggregate` |
 | `mc.pl` | `embedding`, `umap`, `tsne`, `pca` (rendered on the GPU), `render_embedding`, `pca_variance_ratio`, `rank_genes_groups` (the rest of plotting is scanpy's, on the same AnnData) |

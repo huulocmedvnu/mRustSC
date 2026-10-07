@@ -138,6 +138,21 @@ the exact graph, which matches scanpy's cell for cell, stops being cheap.
 PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
 ```
 
+## Two million cells
+
+The embryo atlas stacked with a binomially thinned copy of itself (`benches/double_counts.py`),
+2 002 576 cells, a synthetic point beyond the largest public file at hand, on the same laptop.
+Seconds per step, single runs, with the default neighbour search.
+
+| step | Metalcyte, Metal | Metalcyte, CPU only | memory added, Metal |
+|---|---:|---:|---:|
+| out-of-core head, four passes | 62 | 74 | 1.2 GB |
+| neighbour graph (approximate) | 38 | 37 | 1.9 GB |
+| UMAP (parallel) | 83 | 88 | 2.2 GB |
+| Leiden | 20 | 22 | 3.0 GB |
+| whole run | **202** | 222 | |
+| Wilcoxon markers over the file, 2 000 genes, 51 clusters | 8.4 | | 0 GB |
+
 ## Beyond the standard pipeline at a million cells
 
 Single runs on the 953 436-cell embryo embedding (50 principal components) on the M3 Pro.
@@ -145,6 +160,7 @@ Single runs on the 953 436-cell embryo embedding (50 principal components) on th
 | step | Metalcyte | note |
 |---|---:|---|
 | t-SNE, FFT-accelerated (1 000 iterations) | 54 s | exact up to 20 000 cells, FFT above, the whole iteration on the GPU; 13 s on the 117 308-cell atlas |
+| Wilcoxon markers over the counts file, `tl.rank_genes_groups_backed`, 2 000 variable genes, 42 clusters | 4.5 s | the matrix never in memory (resident set unchanged at 2.3 GB); the in-memory test on the same values takes 0.3 s, so stream only when the matrix does not fit; all 45 676 genes in blocks of 4 096: 39 s |
 | UMAP scatter of all cells, `pl.umap` (render, legend, PNG at 300 dpi) | 0.6 s | the Metal rasteriser draws the 953 436 points in 0.2 s; scanpy's matplotlib scatter of the same cells takes 4.1 s to save and holds a million path objects |
 | Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
 

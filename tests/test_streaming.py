@@ -11,6 +11,7 @@ its randomised tail is not exact.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 
@@ -99,3 +100,53 @@ def test_streamed_result_is_independent_of_the_block_size(tmp_path):
     np.testing.assert_array_equal(a.var["highly_variable"], b.var["highly_variable"])
     assert _subspace_agreement(a.obsm["X_pca"], b.obsm["X_pca"], 10) > 0.9999
     np.testing.assert_allclose(a.obsm["X_pca"], b.obsm["X_pca"], rtol=1e-3, atol=1e-3)
+
+
+def test_streamed_markers_match_the_in_memory_test(tmp_path):
+    """`rank_genes_groups_backed` on the file equals `rank_genes_groups` on the same
+    normalised, log-transformed matrix in memory, gene for gene."""
+    path, adata = _counts_file(tmp_path, n_cells=2000, n_genes=600, seed=5)
+    rng = np.random.default_rng(1)
+    groups = rng.integers(0, 4, adata.n_obs).astype(str)
+    adata.obs["group"] = pd.Categorical(groups)
+    head = mc.pp.preprocess_backed(path, n_top_genes=200, n_comps=10, min_genes=1, min_cells=1)
+    head.obs["group"] = pd.Categorical(groups[np.isin(adata.obs_names, head.obs_names)])
+    mc.tl.rank_genes_groups_backed(path, head, "group", genes="highly_variable")
+
+    # The same kernels the streamed path applies per block, so the values are identical
+    # and any difference is in the ranking itself.
+    reference = adata[head.obs_names].copy()
+    mc.pp.normalize_total(reference, target_sum=1e4)
+    mc.pp.log1p(reference)
+    reference = reference[:, head.var["highly_variable"].to_numpy()].copy()
+    mc.tl.rank_genes_groups(reference, "group", method="wilcoxon")
+
+    for name in head.obs["group"].cat.categories:
+        ours = head.uns["rank_genes_groups"]
+        theirs = reference.uns["rank_genes_groups"]
+        assert list(ours["names"][name][:20]) == list(theirs["names"][name][:20])
+        np.testing.assert_allclose(
+            ours["scores"][name], theirs["scores"][name], rtol=1e-4, atol=1e-5
+        )
+        np.testing.assert_allclose(
+            ours["pvals"][name], theirs["pvals"][name], rtol=1e-4, atol=1e-12
+        )
+        np.testing.assert_allclose(
+            ours["logfoldchanges"][name], theirs["logfoldchanges"][name], rtol=1e-4, atol=1e-5
+        )
+
+    # Gene blocks of any size give the same ranking.
+    mc.tl.rank_genes_groups_backed(path, head, "group", genes="highly_variable", gene_block=64)
+    first = head.obs["group"].cat.categories[0]
+    np.testing.assert_allclose(
+        head.uns["rank_genes_groups"]["scores"][first],
+        reference.uns["rank_genes_groups"]["scores"][first],
+        rtol=1e-4,
+        atol=1e-5,
+    )
+    # An explicit reference group and a gene list.
+    mc.tl.rank_genes_groups_backed(
+        path, head, "group", genes=list(head.var_names[:50]), reference="0"
+    )
+    assert head.uns["rank_genes_groups"]["params"]["reference"] == "0"
+    assert len(head.uns["rank_genes_groups"]["names"][first]) == 50
