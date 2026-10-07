@@ -1,0 +1,36 @@
+name: Bug report
+description: Something gives a wrong result, crashes or is unexpectedly slow
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected and what you observed instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal example
+      description: Code that reproduces the problem, with a public or synthetic dataset if possible.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Metalcyte version, macOS version and chip (for example 0.3.0, macOS 15.4, M3 Pro).
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Does it also happen with METALCYTE_DEVICE=cpu?
+      options: ["Yes", "No", "Not tested"]

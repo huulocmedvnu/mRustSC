@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a method or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Analysis need
+      description: The analysis you want to run and why the current functions do not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference implementation or publication
+      description: For example the scanpy function or the paper that describes the method.

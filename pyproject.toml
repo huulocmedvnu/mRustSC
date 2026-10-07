@@ -8,7 +8,7 @@ version = "0.3.0"
 description = "Single-cell analysis engine for Apple silicon: a Rust core, Metal kernels and an out-of-core head for million-cell atlases"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{ name = "huulocmedvnu" }]
+authors = [{ name = "Tran Thai Huu Loc" }]
 keywords = ["single-cell", "anndata", "rust", "metal", "apple-silicon", "gpu"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -41,6 +41,8 @@ plot = ["matplotlib>=3.7", "seaborn>=0.13"]
 Homepage = "https://github.com/huulocmedvnu/metalcyte"
 Repository = "https://github.com/huulocmedvnu/metalcyte"
 Issues = "https://github.com/huulocmedvnu/metalcyte/issues"
+Changelog = "https://github.com/huulocmedvnu/metalcyte/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/huulocmedvnu/metalcyte/tree/main/docs"
 
 [tool.maturin]
 module-name = "metalcyte._metalcyte"

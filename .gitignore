@@ -13,3 +13,6 @@ docs/tutorials/figures/
 .ipynb_checkpoints/
 benches/results/*.h5ad
 benches/results/harmony_embryo1m_*.npy
+benches/results/energy_4m_*.powermetrics.txt
+.venv
+.venv-noaccel
