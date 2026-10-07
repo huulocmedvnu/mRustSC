@@ -10,6 +10,14 @@ authors:
 version: 0.3.0
 date-released: "2026-10-07"
 license: MIT
+doi: "10.5281/zenodo.23210563"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.23210563"
+    description: "Concept DOI, all versions"
+  - type: doi
+    value: "10.5281/zenodo.23210564"
+    description: "Version 0.3.0"
 repository-code: "https://github.com/huulocmedvnu/metalcyte"
 url: "https://pypi.org/project/metalcyte/"
 keywords:
