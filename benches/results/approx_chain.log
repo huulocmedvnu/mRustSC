@@ -1,0 +1,30 @@
+     10000 cells  approximate    0.1 s  exact GPU    0.0 s  exact CPU    0.1 s  recall 0.994
+     25000 cells  approximate    0.3 s  exact GPU    0.1 s  exact CPU    0.2 s  recall 0.991
+     50000 cells  approximate    0.4 s  exact GPU    0.4 s  exact CPU    1.3 s  recall 0.988
+    100000 cells  approximate    1.9 s  exact GPU    1.5 s  exact CPU    4.6 s  recall 0.984
+    250000 cells  approximate    3.7 s  exact GPU    8.7 s  exact CPU   23.5 s  recall 0.977
+    500000 cells  approximate    8.4 s  exact GPU   33.9 s  exact CPU   85.8 s  recall 0.970
+    953436 cells  approximate   15.9 s  exact GPU  118.1 s  exact CPU  282.5 s  recall 0.961
+metalcyte on embryo_1m_counts.h5ad
+      pass1_moments            4.18 s
+      hvg                      0.00 s
+      pass2_hv_moments         5.39 s
+      pass3_scatter_eigh      14.01 s
+      pass4_project            7.52 s
+  pp.preprocess_backed             31.73 s  +    1038 MB
+  pp.neighbors                     17.16 s  +     787 MB
+  tl.umap                          44.41 s  +    1037 MB
+  tl.leiden                         9.67 s  +    1296 MB
+  total                           102.96 s   (43 Leiden clusters)
+metalcyte on embryo_1m_counts.h5ad
+      pass1_moments            3.62 s
+      hvg                      0.00 s
+      pass2_hv_moments         4.92 s
+      pass3_scatter_eigh      22.12 s
+      pass4_project            7.75 s
+  pp.preprocess_backed             39.04 s  +     862 MB
+  pp.neighbors                     18.52 s  +     963 MB
+  tl.umap                          44.73 s  +    1005 MB
+  tl.leiden                         9.37 s  +    1252 MB
+  total                           111.66 s   (44 Leiden clusters)
+CHAIN_DONE

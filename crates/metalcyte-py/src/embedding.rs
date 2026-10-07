@@ -8,6 +8,7 @@ use std::cell::RefCell;
 
 use candle_core::Device;
 use metalcyte_core::neighbors::{self, KnnGraph};
+use metalcyte_core::nndescent::{knn_approximate as core_knn_approximate, NnDescentParams};
 use metalcyte_core::tsne::{self as core_tsne, TsneParams};
 use metalcyte_core::umap::{self as core_umap, UmapParams};
 use metalcyte_core::Error;
@@ -111,6 +112,30 @@ fn knn<'py>(
     ))
 }
 
+/// Approximate k nearest neighbours by NN-descent on the CPU cores; see
+/// `metalcyte_core::nndescent`.
+#[pyfunction]
+#[pyo3(signature = (embedding, k, seed))]
+fn knn_approximate<'py>(
+    py: Python<'py>,
+    embedding: &Bound<'py, PyAny>,
+    k: usize,
+    seed: u64,
+) -> PyResult<PyKnn<'py>> {
+    let embedding = array2_from_py::<f32>(embedding, "embedding")?;
+    let params = NnDescentParams {
+        seed,
+        ..NnDescentParams::default()
+    };
+    let graph = py
+        .allow_threads(|| core_knn_approximate(&embedding, k, &params))
+        .map_err(to_py_error)?;
+    Ok((
+        graph.indices.into_pyarray(py),
+        graph.distances.into_pyarray(py),
+    ))
+}
+
 #[pyfunction]
 #[pyo3(signature = (indices, distances))]
 fn connectivities<'py>(
@@ -201,6 +226,7 @@ fn tsne<'py>(
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(knn, module)?)?;
+    module.add_function(wrap_pyfunction!(knn_approximate, module)?)?;
     module.add_function(wrap_pyfunction!(connectivities, module)?)?;
     module.add_function(wrap_pyfunction!(umap, module)?)?;
     module.add_function(wrap_pyfunction!(tsne, module)?)?;

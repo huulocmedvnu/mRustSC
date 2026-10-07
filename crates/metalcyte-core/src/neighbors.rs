@@ -262,7 +262,7 @@ fn expansion_resolution(n_dims: usize) -> f32 {
 /// Centring costs one pass and makes `R` the radius of the cloud, which is the
 /// best any f32 input allows. The means are accumulated in f64 so that the
 /// centred coordinates are correct to one f32 rounding.
-fn centred(embedding: &Array2<f32>) -> Vec<f32> {
+pub(crate) fn centred(embedding: &Array2<f32>) -> Vec<f32> {
     let (n_cells, n_dims) = embedding.dim();
     let mut means = vec![0.0f64; n_dims];
     for row in embedding.rows() {

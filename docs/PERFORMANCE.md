@@ -65,11 +65,14 @@ the counts on disk, never holding the matrix), then the neighbour graph, UMAP an
 
 | step | Metalcyte, Metal | Metalcyte, CPU only | memory added, Metal |
 |---|---:|---:|---:|
-| out-of-core head, four passes | 32 | 43 | 1.1 GB |
-| neighbour graph | 123 | 307 | 0.5 GB |
-| UMAP (parallel) | 45 | 48 | 1.2 GB |
-| Leiden | 10 | 11 | 1.3 GB |
-| whole run | **210** | 409 | |
+| out-of-core head, four passes | 32 | 39 | 1.0 GB |
+| neighbour graph (approximate, the default above 200 000 cells) | 17 | 19 | 0.8 GB |
+| UMAP (parallel) | 44 | 45 | 1.0 GB |
+| Leiden | 10 | 9 | 1.3 GB |
+| whole run | **103** | 112 | |
+
+With the exact neighbour search instead (`method="exact"`), the graph takes 118 s on the GPU and
+283 s on the CPU, and the whole run 210 s and 409 s.
 
 scanpy on the same file and machine read the counts, filtered, normalised and selected genes in
 about four minutes, then its scaling step added 21.9 GB of footprint and its PCA paged through
@@ -102,14 +105,37 @@ the out-of-core head and the graph steps.
 | 1 000 000 | not attempted | out of memory | 366 | 207 |
 
 The gap widens with size: Metalcyte on Metal is 21 times faster than scanpy's defaults at 10 000
-cells and 27 times at 250 000, and 19 and 3.4 times faster than scanpy tuned. One line in the
-per-step figure goes the other way. scanpy's neighbour search uses an approximate index whose time
-hardly grows with cells (about 17 s from 10 000 to 250 000), while Metalcyte's search is exact and
-quadratic (0.05 s at 10 000 cells, 8 s at 250 000, 120 s at a million on the GPU). The two cross
-near 400 000 cells. An approximate index is the next item on Metalcyte's plan.
+cells and 27 times at 250 000, and 19 and 3.4 times faster than scanpy tuned. The sweep above ran
+the exact neighbour search at every size; the next section gives the approximate search that the
+default now uses above 200 000 cells.
 
 ```bash
 PYTHONPATH=$PWD/python .venv/bin/python benches/scaling.py data/embryo_1m_counts.h5ad --source data/embryo_1m.h5ad --json benches/results/scaling_embryo.json
+```
+
+## Exact against approximate neighbour search
+
+Subsamples of the embryo atlas's 50-dimensional PCA embedding, 15 neighbours, one run per point
+(`benches/knn_methods.py`). The exact search compares every pair; the approximate search is
+NN-descent seeded with a random-projection forest, on every core. Recall is the fraction of the
+exact neighbours the approximate lists contain.
+
+| cells | approximate | exact, GPU | exact, CPU | recall |
+|---:|---:|---:|---:|---:|
+| 10 000 | 0.1 s | 0.0 s | 0.1 s | 0.994 |
+| 25 000 | 0.3 s | 0.1 s | 0.2 s | 0.991 |
+| 50 000 | 0.4 s | 0.4 s | 1.3 s | 0.988 |
+| 100 000 | 1.9 s | 1.5 s | 4.6 s | 0.984 |
+| 250 000 | 3.7 s | 8.7 s | 23.5 s | 0.977 |
+| 500 000 | 8.4 s | 33.9 s | 85.8 s | 0.970 |
+| 953 436 | 15.9 s | 118.1 s | 282.5 s | 0.961 |
+
+The exact search is faster on the GPU up to about 100 000 cells and on the CPU up to about
+50 000. `pp.neighbors` switches to the approximate search above 200 000 cells by default, where
+the exact graph, which matches scanpy's cell for cell, stops being cheap.
+
+```bash
+PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
 ```
 
 ## Energy
@@ -159,8 +185,9 @@ Seconds for the whole pipeline and for the steps that move; the run-to-run noise
 
 ## Limits
 
-- The neighbour search is exact and quadratic in cells. Above about 400 000 cells scanpy's
-  approximate index is faster.
+- The exact neighbour search is quadratic in cells. The approximate search covers the large
+  regime with a recall of 0.96 at a million cells; a user who needs the exact graph above
+  200 000 cells pays the quadratic cost.
 - The Metal neighbour kernel runs at about 15% of the chip's arithmetic peak. A version on the
   GPU's matrix units is in the tree, opt-in, and is not yet faster.
 - The t-SNE implementation is exact and refuses more than 20 000 cells. The batch-correction steps

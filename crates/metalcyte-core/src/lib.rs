@@ -21,6 +21,7 @@ pub mod error;
 pub mod harmony;
 pub mod layout;
 pub mod neighbors;
+pub mod nndescent;
 pub mod paga;
 pub mod pca;
 pub mod preprocess;

@@ -94,10 +94,11 @@ distance tile has to be written and read once. Either is a day's work with a Met
 profiler; neither was in reach today. The tiled FMA kernel stays the default.
 
 ### 2.2 Approximate neighbours above 1 M
-Exact brute force is quadratic; at 5 M cells it is 25x the 1 M cost. Add an index
-(HNSW in Rust, graph built with rayon, queried in parallel) behind
-`pp.neighbors(method="approximate")`, held to the exact result by recall at k=15 (umap
-uses 15). Not needed for the paper's 1 M result; needed for the "atlas scale" claim.
+**Done (2026-10-07):** NN-descent seeded with a random-projection forest in
+`crates/metalcyte-core/src/nndescent.rs`, behind `pp.neighbors(method="approximate")`
+and the default `method="auto"` above 200 000 cells. Held to the exact result by recall
+at k = 15: 0.99 at 117 000 cells, 0.96 at 953 000. 16 s at 953 000 cells on the cores
+against 123 s for the exact search on the GPU (`benches/knn_methods.py`, F12).
 
 ### 2.3 Streamed head: the remaining in-memory steps
 

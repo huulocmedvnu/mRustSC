@@ -29,6 +29,14 @@ if TYPE_CHECKING:
     import pandas as pd
     from anndata import AnnData
 
+#: Cells above which `pp.neighbors(method="auto")` switches from the exact search to
+#: NN-descent. Measured on an M3 Pro (benches/knn_methods.py): the exact search is
+#: faster on the GPU up to about 100 000 cells and on the CPU up to about 50 000; at
+#: 250 000 cells NN-descent is 2.4 times faster than the GPU and 6 times faster than the
+#: CPU search. The threshold sits where the exact graph, which matches scanpy's search
+#: cell for cell, stops being cheap.
+APPROXIMATE_FROM = 200_000
+
 __all__ = [
     "filter_cells",
     "filter_genes",
@@ -262,15 +270,35 @@ def neighbors(
     *,
     n_neighbors: int = 15,
     use_rep: str = "X_pca",
+    method: str = "auto",
+    random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Build the k-nearest-neighbour graph and its UMAP connectivities."""
+    """Build the k-nearest-neighbour graph and its UMAP connectivities.
+
+    `method` is `"exact"`, `"approximate"` or `"auto"`. The exact search compares every
+    pair of cells and costs quadratic time; the approximate search is NN-descent seeded
+    with a random-projection forest, close to linear in the number of cells, with a
+    recall above 0.95 on PCA embeddings. `"auto"` runs the exact search up to
+    `APPROXIMATE_FROM` cells and the approximate one above. `random_state` seeds the
+    approximate search only.
+    """
     device = _resolve_device(device)
     if n_neighbors < 2:
         raise ValueError(f"n_neighbors must be at least 2, got {n_neighbors}")
+    if method not in ("auto", "exact", "approximate"):
+        raise ValueError(f"method must be 'auto', 'exact' or 'approximate', got {method!r}")
     extension = _extension()
+    representation = _representation(adata, use_rep)
+    if method == "auto":
+        method = "approximate" if adata.n_obs > APPROXIMATE_FROM else "exact"
     # scanpy counts the cell itself among its n_neighbors; the core does not.
-    indices, distances = extension.knn(_representation(adata, use_rep), n_neighbors - 1, device)
+    if method == "exact":
+        indices, distances = extension.knn(representation, n_neighbors - 1, device)
+    else:
+        indices, distances = extension.knn_approximate(
+            representation, n_neighbors - 1, int(random_state)
+        )
     indices = np.asarray(indices)
     distances = np.asarray(distances, dtype=_VALUE_DTYPE)
 
@@ -286,5 +314,11 @@ def neighbors(
     adata.uns["neighbors"] = {
         "connectivities_key": "connectivities",
         "distances_key": "distances",
-        "params": {"n_neighbors": n_neighbors, "method": "umap", "use_rep": use_rep},
+        "params": {
+            "n_neighbors": n_neighbors,
+            "method": "umap",
+            "use_rep": use_rep,
+            "knn_method": method,
+            "random_state": random_state,
+        },
     }

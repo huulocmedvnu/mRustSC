@@ -109,6 +109,12 @@ class FakeCore:
         indices = np.tile(np.arange(k, dtype=np.uint32), (n_rows, 1))
         return indices, np.ones((n_rows, k), dtype=np.float64)
 
+    def knn_approximate(self, embedding, k, seed):
+        self._record("knn_approximate", (embedding, k, seed))
+        n_rows = embedding.shape[0]
+        indices = np.tile(np.arange(k, dtype=np.uint32), (n_rows, 1))
+        return indices, np.ones((n_rows, k), dtype=np.float64)
+
     def connectivities(self, indices, distances):
         self._record("connectivities", (indices, distances))
         n_rows, k = indices.shape
@@ -454,7 +460,25 @@ def test_neighbors_writes_both_graphs_and_the_uns_entry(core: FakeCore) -> None:
         "n_neighbors": 15,
         "method": "umap",
         "use_rep": "X_pca",
+        "knn_method": "exact",
+        "random_state": 0,
     }
+
+
+def test_neighbors_approximate_routes_to_nndescent_with_the_seed(core: FakeCore) -> None:
+    adata = _with_pca(core)
+    pp.neighbors(adata, method="approximate", random_state=7)
+    embedding, k, seed = core.args_of("knn_approximate")
+    assert embedding.shape == (N_OBS, 3)
+    assert k == 14
+    assert seed == 7
+    assert adata.uns["neighbors"]["params"]["knn_method"] == "approximate"
+
+
+def test_neighbors_rejects_an_unknown_method(core: FakeCore) -> None:
+    adata = _with_pca(core)
+    with pytest.raises(ValueError, match="method"):
+        pp.neighbors(adata, method="hnsw")
 
 
 def test_neighbors_uses_the_pca_representation_and_forwards_k(core: FakeCore) -> None:
