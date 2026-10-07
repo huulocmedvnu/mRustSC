@@ -150,3 +150,32 @@ def test_streamed_markers_match_the_in_memory_test(tmp_path):
     )
     assert head.uns["rank_genes_groups"]["params"]["reference"] == "0"
     assert len(head.uns["rank_genes_groups"]["names"][first]) == 50
+
+
+def test_keep_hvg_returns_the_log_normalised_variable_genes(tmp_path):
+    path, adata = _counts_file(tmp_path, n_cells=1200, n_genes=300, seed=8)
+    head = mc.pp.preprocess_backed(
+        path, n_top_genes=80, n_comps=5, min_genes=1, min_cells=1, keep_hvg=True
+    )
+    reference = adata[head.obs_names].copy()
+    mc.pp.normalize_total(reference, target_sum=1e4)
+    mc.pp.log1p(reference)
+    hv = head.var["highly_variable"].to_numpy()
+    assert head.X.shape == (head.n_obs, head.n_vars)
+    assert (head.X[:, ~hv].getnnz(axis=0) == 0).all()
+    np.testing.assert_allclose(
+        head.X[:, hv].toarray(), reference.X[:, hv].toarray(), rtol=1e-6, atol=1e-6
+    )
+    # The in-memory marker test on the kept columns equals the streamed one.
+    head.obs["kind"] = adata.obs["kind"].reindex(head.obs_names).astype("category").to_numpy()
+    head.obs["kind"] = pd.Categorical(head.obs["kind"])
+    subset = head[:, hv].copy()
+    mc.tl.rank_genes_groups(subset, "kind", method="wilcoxon")
+    mc.tl.rank_genes_groups_backed(path, head, "kind")
+    first = subset.obs["kind"].cat.categories[0]
+    np.testing.assert_allclose(
+        subset.uns["rank_genes_groups"]["scores"][first],
+        head.uns["rank_genes_groups"]["scores"][first],
+        rtol=1e-4,
+        atol=1e-5,
+    )

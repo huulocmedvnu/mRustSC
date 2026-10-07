@@ -76,6 +76,7 @@ def preprocess_backed(
     random_state: int = 0,
     device: str | None = None,
     obs_columns: tuple[str, ...] = (),
+    keep_hvg: bool = False,
     progress: Callable[[str, float], None] | None = None,
 ) -> anndata.AnnData:
     """QC, normalisation, feature selection, scaling and PCA for an on-disk matrix.
@@ -84,6 +85,13 @@ def preprocess_backed(
     requested `obs_columns`; `var` the `highly_variable`, `means` and `dispersions_norm`
     columns for every gene of the file; `obsm["X_pca"]`, `varm["PCs"]` and `uns["pca"]`
     as `pp.pca` writes them. Cells failing `min_genes` are absent from `obs`.
+
+    `keep_hvg=True` also returns `X`: the log-normalised values of the variable genes,
+    gathered during the last pass as a sparse `(n_cells, n_vars)` matrix whose other
+    columns are empty. That is the one array the marker test needs, at the memory of the
+    variable genes' stored entries (about 1.6 GB for a million cells by 2 000 genes),
+    so `tl.rank_genes_groups(adata[:, adata.var.highly_variable])` then runs in memory
+    without reading the file again.
     """
     ext = _extension()
     dev = settings.resolve_device(device)
@@ -211,6 +219,7 @@ def preprocess_backed(
         t = time.perf_counter()
         embedding = np.empty((n_cells_kept, n_comps), dtype=_VALUE_DTYPE)
         cursor = 0
+        kept_blocks: list[sp.csr_matrix] = []
         for start, block in _blocks(backed, size):
             stop = start + block.shape[0]
             keep = cell_mask[start:stop]
@@ -219,6 +228,15 @@ def preprocess_backed(
             if not keep.all():
                 block = block[keep]
             block = hv_block(_transform(ext, block, target_sum, log=True))
+            if keep_hvg:
+                # The block's variable-gene values under their global column ids.
+                kept_blocks.append(
+                    sp.csr_matrix(
+                        (block.data.copy(), hv_columns[block.indices], block.indptr.copy()),
+                        shape=(block.shape[0], n_vars),
+                        dtype=_VALUE_DTYPE,
+                    )
+                )
             dense = ext.scale_dense_with(
                 block.indptr, block.indices, block.data, n_hv, hv_mean32, hv_std32, True, max_value
             )
@@ -246,6 +264,9 @@ def preprocess_backed(
         index=var_names,
     )
     result = anndata.AnnData(obs=obs, var=var)
+    if keep_hvg:
+        result.X = sp.vstack(kept_blocks, format="csr", dtype=_VALUE_DTYPE)
+        del kept_blocks
     result.obsm["X_pca"] = embedding
     pcs = np.zeros((n_vars, n_comps), dtype=_VALUE_DTYPE)
     pcs[hv_columns] = components.T

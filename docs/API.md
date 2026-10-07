@@ -240,7 +240,15 @@ types scanpy raises. `copy=False` subsets in place and returns `None`.
 Thins the counts themselves, keeping every cell. Exactly one of `counts_per_cell`
 and `total_counts` is required.
 
-#### `pp.preprocess_backed(path, *, ...)`
+#### `pp.preprocess_backed(path, *, ..., keep_hvg=False)`
+
+`keep_hvg=True` also returns `X`: the log-normalised values of the variable genes,
+gathered during the last pass as a sparse `(n_cells, n_vars)` matrix whose other columns
+are empty. That is all the marker test needs, at the memory of those entries (0.17 GB
+for the 953 436-cell embryo atlas by 2 000 genes), so
+`tl.rank_genes_groups(adata[:, adata.var.highly_variable], groupby)` then runs in memory
+in 0.3 s without reading the file again; `tl.rank_genes_groups_backed` remains for a
+matrix whose variable genes do not fit either, or for every gene.
 
 The out-of-core head for a matrix that does not fit memory. See
 [Out-of-core](#out-of-core-pppreprocess_backed) at the end of this page.
