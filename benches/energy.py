@@ -6,6 +6,9 @@ Run from the repo root, with sudo because `powermetrics` reads the power counter
     sudo PYTHONPATH=$PWD/python .venv/bin/python benches/energy.py data.h5ad \
         --library metalcyte --device auto --json results/energy_metalcyte.json
 
+`--backed` runs the out-of-core pipeline of `benches/pipeline_1m.py` instead, for a
+counts-only file larger than memory such as the four-million-cell survey.
+
 Apple silicon exposes per-rail package power (CPU, GPU, ANE and their sum) through
 `powermetrics`. This script samples those rails every 100 ms while `benches/pipeline.py`
 runs the whole pipeline in a child process, integrates power over the run and subtracts
@@ -32,6 +35,7 @@ from typing import Any
 
 BENCH_DIR = Path(__file__).resolve().parent
 PIPELINE = BENCH_DIR / "pipeline.py"
+PIPELINE_BACKED = BENCH_DIR / "pipeline_1m.py"
 
 _ELAPSED = re.compile(r"\((\d+(?:\.\d+)?)ms elapsed\)")
 _RAIL = re.compile(r"^(CPU|GPU|ANE|Combined) Power(?: \(.*?\))?: (\d+(?:\.\d+)?) mW", re.M)
@@ -110,6 +114,12 @@ def main() -> int:
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
     parser.add_argument("--cells", type=int)
     parser.add_argument("--umap-parallel", action="store_true")
+    parser.add_argument(
+        "--backed",
+        action="store_true",
+        help="run the out-of-core pipeline (benches/pipeline_1m.py) for a counts file "
+        "larger than memory; the file must be counts-only",
+    )
     parser.add_argument("--idle-seconds", type=float, default=10.0)
     parser.add_argument("--interval-ms", type=int, default=100)
     parser.add_argument("--json", type=Path)
@@ -135,7 +145,7 @@ def main() -> int:
         cmd = [
             *_as_user_prefix(),
             sys.executable,
-            str(PIPELINE),
+            str(PIPELINE_BACKED if args.backed else PIPELINE),
             str(args.h5ad),
             "--library",
             args.library,
@@ -145,6 +155,8 @@ def main() -> int:
             str(pipeline_json),
         ]
         if args.cells:
+            if args.backed:
+                parser.error("--cells applies to the in-memory pipeline only")
             cmd += ["--cells", str(args.cells)]
         if args.umap_parallel:
             cmd.append("--umap-parallel")
