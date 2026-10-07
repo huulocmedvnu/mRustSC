@@ -4,6 +4,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/metalcyte.svg)](https://pypi.org/project/metalcyte/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Apple%20silicon-lightgrey.svg)](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md)
 [![CI](https://github.com/huulocmedvnu/metalcyte/actions/workflows/ci.yml/badge.svg)](https://github.com/huulocmedvnu/metalcyte/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23210563.svg)](https://doi.org/10.5281/zenodo.23210563)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/huulocmedvnu/metalcyte/blob/main/LICENSE)
 
 **Single-cell RNA-seq analysis of atlas-sized datasets on an Apple silicon laptop.**
@@ -150,7 +151,8 @@ monitor of macOS, with the idle power subtracted.
 
 ## Citation
 
-If you use Metalcyte in your research, please cite it as described in [CITATION.cff](https://github.com/huulocmedvnu/metalcyte/blob/main/CITATION.cff).
+If you use Metalcyte in your research, please cite the archived software (DOI
+[10.5281/zenodo.23210563](https://doi.org/10.5281/zenodo.23210563), all versions) as described in [CITATION.cff](https://github.com/huulocmedvnu/metalcyte/blob/main/CITATION.cff).
 A manuscript is in preparation.
 
 ## Contributing
