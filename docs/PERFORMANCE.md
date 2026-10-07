@@ -152,6 +152,11 @@ neighbour search. Nothing was tuned for this file.
 | UMAP (parallel) | 237 | 4.9 GB |
 | Leiden | 61 | 7.3 GB |
 | **from counts to clusters** | **538** (9 minutes, 71 clusters) | peak about 9 GB |
+
+The cluster count varies between runs of this file: 71, 65 and 59 in three runs. The approximate
+neighbour search updates its lists from parallel threads, so two runs with the same seed give
+nearly the same graph but not the same one (5 of 300 000 rows differed in a test on the embryo
+atlas), and Leiden splits this atlas's many similar fine clusters differently.
 | Wilcoxon markers on the 2 000 variable genes kept by the head (0.63 GB) | 1.3 | |
 | UMAP scatter of all 4 062 980 cells, `pl.umap`, saved | 1.5 | |
 | t-SNE, FFT-accelerated, on the GPU | 497 | |
@@ -194,8 +199,22 @@ million cells the Metal run is about 1.4 kJ. The published rapids-singlecell run
 takes 92 s for a million cells on a card rated at 300 W with a 200 W host, which puts that run at
 20 to 45 kJ even at half load.
 
+On the full 4 062 980-cell survey (the out-of-core pipeline, counts to clusters):
+
+| run | seconds | gross energy | net energy | mean power |
+|---|---:|---:|---:|---:|
+| Metalcyte, Metal | 557 | 7 089 J | 6 244 J | 12.7 W |
+| Metalcyte, CPU only | 568 | 7 028 J | not comparable | 12.3 W |
+
+About 1.5 kJ per million cells on Metal, close to the 117 308-cell figure. The two runs draw the
+same energy within 1%: at this size the default path runs the approximate neighbour search and
+UMAP on the cores, so the GPU has little to do. The CPU run's net figure is left out because its
+idle baseline was taken just after the Metal run, with the machine still warm (3.9 W against
+1.5 W). The timed runs under `powermetrics` took 557 s and 568 s against 538 s without it.
+
 ```bash
 sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad
+sudo sh benches/run_energy_4m.sh data/embryo_4m_counts.h5ad
 ```
 
 ## What each part of the chip is worth
@@ -225,7 +244,8 @@ Seconds for the whole pipeline and for the steps that move; the run-to-run noise
 
 - The exact neighbour search is quadratic in cells. The approximate search covers the large
   regime with a recall of 0.96 at a million cells; a user who needs the exact graph above
-  200 000 cells pays the quadratic cost.
+  200 000 cells pays the quadratic cost. The approximate search is not bit-reproducible across
+  runs: its parallel updates make the graph, and so the cluster count, vary slightly.
 - The Metal neighbour kernel runs at about 15% of the chip's arithmetic peak. A version on the
   GPU's matrix units is in the tree, opt-in, and is not yet faster.
 - t-SNE is exact up to 20 000 cells and FFT-accelerated above: 13 s for the 117 308-cell atlas and

@@ -1,14 +1,27 @@
 # Installing Metalcyte
 
 Metalcyte is a compiled package: a Rust extension module (`metalcyte._metalcyte`) with a
-thin Python layer around it. There is no pure-Python fallback, and there are no PyPI
-wheels yet, so the package is built from source with maturin inside a virtualenv.
+thin Python layer around it. There is no pure-Python fallback.
+
+## From PyPI
+
+Wheels are published for macOS on Apple silicon, Python 3.11 to 3.13:
+
+```bash
+pip install metalcyte            # numpy, scipy, pandas and anndata come with it
+pip install "metalcyte[plot]"    # matplotlib and seaborn for metalcyte.pl
+```
+
+On any other platform pip falls back to the source distribution, which needs a Rust
+toolchain. That build links Apple Accelerate by default and so fails outside macOS; build
+from a clone instead, with `accelerate` removed from `features` in `pyproject.toml`, for a
+CPU-only package.
 
 ## From source
 
 Needed:
 
-- a Rust toolchain (`rustup`, stable, and the workspace pins `rust-version = 1.85`),
+- a Rust toolchain (`rustup`, stable, and the workspace pins `rust-version = 1.88`),
 - on macOS, the Xcode command line tools, which supply the SDK the extension links
   Metal against,
 - Python 3.11 or newer.

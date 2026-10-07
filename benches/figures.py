@@ -347,19 +347,19 @@ def f3_streaming():
     passes = [
         (
             "Pass 1",
-            "3.6 s",
+            "4.2 s",
             "Cell filter, normalisation,<br>log transform.<br>Per-gene sums accumulated",
             "2 000 highly<br>variable genes",
         ),
         (
             "Pass 2",
-            "5.3 s",
+            "5.4 s",
             "Mean and standard<br>deviation of the<br>selected genes",
             "Scaling parameters",
         ),
         (
             "Pass 3",
-            "15.3 s",
+            "14.0 s",
             "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
             "50 principal axes<br>(subspace iteration)",
         ),

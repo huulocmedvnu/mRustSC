@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use Metalcyte in your research, please cite it as below."
+title: "Metalcyte: single-cell analysis on Apple silicon"
+type: software
+authors:
+  - family-names: Tran
+    given-names: Thai Huu Loc
+    orcid: "https://orcid.org/0009-0009-1810-010X"
+    affiliation: "Department of Obstetrics and Gynecology, Hong Hung Hospital, Tay Ninh City, Viet Nam"
+version: 0.3.0
+date-released: "2026-10-07"
+license: MIT
+repository-code: "https://github.com/huulocmedvnu/metalcyte"
+url: "https://pypi.org/project/metalcyte/"
+keywords:
+  - single-cell RNA-seq
+  - scRNA-seq
+  - Apple silicon
+  - Metal
+  - GPU
+  - Rust
+  - out-of-core
+abstract: >-
+  Metalcyte is a Rust engine with a scanpy-compatible Python interface for single-cell
+  RNA-seq analysis on Apple silicon. It runs preprocessing, PCA, neighbour graphs, UMAP,
+  t-SNE, clustering and marker tests on the CPU cores, the matrix coprocessor and the GPU,
+  and processes count matrices larger than memory out of core.
