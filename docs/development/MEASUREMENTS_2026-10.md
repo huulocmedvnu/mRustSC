@@ -476,3 +476,7 @@ to Metalcyte Metal 7.3 in energy and 18.8 in time. The earlier figures (974 J ag
   head 62 s, approximate neighbours 38 s, UMAP 83 s, Leiden 20 s, **202 s** on Metal (222 s on
   the cores), no step adding more than 3.0 GB; streamed markers on 2 000 genes 8.4 s. The full
   4 062 980-cell survey (CELLxGENE f7c1c579) is downloading for a real point.
+- `preprocess_backed(keep_hvg=True)` keeps the log-normalised variable-gene columns from pass 4
+  as a sparse `(n_cells, n_vars)` matrix: 21 M stored entries, 0.17 GB, at 953 436 cells, with the
+  head's time unchanged (31 s). The in-memory marker test on those columns: 0.29 s. So the fast
+  route costs 0.17 GB and the streamed test is kept for the case beyond it.

@@ -160,7 +160,8 @@ Single runs on the 953 436-cell embryo embedding (50 principal components) on th
 | step | Metalcyte | note |
 |---|---:|---|
 | t-SNE, FFT-accelerated (1 000 iterations) | 54 s | exact up to 20 000 cells, FFT above, the whole iteration on the GPU; 13 s on the 117 308-cell atlas |
-| Wilcoxon markers over the counts file, `tl.rank_genes_groups_backed`, 2 000 variable genes, 42 clusters | 4.5 s | the matrix never in memory (resident set unchanged at 2.3 GB); the in-memory test on the same values takes 0.3 s, so stream only when the matrix does not fit; all 45 676 genes in blocks of 4 096: 39 s |
+| Wilcoxon markers on the variable genes kept by the head (`preprocess_backed(keep_hvg=True)`, 0.17 GB), 42 clusters | 0.3 s | the head's time is unchanged; this is the recommended route |
+| Wilcoxon markers over the counts file, `tl.rank_genes_groups_backed`, 2 000 variable genes, 42 clusters | 4.5 s | the matrix never in memory (resident set unchanged at 2.3 GB); for a matrix whose variable genes do not fit either, or for every gene: all 45 676 in blocks of 4 096, 39 s |
 | UMAP scatter of all cells, `pl.umap` (render, legend, PNG at 300 dpi) | 0.6 s | the Metal rasteriser draws the 953 436 points in 0.2 s; scanpy's matplotlib scatter of the same cells takes 4.1 s to save and holds a million path objects |
 | Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
 
