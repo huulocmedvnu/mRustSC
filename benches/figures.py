@@ -212,7 +212,7 @@ def f1_chip_and_library():
         ("Highly variable genes", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("Scaling", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("PCA", "GPU", "CPU and AMX", "SSD, row blocks, GPU"),
-        ("k-NN graph", "GPU, exact; CPU approximate above 200k", "CPU, 11 threads", "in memory, as at left"),
+        ("k-NN graph", "GPU exact, CPU approx. >200k", "CPU, 11 threads", "as at left"),
         ("UMAP", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
         ("Leiden", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
         ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
