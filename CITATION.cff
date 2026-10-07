@@ -7,7 +7,7 @@ authors:
     given-names: Thai Huu Loc
     orcid: "https://orcid.org/0009-0009-1810-010X"
     affiliation: "Department of Obstetrics and Gynecology, Hong Hung Hospital, Tay Ninh City, Viet Nam"
-version: 0.3.0
+version: 0.3.1
 date-released: "2026-10-07"
 license: MIT
 doi: "10.5281/zenodo.23210563"
