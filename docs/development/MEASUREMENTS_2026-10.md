@@ -464,3 +464,15 @@ head.
 168 J (CPU 129, GPU 79), 11.8 W; Metalcyte CPU-only 15.7 s, 273 J (CPU 274), 15.8 W. Ratio scanpy
 to Metalcyte Metal 7.3 in energy and 18.8 in time. The earlier figures (974 J against 195 J on a
 20 s build) are superseded; the scanpy run itself varies by about 25% between the two sessions.
+
+## 14. Addendum, 2026-10-07: streamed marker test and a 2M-cell point
+
+- `tl.rank_genes_groups_backed` (`de::wilcoxon::StreamedWilcoxon`): the Wilcoxon test over the
+  row blocks of the counts file. 953 436 cells, 2 000 HVG, 42 clusters: 4.5 s, resident set
+  unchanged at 2.3 GB; all 45 676 genes in blocks of 4 096 (12 passes): 39 s, 2.7 GB. The
+  in-memory test on the same values: 0.3 s and 12.7 s, so the streamed test is for a matrix that
+  does not fit. Equal to the in-memory test to 1e-4 on identical values (`tests/test_streaming.py`).
+- 2 002 576 cells (the embryo atlas plus a binomially thinned copy, `benches/double_counts.py`):
+  head 62 s, approximate neighbours 38 s, UMAP 83 s, Leiden 20 s, **202 s** on Metal (222 s on
+  the cores), no step adding more than 3.0 GB; streamed markers on 2 000 genes 8.4 s. The full
+  4 062 980-cell survey (CELLxGENE f7c1c579) is downloading for a real point.

@@ -1,0 +1,4 @@
+953k: streamed Wilcoxon, 2000 HVG, 42 clusters: 4.5 s (head 32 s; peak RSS before 2.3 GB, after 2.3 GB)
+953k: streamed Wilcoxon, all 45676 genes in blocks of 4096: 39.0 s, peak RSS 2.7 GB
+2M synthetic: streamed Wilcoxon, 2000 HVG, 51 clusters: 8.4 s (head 65 s; peak RSS before 2.7 GB, after 2.7 GB)
+MARKERS_DONE

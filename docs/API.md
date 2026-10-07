@@ -376,6 +376,21 @@ routine. Both are valid maximum spanning trees and their total weight agrees to 
 `device` is accepted and deliberately ignored: this is one memory-bound sweep over
 the stored edges into a group-sized matrix, and there is nothing for a GPU to do.
 
+#### `tl.rank_genes_groups_backed(path, adata, groupby, *, genes="highly_variable", groups="all", reference="rest", target_sum=1e4, gene_block=4096, block_size=None, key_added="rank_genes_groups")`
+
+`rank_genes_groups(method="wilcoxon")` over a counts file on disk, never holding the
+matrix in memory: the last step of the pipeline that still needed it. `adata` is what
+`pp.preprocess_backed` returned for `path` (its `obs` names the cells kept and
+`obs[groupby]` their groups, its `var` the file's genes). The file's row blocks are
+normalised and log-transformed on the fly, exactly as the in-memory test sees them; the
+stored values of the tested genes are collected per gene with their cells' groups and
+ranked once every block has passed, with the zeros of each gene as one tied block
+computed in closed form. `genes` is `"highly_variable"` (the flags in `adata.var`),
+`"all"`, or a list of names; beyond `gene_block` genes the test runs in gene blocks, one
+pass over the file per block, so memory stays at the stored entries of one block. The
+statistics equal `rank_genes_groups` on the same values (`tests/test_streaming.py`).
+Writes the same `uns` slot.
+
 #### `tl.filter_rank_genes_groups(adata, *, key="rank_genes_groups", groupby=None, key_added="rank_genes_groups_filtered", min_in_group_fraction=0.25, max_out_group_fraction=0.5, min_fold_change=2.0)`
 
 Blanks out the genes that fail the expression-fraction filters, keeping the shape of

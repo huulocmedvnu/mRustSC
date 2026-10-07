@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from metalcyte._shared import _LABEL_DTYPE, _csr_args, _extension, _resolve_device
 
@@ -68,9 +70,30 @@ def rank_genes_groups(
         device,
     )
 
-    # The core returns statistics in gene order; scanpy's slot is ranked by score.
+    _write_ranking(
+        adata,
+        result,
+        groupby,
+        group_names,
+        label_names,
+        reference,
+        method,
+        adata.var_names.to_numpy(),
+    )
+
+
+def _write_ranking(
+    adata: AnnData,
+    result: dict,
+    groupby: str,
+    group_names: Sequence[str],
+    label_names: Sequence[str],
+    reference: str,
+    method: str,
+    gene_names: np.ndarray,
+) -> None:
+    """Rank the core's per-group statistics by score and write scanpy's slot."""
     rows = [label_names.index(name) for name in group_names]
-    gene_names = adata.var_names.to_numpy()
     scores = np.asarray(result["scores"])
     # scanpy reverses an ascending argsort, which flips the order of tied
     # scores; sorting the negated array instead would not match it.
@@ -99,6 +122,100 @@ def rank_genes_groups(
             for key, columns in fields.items()
         },
     }
+
+
+def rank_genes_groups_backed(
+    path: str | os.PathLike[str],
+    adata: AnnData,
+    groupby: str,
+    *,
+    genes: str | Sequence[str] = "highly_variable",
+    groups: str | Sequence[str] = "all",
+    reference: str = "rest",
+    target_sum: float = 1e4,
+    gene_block: int = 4096,
+    block_size: int | None = None,
+    key_added: str = "rank_genes_groups",
+) -> None:
+    """`rank_genes_groups(method="wilcoxon")` over a counts file on disk, never holding
+    the matrix in memory.
+
+    `adata` is what `pp.preprocess_backed` returned for `path` (its `obs` names the
+    cells kept and `obs[groupby]` their groups, its `var` the file's genes). The file's
+    row blocks are normalised and log-transformed on the fly, as the in-memory test
+    sees them, and the stored values of the tested genes are collected per gene and
+    ranked once every block has passed. `genes` is `"highly_variable"` (the flags in
+    `adata.var`), `"all"`, or a list of gene names; beyond `gene_block` genes the test
+    runs in gene blocks, one pass over the file per block, so memory stays at the stored
+    entries of one block. The statistics equal the in-memory test's on the same values.
+    """
+    from metalcyte._backed import block_size_for, open_backed
+    from metalcyte._streaming import _blocks, _transform
+    from metalcyte.settings import settings
+
+    extension = _extension()
+    group_names, label_names = _group_order(adata, groupby, groups, reference)
+    codes = _labels(adata, groupby, label_names)
+    reference_index = None if reference == "rest" else label_names.index(reference)
+    no_group = np.uint32(np.iinfo(np.uint32).max)
+
+    with open_backed(path) as backed:
+        n_obs, n_vars = backed.shape
+        file_var = backed.var.index.to_numpy()
+        if n_vars != adata.n_vars or not np.array_equal(file_var, adata.var_names.to_numpy()):
+            raise ValueError("adata.var must hold the file's genes in the file's order")
+        # Group label per file row: the kept cells carry their code, the rest are skipped.
+        position = pd.Series(np.arange(n_obs), index=backed.obs.index)
+        rows = position.reindex(adata.obs_names)
+        if rows.isna().any():
+            raise ValueError("adata.obs_names must all be cells of the file")
+        labels = np.full(n_obs, no_group, dtype=np.uint32)
+        kept = rows.to_numpy().astype(np.int64)
+        labels[kept[codes >= 0]] = codes[codes >= 0].astype(np.uint32)
+
+        if isinstance(genes, str) and genes == "highly_variable":
+            if "highly_variable" not in adata.var:
+                raise KeyError("adata.var has no 'highly_variable'; run pp.preprocess_backed first")
+            columns = np.flatnonzero(adata.var["highly_variable"].to_numpy())
+        elif isinstance(genes, str) and genes == "all":
+            columns = np.arange(n_vars)
+        else:
+            columns = adata.var_names.get_indexer(list(genes))
+            if (columns < 0).any():
+                raise KeyError("genes not in adata.var_names")
+        columns = np.asarray(columns, dtype=np.int64)
+        size = block_size or settings.chunk_size or block_size_for(n_vars, backed.density)
+
+        parts = []
+        for start in range(0, len(columns), max(int(gene_block), 1)):
+            selection = columns[start : start + gene_block]
+            stream = extension.WilcoxonStream(
+                [int(c) for c in selection], int(n_vars), len(label_names)
+            )
+            for row0, block in _blocks(backed, size):
+                row1 = row0 + block.shape[0]
+                block_labels = labels[row0:row1]
+                if (block_labels == no_group).all():
+                    continue
+                block = _transform(extension, block, target_sum, log=True)
+                stream.push(
+                    block.indptr.astype(np.uint32, copy=False),
+                    block.indices.astype(np.uint32, copy=False),
+                    block.data,
+                    int(n_vars),
+                    np.ascontiguousarray(block_labels),
+                )
+            parts.append(stream.finish(reference_index, _TIE_CORRECT))
+    result = {
+        key: np.concatenate([np.asarray(part[key]) for part in parts], axis=1)
+        for key in ("scores", "p_values", "adjusted_p_values", "log2_fold_changes")
+    }
+    gene_names = adata.var_names.to_numpy()[columns]
+    _write_ranking(
+        adata, result, groupby, group_names, label_names, reference, "wilcoxon", gene_names
+    )
+    if key_added != "rank_genes_groups":
+        adata.uns[key_added] = adata.uns.pop("rank_genes_groups")
 
 
 def _compare(

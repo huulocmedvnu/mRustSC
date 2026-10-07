@@ -1,0 +1,27 @@
+copy 1 rows 1001288/1001288
+wrote /Users/mac/Downloads/mRustSC_work/data/embryo_2m_counts.h5ad: 2002576 cells, 1104153385 stored values
+== pipeline 2M metal
+metalcyte on embryo_2m_counts.h5ad
+      pass1_moments            7.60 s
+      hvg                      0.00 s
+      pass2_hv_moments        10.64 s
+      pass3_scatter_eigh      26.78 s
+      pass4_project           15.44 s
+  pp.preprocess_backed             61.94 s  +    1221 MB
+  pp.neighbors                     37.86 s  +    1904 MB
+  tl.umap                          82.71 s  +    2172 MB
+  tl.leiden                        19.59 s  +    3022 MB
+  total                           202.10 s   (51 Leiden clusters)
+== pipeline 2M cpu
+metalcyte on embryo_2m_counts.h5ad
+      pass1_moments            7.04 s
+      hvg                      0.00 s
+      pass2_hv_moments        10.50 s
+      pass3_scatter_eigh      40.01 s
+      pass4_project           15.38 s
+  pp.preprocess_backed             74.47 s  +     989 MB
+  pp.neighbors                     37.45 s  +    1899 MB
+  tl.umap                          87.52 s  +    2206 MB
+  tl.leiden                        22.22 s  +    3099 MB
+  total                           221.65 s   (50 Leiden clusters)
+CHAIN2M_DONE

@@ -340,6 +340,12 @@ fn rank_gene(
             stored.push((value, slot));
         }
     }
+    rank_entries(stored, slot_sizes, n_compared)
+}
+
+/// Rank already-collected stored entries `(value, slot)` of one gene, every explicit
+/// zero removed, and return each slot's rank sum. See [`rank_gene`].
+fn rank_entries(stored: &mut [(f32, u32)], slot_sizes: &[usize], n_compared: usize) -> GeneRanks {
     stored.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
 
     let mut sums = vec![0f64; slot_sizes.len()];
@@ -633,6 +639,239 @@ fn assemble(
 /// Two-sided normal tail, `2 * norm.sf(|z|)`.
 fn two_sided_p(score: f64) -> f64 {
     crate::de::hypothesis::erfc(score.abs() / std::f64::consts::SQRT_2)
+}
+
+/// Marks a cell of a streamed block that takes no part in the test (filtered out).
+pub const NO_GROUP: u32 = u32::MAX;
+
+/// The Wilcoxon test over a matrix read one row block at a time, so the matrix is
+/// never held in memory: the stored values of the selected genes are collected per gene
+/// as the blocks pass, with their cells' groups, and ranked once every block is in.
+///
+/// Memory is the stored entries of the selected genes (8 bytes each) and nothing of
+/// size cells by genes. A caller who wants every gene of a large file runs the test in
+/// gene blocks, one pass over the file per block.
+pub struct StreamedWilcoxon {
+    n_groups: usize,
+    /// Global gene index to its position in the selection, or `-1`.
+    column_map: Vec<i32>,
+    per_gene: Vec<Vec<(f32, u32)>>,
+    group_sizes: Vec<usize>,
+    n_cells: usize,
+    /// Per group and selected gene, the sum of the values, for the fold changes.
+    sums: Vec<Vec<f64>>,
+}
+
+impl StreamedWilcoxon {
+    /// `columns` are the global indices of the genes to test, among `n_genes_total`.
+    pub fn new(columns: &[usize], n_genes_total: usize, n_groups: usize) -> Result<Self> {
+        if n_groups == 0 {
+            return Err(Error::parameter("n_groups", "at least 1", 0));
+        }
+        let mut column_map = vec![-1i32; n_genes_total];
+        for (local, &global) in columns.iter().enumerate() {
+            let slot = column_map.get_mut(global).ok_or_else(|| {
+                Error::parameter("columns", "indices below the gene count", global)
+            })?;
+            *slot = local as i32;
+        }
+        Ok(Self {
+            n_groups,
+            column_map,
+            per_gene: vec![Vec::new(); columns.len()],
+            group_sizes: vec![0; n_groups],
+            n_cells: 0,
+            sums: vec![vec![0f64; columns.len()]; n_groups],
+        })
+    }
+
+    pub fn n_cells(&self) -> usize {
+        self.n_cells
+    }
+
+    /// Add one row block, already normalised and log-transformed, with one group label
+    /// per row (`NO_GROUP` for a row to skip).
+    #[allow(clippy::needless_range_loop)]
+    pub fn push(&mut self, block: &CsrMatrix, labels: &[u32]) -> Result<()> {
+        let n_rows = block.n_rows();
+        if labels.len() != n_rows {
+            return Err(Error::shape(
+                format!("one label per row ({n_rows})"),
+                format!("{} labels", labels.len()),
+            ));
+        }
+        if block.n_cols() != self.column_map.len() {
+            return Err(Error::shape(
+                format!("{} genes", self.column_map.len()),
+                format!("{} columns", block.n_cols()),
+            ));
+        }
+        for &label in labels {
+            if label != NO_GROUP {
+                let group = self
+                    .group_sizes
+                    .get_mut(label as usize)
+                    .ok_or_else(|| Error::parameter("labels", "below n_groups", label))?;
+                *group += 1;
+                self.n_cells += 1;
+            }
+        }
+        let n_local = self.per_gene.len();
+        let indptr = block.indptr();
+        let indices = block.indices();
+        let values = block.values();
+        let map = &self.column_map;
+        // Counting sort of the block's selected entries by gene, in parallel over row
+        // chunks and stable within each chunk, so the per-gene order is the row order.
+        let n_chunks = (rayon::current_num_threads() * 2).max(1);
+        let chunk = n_rows.div_ceil(n_chunks).max(1);
+        let entry_local = |entry: usize| map[indices[entry] as usize];
+        let histograms: Vec<Vec<u32>> = (0..n_chunks)
+            .into_par_iter()
+            .map(|c| {
+                let mut h = vec![0u32; n_local];
+                for row in c * chunk..((c + 1) * chunk).min(n_rows) {
+                    if labels[row] == NO_GROUP {
+                        continue;
+                    }
+                    for entry in indptr[row] as usize..indptr[row + 1] as usize {
+                        let local = entry_local(entry);
+                        if local >= 0 && values[entry] != 0.0 {
+                            h[local as usize] += 1;
+                        }
+                    }
+                }
+                h
+            })
+            .collect();
+        let mut offsets = vec![0usize; n_local + 1];
+        for g in 0..n_local {
+            offsets[g + 1] = offsets[g] + histograms.iter().map(|h| h[g] as usize).sum::<usize>();
+        }
+        let total = offsets[n_local];
+        let mut starts: Vec<Vec<usize>> = vec![vec![0; n_local]; n_chunks];
+        for g in 0..n_local {
+            let mut at = offsets[g];
+            for c in 0..n_chunks {
+                starts[c][g] = at;
+                at += histograms[c][g] as usize;
+            }
+        }
+        let mut scattered: Vec<(f32, u32)> = vec![(0.0, 0); total];
+        let scattered_ptr = scattered.as_mut_ptr() as usize;
+        starts
+            .into_par_iter()
+            .enumerate()
+            .for_each(|(c, mut cursor)| {
+                // SAFETY: each chunk writes only the ranges it was given, which are disjoint.
+                let out = unsafe {
+                    std::slice::from_raw_parts_mut(scattered_ptr as *mut (f32, u32), total)
+                };
+                for row in c * chunk..((c + 1) * chunk).min(n_rows) {
+                    let label = labels[row];
+                    if label == NO_GROUP {
+                        continue;
+                    }
+                    for entry in indptr[row] as usize..indptr[row + 1] as usize {
+                        let local = entry_local(entry);
+                        if local >= 0 && values[entry] != 0.0 {
+                            out[cursor[local as usize]] = (values[entry], label);
+                            cursor[local as usize] += 1;
+                        }
+                    }
+                }
+            });
+        let sums = &mut self.sums;
+        let per_gene = &mut self.per_gene;
+        let n_groups = self.n_groups;
+        // Each gene appends its segment and adds its values to its groups' sums.
+        let gene_sums: Vec<Vec<f64>> = per_gene
+            .par_iter_mut()
+            .enumerate()
+            .map(|(g, store)| {
+                let segment = &scattered[offsets[g]..offsets[g + 1]];
+                store.extend_from_slice(segment);
+                let mut s = vec![0f64; n_groups];
+                for &(value, label) in segment {
+                    s[label as usize] += f64::from(value);
+                }
+                s
+            })
+            .collect();
+        for (g, s) in gene_sums.iter().enumerate() {
+            for (group, &value) in s.iter().enumerate() {
+                sums[group][g] += value;
+            }
+        }
+        Ok(())
+    }
+
+    /// Rank every selected gene and assemble the statistics, as
+    /// [`rank_genes_groups_wilcoxon`] does for a matrix in memory.
+    pub fn finish(&mut self, reference: Option<u32>, tie_correct: bool) -> Result<GroupComparison> {
+        let n_genes = self.per_gene.len();
+        if let Some(reference) = reference {
+            if reference as usize >= self.n_groups {
+                return Err(Error::parameter("reference", "below n_groups", reference));
+            }
+        }
+        let group_sizes = self.group_sizes.clone();
+        let n_cells = self.n_cells;
+        let scores: Vec<Vec<f64>> = match reference {
+            None => {
+                let per_gene: Vec<Vec<f64>> = self
+                    .per_gene
+                    .par_iter_mut()
+                    .map(|stored| {
+                        let ranks = rank_entries(stored, &group_sizes, n_cells);
+                        let coefficient = tie_coefficient(ranks.tie_sum, n_cells, tie_correct);
+                        ranks
+                            .sums
+                            .iter()
+                            .zip(&group_sizes)
+                            .map(|(&sum, &size)| standardised(sum, size, n_cells, coefficient))
+                            .collect()
+                    })
+                    .collect();
+                transpose(&per_gene, self.n_groups)
+            }
+            Some(reference) => (0..self.n_groups)
+                .map(|group| {
+                    if group as u32 == reference {
+                        return vec![0f64; n_genes];
+                    }
+                    let slot_sizes = [group_sizes[group], group_sizes[reference as usize]];
+                    let n_compared = slot_sizes[0] + slot_sizes[1];
+                    self.per_gene
+                        .par_iter()
+                        .map_init(Vec::new, |stored: &mut Vec<(f32, u32)>, entries| {
+                            stored.clear();
+                            stored.extend(entries.iter().filter_map(|&(value, label)| {
+                                if label as usize == group {
+                                    Some((value, ACTIVE_SLOT as u32))
+                                } else if label == reference {
+                                    Some((value, 1))
+                                } else {
+                                    None
+                                }
+                            }));
+                            let ranks = rank_entries(stored, &slot_sizes, n_compared);
+                            let coefficient =
+                                tie_coefficient(ranks.tie_sum, n_compared, tie_correct);
+                            standardised(
+                                ranks.sums[ACTIVE_SLOT],
+                                slot_sizes[ACTIVE_SLOT],
+                                n_compared,
+                                coefficient,
+                            )
+                        })
+                        .collect()
+                })
+                .collect(),
+        };
+        let means = GroupMeans::from_sums(self.sums.clone(), n_cells, &group_sizes);
+        Ok(assemble(scores, &means, reference, n_genes))
+    }
 }
 
 #[cfg(test)]

@@ -187,3 +187,10 @@ of physical memory instead of a fixed 8 GiB.
 render pass into one RGBA image (`raster.rs` in both crates, the cores as fallback and
 reference), matplotlib draws the legend and colour bar around it. 953 436 cells render in
 0.2 s and save in 0.6 s; scanpy's matplotlib scatter takes 4.1 s and holds a path per cell.
+
+### 2.7 Streamed marker test
+**Done (2026-10-07):** `tl.rank_genes_groups_backed` ranks genes over the row blocks of the counts
+file (`de::wilcoxon::StreamedWilcoxon`): per block, the selected genes' stored values are
+counting-sorted by gene in parallel and appended with their cells' groups; after the pass each
+gene is ranked with its zeros as one tied block. Equal to the in-memory test on the same values.
+With this no step of the pipeline needs the matrix in memory.
