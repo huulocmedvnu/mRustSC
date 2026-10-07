@@ -63,10 +63,14 @@ worst absolute deviation on PBMC 3k:
 | step | criterion | measured (PBMC 3k) |
 | --- | --- | --- |
 | `pp.highly_variable_genes` | ≥ 0.95 of scanpy's 2 000 genes | **1.00** (identical set) |
-| `pp.neighbors` | mean per-cell neighbour overlap ≥ 0.90 | **1.00**, worst cell 1.00 |
+| `pp.neighbors` (exact) | mean per-cell neighbour overlap ≥ 0.90 | **1.00**, worst cell 1.00 |
+| `pp.neighbors(method="approximate")` | mean recall against the exact lists ≥ 0.95 | **0.99** |
 
-The neighbour search is exact, which is why the overlap is total: the same k nearest
-points, in the same graph.
+The exact search is why the overlap is total: the same k nearest points, in the same
+graph. The approximate search (NN-descent seeded with a random-projection forest) is
+held to the exact lists by recall at k = 15 (`tests/test_neighbors_approximate` in
+`tests/test_reference.py`); on the embryo embedding `benches/knn_methods.py` measures
+0.98 at 100 000 cells and 0.96 at 953 000.
 
 ## PCA: determined components and spectrum
 

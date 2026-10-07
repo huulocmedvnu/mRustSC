@@ -72,8 +72,12 @@ def save(fig: go.Figure, name: str, width: int, height: int) -> None:
     else:
         fig.update_layout(margin=dict(l=20, r=20, t=50, b=20))
     fig.update_layout(font=FONT)
-    fig.update_xaxes(showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside")
-    fig.update_yaxes(showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside")
+    fig.update_xaxes(
+        showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside"
+    )
+    fig.update_yaxes(
+        showgrid=False, zeroline=False, showline=True, linecolor="#222", ticks="outside"
+    )
     for ext in ("svg", "png"):
         fig.write_image(
             out / f"{name}.{ext}", width=width, height=height, scale=1 if ext == "svg" else 3
@@ -151,8 +155,14 @@ def f1_chip_and_library():
     grey = "#444"
 
     def label(x, y, text, size=12, anchor="left", color="#222", bold=False):
-        fig.add_annotation(x=x, y=y, text=f"<b>{text}</b>" if bold else text, showarrow=False,
-                           xanchor=anchor, font=dict(size=size, color=color))
+        fig.add_annotation(
+            x=x,
+            y=y,
+            text=f"<b>{text}</b>" if bold else text,
+            showarrow=False,
+            xanchor=anchor,
+            font=dict(size=size, color=color),
+        )
 
     # ---- (a) software layers over the hardware units
     label(1, 90.5, "(a) Software layers and hardware units", 13, bold=True)
@@ -168,7 +178,16 @@ def f1_chip_and_library():
     box(fig, 22, 52.5, 46, 58.5, "CPU: 5 performance cores,<br>6 efficiency cores", c[2], size=12)
     box(fig, 48, 52.5, 72, 58.5, "AMX matrix coprocessor", c[3], size=12)
     box(fig, 74, 52.5, 98, 58.5, "GPU: 14 cores", c[5], size=12)
-    box(fig, 22, 44, 78, 50, "Unified memory: 18 GB, 150 GB/s, shared by CPU, AMX and GPU", c[6], size=12)
+    box(
+        fig,
+        22,
+        44,
+        78,
+        50,
+        "Unified memory: 18 GB, 150 GB/s, shared by CPU, AMX and GPU",
+        c[6],
+        size=12,
+    )
     box(fig, 86, 44, 98, 50, "SSD", c[7], size=12)
     arrow(fig, 60, 81, 60, 78.5, color=grey)
     arrow(fig, 60, 72.5, 60, 70, color=grey)
@@ -184,7 +203,12 @@ def f1_chip_and_library():
     cols = ["Pipeline stage", "GPU enabled (default)", "GPU disabled", "Out-of-core mode"]
     xs = [1, 36, 58, 79]
     rows = [
-        ("Quality control, normalisation, log transform", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
+        (
+            "Quality control, normalisation, log transform",
+            "CPU, 11 threads",
+            "CPU, 11 threads",
+            "SSD, row blocks, CPU",
+        ),
         ("Highly variable genes", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("Scaling", "CPU, 11 threads", "CPU, 11 threads", "SSD, row blocks, CPU"),
         ("PCA", "GPU", "CPU and AMX", "SSD, row blocks, GPU"),
@@ -194,15 +218,26 @@ def f1_chip_and_library():
         ("Wilcoxon marker test", "CPU, 11 threads", "CPU, 11 threads", "in memory, CPU"),
     ]
     yh = 34.5
-    for x, name in zip(xs, cols):
+    for x, name in zip(xs, cols, strict=True):
         label(x, yh, name, 12, bold=True)
-    fig.add_shape(type="line", x0=1, y0=yh - 1.8, x1=99, y1=yh - 1.8, line=dict(color="#222", width=1.2))
+    fig.add_shape(
+        type="line", x0=1, y0=yh - 1.8, x1=99, y1=yh - 1.8, line=dict(color="#222", width=1.2)
+    )
     for i, row in enumerate(rows):
         y = yh - 4 - i * 3.6
         if i % 2 == 0:
-            fig.add_shape(type="rect", x0=1, y0=y - 1.8, x1=99, y1=y + 1.8,
-                          fillcolor="#000", opacity=0.03, line=dict(width=0), layer="below")
-        for x, text in zip(xs, row):
+            fig.add_shape(
+                type="rect",
+                x0=1,
+                y0=y - 1.8,
+                x1=99,
+                y1=y + 1.8,
+                fillcolor="#000",
+                opacity=0.03,
+                line=dict(width=0),
+                layer="below",
+            )
+        for x, text in zip(xs, row, strict=True):
             label(x, y, text, 12)
     ylast = yh - 4 - (len(rows) - 1) * 3.6 - 1.8
     fig.add_shape(type="line", x0=1, y0=ylast, x1=99, y1=ylast, line=dict(color="#222", width=1.2))
@@ -276,29 +311,65 @@ def f2_bytes():
 
 
 def f3_streaming():
-    """Out-of-core head: (a) data flow of the four passes, (b) peak memory against the in-memory pipeline."""
+    """Out-of-core head: (a) data flow of the four passes, (b) peak memory against in-memory."""
     fig = go.Figure()
     blank_axes(fig, 120, 70)
     c = COLORS
     grey = "#444"
 
     def label(x, y, text, size=12, anchor="left", color="#222", bold=False):
-        fig.add_annotation(x=x, y=y, text=f"<b>{text}</b>" if bold else text, showarrow=False,
-                           xanchor=anchor, font=dict(size=size, color=color))
+        fig.add_annotation(
+            x=x,
+            y=y,
+            text=f"<b>{text}</b>" if bold else text,
+            showarrow=False,
+            xanchor=anchor,
+            font=dict(size=size, color=color),
+        )
 
     # ---- (a) data flow
-    label(1, 68.5, "(a) Data flow of the out-of-core head (wall time per pass, GPU enabled)", 13, bold=True)
-    box(fig, 1, 44, 17, 60,
-        "<b>Input</b><br>Count matrix on SSD<br>1 001 288 cells ×<br>45 676 genes<br>CSR, 4.8 GB", c[7], size=11)
+    label(
+        1,
+        68.5,
+        "(a) Data flow of the out-of-core head (wall time per pass, GPU enabled)",
+        13,
+        bold=True,
+    )
+    box(
+        fig,
+        1,
+        44,
+        17,
+        60,
+        "<b>Input</b><br>Count matrix on SSD<br>1 001 288 cells &#215;<br>45 676 genes<br>CSR, 4.8 GB",  # noqa: E501
+        c[7],
+        size=11,
+    )
     passes = [
-        ("Pass 1", "3.6 s", "Cell filter, normalisation,<br>log transform.<br>Per-gene sums accumulated",
-         "2 000 highly<br>variable genes"),
-        ("Pass 2", "5.3 s", "Mean and standard<br>deviation of the<br>selected genes",
-         "Scaling parameters"),
-        ("Pass 3", "15.4 s", "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
-         "50 principal axes<br>(subspace iteration)"),
-        ("Pass 4", "7.5 s", "Scaling and projection<br>of each block<br>onto the axes",
-         "PCA embedding<br>953 436 × 50"),
+        (
+            "Pass 1",
+            "3.6 s",
+            "Cell filter, normalisation,<br>log transform.<br>Per-gene sums accumulated",
+            "2 000 highly<br>variable genes",
+        ),
+        (
+            "Pass 2",
+            "5.3 s",
+            "Mean and standard<br>deviation of the<br>selected genes",
+            "Scaling parameters",
+        ),
+        (
+            "Pass 3",
+            "15.4 s",
+            "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
+            "50 principal axes<br>(subspace iteration)",
+        ),
+        (
+            "Pass 4",
+            "7.5 s",
+            "Scaling and projection<br>of each block<br>onto the axes",
+            "PCA embedding<br>953 436 &#215; 50",
+        ),
     ]
     x = 21
     for name, secs, inside, out in passes:
@@ -312,30 +383,62 @@ def f3_streaming():
     # ---- (b) peak memory
     label(1, 27.5, "(b) Peak memory of the preprocessing and PCA stages", 13, bold=True)
     x0, x1, gmax = 30, 118, 40.0
-    sx = lambda gb: x0 + (x1 - x0) * gb / gmax
+
+    def sx(gb):
+        return x0 + (x1 - x0) * gb / gmax
+
     # axis
     for gb in range(0, 41, 10):
-        fig.add_shape(type="line", x0=sx(gb), y0=5, x1=sx(gb), y1=5.8, line=dict(color="#222", width=1))
+        fig.add_shape(
+            type="line", x0=sx(gb), y0=5, x1=sx(gb), y1=5.8, line=dict(color="#222", width=1)
+        )
         label(sx(gb), 3.5, f"{gb}", 10, anchor="center")
     fig.add_shape(type="line", x0=x0, y0=5.8, x1=x1, y1=5.8, line=dict(color="#222", width=1))
     label((x0 + x1) / 2, 1.2, "GB", 10, anchor="center")
     # in-memory pipeline: stacked segments
-    segs = [("count matrix", 4.7, c[7]), ("normalised copy", 4.7, c[0]),
-            ("dense scaled matrix", 7.6, c[3]), ("working copies during scaling", 21.9, c[1])]
+    segs = [
+        ("count matrix", 4.7, c[7]),
+        ("normalised copy", 4.7, c[0]),
+        ("dense scaled matrix", 7.6, c[3]),
+        ("working copies during scaling", 21.9, c[1]),
+    ]
     label(1, 21, "In-memory pipeline<br>(scanpy)", 11)
     acc = 0.0
     for name, gb, col in segs:
-        fig.add_shape(type="rect", x0=sx(acc), y0=18.5, x1=sx(acc + gb), y1=23.5,
-                      fillcolor=col, opacity=0.5, line=dict(color="white", width=1))
+        fig.add_shape(
+            type="rect",
+            x0=sx(acc),
+            y0=18.5,
+            x1=sx(acc + gb),
+            y1=23.5,
+            fillcolor=col,
+            opacity=0.5,
+            line=dict(color="white", width=1),
+        )
         label((sx(acc) + sx(acc + gb)) / 2, 21, f"{name}<br>{gb} GB", 9, anchor="center")
         acc += gb
     # out-of-core head
     label(1, 12, "Out-of-core head<br>(Metalcyte)", 11)
-    fig.add_shape(type="rect", x0=sx(0), y0=9.5, x1=sx(1.1), y1=14.5,
-                  fillcolor=c[2], opacity=0.6, line=dict(color="white", width=1))
+    fig.add_shape(
+        type="rect",
+        x0=sx(0),
+        y0=9.5,
+        x1=sx(1.1),
+        y1=14.5,
+        fillcolor=c[2],
+        opacity=0.6,
+        line=dict(color="white", width=1),
+    )
     label(sx(1.1) + 1, 12, "one row block and the embedding, 1.1 GB", 10)
     # available memory
-    fig.add_shape(type="line", x0=sx(18), y0=7, x1=sx(18), y1=26, line=dict(color="#a33", width=1.5, dash="dash"))
+    fig.add_shape(
+        type="line",
+        x0=sx(18),
+        y0=7,
+        x1=sx(18),
+        y1=26,
+        line=dict(color="#a33", width=1.5, dash="dash"),
+    )
     label(sx(18), 26.5, "available memory, 18 GB", 10, anchor="center", color="#a33")
     fig.update_layout(title="F3. The out-of-core head: data flow and peak memory")
     save(fig, "F3_streaming", 1300, 760)
@@ -365,7 +468,12 @@ def f4_ablation():
             marker_line_width=0,
         )
     other = [r["total_seconds"] - sum(r["steps"].get(s, 0) for s in steps) for r in rows]
-    fig.add_bar(name="Other stages", x=[CONFIG_LABELS.get(r["config"], r["config"]) for r in rows], y=other, marker_line_width=0)
+    fig.add_bar(
+        name="Other stages",
+        x=[CONFIG_LABELS.get(r["config"], r["config"]) for r in rows],
+        y=other,
+        marker_line_width=0,
+    )
     fig.update_layout(
         barmode="stack",
         title="F4. Ablation on the 117k atlas: seconds with one Apple-specific choice switched off",
@@ -417,7 +525,11 @@ def f7_energy():
         print("F7 skipped: no energy_bm117k_*.json (run benches/run_energy.sh under sudo)")
         return
     fig = go.Figure()
-    run_labels = {"scanpy": "scanpy (defaults)", "metalcyte_metal": "Metalcyte (GPU)", "metalcyte_cpu": "Metalcyte (CPU)"}
+    run_labels = {
+        "scanpy": "scanpy (defaults)",
+        "metalcyte_metal": "Metalcyte (GPU)",
+        "metalcyte_cpu": "Metalcyte (CPU)",
+    }
     rail_labels = {"CPU": "CPU", "GPU": "GPU", "ANE": "Neural engine"}
     for rail in ("CPU", "GPU", "ANE"):
         fig.add_bar(
@@ -544,7 +656,7 @@ def f8_utilisation():
         fig.add_scatter(
             x=t,
             y=[w * 10 for w in cpu_w],
-            name="CPU power (W × 10)",
+            name="CPU power (W &#215; 10)",
             mode="lines",
             line=dict(width=1, color=COLORS[3], dash="dot"),
             row=row,
@@ -608,7 +720,26 @@ def f5_scaling():
                 row=1,
                 col=col,
             )
-    fig.update_xaxes(type="log", title_text="Cells", tickvals=[1e4, 1e5, 1e6], ticktext=["10k", "100k", "1M"], range=[3.9, 6.1])
+    methods = _load("knn_methods_embryo.json")
+    if methods:
+        col = steps.index("pp.neighbors") + 1
+        fig.add_scatter(
+            x=[r["size"] for r in methods["rows"]],
+            y=[r["approximate_s"] for r in methods["rows"]],
+            mode="lines+markers",
+            name="Metalcyte approximate",
+            marker=dict(size=7, line_width=0, color=COLORS[4]),
+            line=dict(color=COLORS[4], dash="dash"),
+            row=1,
+            col=col,
+        )
+    fig.update_xaxes(
+        type="log",
+        title_text="Cells",
+        tickvals=[1e4, 1e5, 1e6],
+        ticktext=["10k", "100k", "1M"],
+        range=[3.9, 6.1],
+    )
     fig.update_yaxes(type="log")
     fig.update_yaxes(title_text="Wall time (s)", row=1, col=1)
     fig.update_layout(
@@ -674,7 +805,9 @@ def f11_agreement():
     from plotly.subplots import make_subplots
 
     fig = make_subplots(
-        rows=1, cols=3, subplot_titles=["Intermediate results", "Leiden clustering", "Marker genes per cell type"]
+        rows=1,
+        cols=3,
+        subplot_titles=["Intermediate results", "Leiden clustering", "Marker genes per cell type"],
     )
     left = {
         "Variable genes, Jaccard": data["hvg_jaccard"],
@@ -723,7 +856,69 @@ def f11_agreement():
     save(fig, "F11_agreement", 1500, 560)
 
 
+def f12_knn_methods():
+    data = _load("knn_methods_embryo.json")
+    if not data:
+        print("F12 skipped: no knn_methods_embryo.json")
+        return
+    from plotly.subplots import make_subplots
+
+    rows = data["rows"]
+    x = [r["size"] for r in rows]
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=["Wall time of the neighbour search", "Recall of the approximate search"],
+        column_widths=[0.6, 0.4],
+    )
+    series = [
+        ("exact_metal_s", "Exact, GPU", COLORS[0]),
+        ("exact_cpu_s", "Exact, CPU", COLORS[1]),
+        ("approximate_s", "Approximate, CPU", COLORS[2]),
+    ]
+    for key, name, color in series:
+        pts = [(r["size"], r[key]) for r in rows if key in r]
+        fig.add_scatter(
+            x=[p[0] for p in pts],
+            y=[p[1] for p in pts],
+            mode="lines+markers",
+            name=name,
+            marker=dict(size=7, line_width=0, color=color),
+            line=dict(color=color),
+            row=1,
+            col=1,
+        )
+    fig.add_scatter(
+        x=x,
+        y=[r.get("recall") for r in rows],
+        mode="lines+markers",
+        name="Recall at k = 15",
+        showlegend=False,
+        marker=dict(size=7, line_width=0, color=COLORS[2]),
+        line=dict(color=COLORS[2]),
+        row=1,
+        col=2,
+    )
+    for col in (1, 2):
+        fig.update_xaxes(
+            type="log",
+            title_text="Cells",
+            tickvals=[1e4, 1e5, 1e6],
+            ticktext=["10k", "100k", "1M"],
+            range=[3.9, 6.1],
+            row=1,
+            col=col,
+        )
+    fig.update_yaxes(type="log", title_text="Wall time (s)", row=1, col=1)
+    fig.update_yaxes(title_text="Recall", range=[0.9, 1.005], row=1, col=2)
+    fig.update_layout(
+        title="F12. Exact against approximate neighbour search on the embryo embedding"
+    )
+    save(fig, "F12_knn_methods", 1100, 420)
+
+
 FIGURES["F5"] = f5_scaling
+FIGURES["F12"] = f12_knn_methods
 FIGURES["F10"] = f10_umap_1m
 FIGURES["F11"] = f11_agreement
 

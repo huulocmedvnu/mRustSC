@@ -330,7 +330,7 @@ were measured on, next to this page's:
 | rapids-singlecell | NVIDIA RTX PRO 6000 (96 GB) | 1 000 000 | 28.4 s |
 | rapids-singlecell | NVIDIA DGX B200 (8 x B200) | 1 000 000 | 24.6 s |
 | rapids-singlecell (examples repo) | NVIDIA A100 40 GB | 1 300 000 | 686 s (UMAP 21 s, Leiden 1.7 s) |
-| **metalcyte** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **210 s** (Metal; 409 s CPU-only) |
+| **metalcyte** | **Apple M3 Pro laptop, 18 GB** | **1 001 288** | **103 s** with the approximate neighbour search (112 s CPU-only); 210 s with the exact search (409 s CPU-only) |
 
 Sources: NVIDIA developer blog "Driving toward billion-cell analysis and biological
 breakthroughs with RAPIDS-singlecell" (12 June 2025) for the 1 M-cell rows;
@@ -403,3 +403,19 @@ without the GPU, 15.4 s on the performance cores only, 44.8 s on one core, 23.2 
 zero-copy borrows, 40.4 s with the sequential UMAP; the conclusions of section 5 stand. The
 energy measurement (section 4) predates this rewrite and overstates the current run's energy;
 a re-measurement needs one more `sudo` pass. `docs/PERFORMANCE.md` carries the current numbers.
+
+## 11. Addendum, 2026-10-07: approximate neighbour search
+
+NN-descent seeded with a random-projection forest (`crates/metalcyte-core/src/nndescent.rs`), the
+construction pynndescent uses, run across every core with a counter-based generator so the result
+is reproducible for a seed. Measured on the embryo PCA embedding (`benches/knn_methods.py`,
+`benches/results/knn_methods_embryo.json`): 15.9 s at 953 436 cells against 118 s for the exact
+search on the GPU and 283 s on the CPU, recall 0.961 at k = 15; 1.9 s at 100 000 cells, recall
+0.984. The exact search wins on the GPU up to about 100 000 cells. `pp.neighbors` defaults to the
+exact search up to 200 000 cells and the approximate one above.
+
+The 1M pipeline rerun with the default (`benches/results/embryo1m_metalcyte_{metal,cpu}.json`):
+head 32 / 39 s, neighbours 17 / 19 s, UMAP 44 / 45 s, Leiden 10 / 9 s, whole run **103 s** on
+Metal and 112 s on the CPU (43 and 44 Leiden clusters). The CPU-only laptop is now within 10% of
+the GPU run, because the one quadratic step is gone; the GPU's remaining advantage is PCA in the
+head.

@@ -7,7 +7,7 @@ hand-written Metal kernels, all in the chip's unified memory. An out-of-core hea
 through quality control, feature selection and PCA without holding the matrix. On an M3 Pro laptop
 with 18 GB, a 117 308-cell atlas goes from counts to marker
 genes in 12 s and a 1 001 288-cell atlas
-from counts to Leiden clusters in 210 s.
+from counts to Leiden clusters in 103 s.
 
 Results are written to the standard AnnData slots, so an analysis script written for scanpy runs on
 Metalcyte after changing its import, and scanpy's plotting still reads the results.
@@ -109,7 +109,7 @@ the same marker genes (`benches/agreement.py`).
 
 | | scanpy | Metalcyte, CPU | Metalcyte, Metal |
 |---|---:|---:|---:|
-| QC to Leiden, 953 436 cells kept | did not finish (the scaling step needed 21.9 GB) | 409 s | **210 s** |
+| QC to Leiden, 953 436 cells kept | did not finish (the scaling step needed 21.9 GB) | 112 s | **103 s** |
 | memory added per step | | under 1.5 GB | under 1.5 GB |
 
 **Scaling.** On subsamples of that atlas Metalcyte is 21x faster than scanpy's defaults at 10 000 cells
@@ -131,9 +131,9 @@ a different order. For results that must match across machines bit for bit, run 
 
 ## Limits
 
-- The neighbour search is exact and quadratic in cells: 2 s at 117 000 cells, 120 s at a million on
-  the GPU. scanpy's approximate index overtakes it near 400 000 cells, and an approximate index is
-  the next item on the plan.
+- The default neighbour search is exact up to 200 000 cells and switches to NN-descent above
+  (`pp.neighbors(method=...)` overrides it). The exact search is quadratic in cells; the approximate
+  one has a recall of 0.96 against it at a million cells.
 - The in-memory pipeline fits 18 GB up to about 250 000 cells; above that, use `preprocess_backed`.
 - `tl.tsne` is exact and refuses more than 20 000 cells. `regress_out` and `combat` cap their dense
   working set at 8 GiB.

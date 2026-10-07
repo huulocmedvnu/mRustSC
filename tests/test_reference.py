@@ -140,6 +140,20 @@ def test_pca(scaled: AnnData, record_property: Callable[[str, object], None]) ->
     )
 
 
+def test_neighbors_approximate(embedded: AnnData) -> None:
+    ours = embedded.copy()
+    metalcyte_call(
+        "pp.neighbors", ours, n_neighbors=N_NEIGHBORS, use_rep="X_pca", method="approximate"
+    )
+    exact = embedded.copy()
+    metalcyte_call("pp.neighbors", exact, n_neighbors=N_NEIGHBORS, use_rep="X_pca", method="exact")
+    overlaps = per_row_overlap(
+        neighbor_sets(ours.obsp["distances"]), neighbor_sets(exact.obsp["distances"])
+    )
+    assert overlaps.mean() >= 0.95, f"mean recall against the exact search {overlaps.mean():.3f}"
+    assert ours.uns["neighbors"]["params"]["knn_method"] == "approximate"
+
+
 def test_neighbors(embedded: AnnData) -> None:
     ours = embedded.copy()
     metalcyte_call("pp.neighbors", ours, n_neighbors=N_NEIGHBORS, use_rep="X_pca")

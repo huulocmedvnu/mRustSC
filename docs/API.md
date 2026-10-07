@@ -117,18 +117,30 @@ only where a randomised SVD is itself reproducible. See
 
 No `svd_solver`, `use_highly_variable` or `mask_var` argument.
 
-#### `pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", device=None)`
+#### `pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", method="auto", random_state=0, device=None)`
 
-Exact k-nearest neighbours followed by UMAP's fuzzy simplicial set. `n_neighbors`
-counts the cell itself, as scanpy's does, so the core is asked for `n_neighbors - 1`
-neighbours. Below 2 it is a `ValueError`. Writes `obsp["distances"]`,
-`obsp["connectivities"]` and `uns["neighbors"]`.
+k-nearest neighbours followed by UMAP's fuzzy simplicial set. `n_neighbors` counts the
+cell itself, as scanpy's does, so the core is asked for `n_neighbors - 1` neighbours.
+Below 2 it is a `ValueError`. Writes `obsp["distances"]`, `obsp["connectivities"]` and
+`uns["neighbors"]`, whose `params` record the search that ran under `knn_method`.
+
+`method` chooses the search.
+
+- `"exact"` compares every pair of cells. Its lists match scanpy's search cell for cell
+  on data without duplicates, and its cost is quadratic in cells: 2 s at 117 000 cells
+  and 120 s at a million on the GPU. On a Metal device it runs on the hand-written
+  `knn` kernel; on the CPU, on every core.
+- `"approximate"` is NN-descent seeded with a random-projection forest, the
+  construction pynndescent uses behind scanpy, run across every core. Its cost grows
+  close to linearly: 0.8 s at 117 000 cells and 16 s at 953 000. Recall against the
+  exact lists at k = 15 is 0.98 at 100 000 cells and 0.96 at 953 000 on PCA
+  embeddings. `random_state` seeds it, and the same seed gives the same graph.
+- `"auto"`, the default, runs the exact search up to `pp.APPROXIMATE_FROM` cells
+  (200 000) and the approximate search above.
 
 `use_rep="X"` uses the matrix itself. There is no `n_pcs` argument: slice `obsm`
-yourself, or pass a representation you have already truncated. No approximate
-method. The search is exact, which is why its results match scanpy's exactly and
-why it costs what it costs at large n. On a Metal device the search runs on the
-hand-written `knn` kernel. See [Devices](#devices).
+yourself, or pass a representation you have already truncated. See
+[Devices](#devices).
 
 #### `pp.calculate_qc_metrics(adata, *, qc_vars=(), percent_top=(50, 100, 200, 500), log1p=True, inplace=True)`
 
