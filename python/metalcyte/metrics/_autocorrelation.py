@@ -1,4 +1,4 @@
-"""Measure how similar each gene's expression is in neighbouring cells.
+"""Spatial autocorrelation of gene expression on the neighbour graph.
 
 Owned by feat/metrics.
 """

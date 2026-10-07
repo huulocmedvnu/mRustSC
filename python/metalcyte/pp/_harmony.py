@@ -1,9 +1,7 @@
 """Harmony batch-effect correction of the PCA embedding.
 
-This is a Rust reimplementation of Harmony (Korsunsky et al. 2019). Harmony repeats two
-steps until the result stops changing. First it clusters the cells in PCA space with a
-soft k-means, and it penalises clusters that contain mostly one batch. Then, within each
-cluster, it fits a ridge regression and removes the shift between batches. The large
+This is a Rust reimplementation of Harmony (Korsunsky et al. 2019). Each iteration runs a
+soft k-means with a diversity penalty and then a ridge regression per cluster. The large
 matrix multiplications run on the GPU in the Rust core. See
 `crates/metalcyte-core/src/harmony.rs`.
 

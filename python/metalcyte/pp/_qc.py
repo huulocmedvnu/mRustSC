@@ -1,4 +1,4 @@
-"""Quality-control (QC) metrics and older normalisation helpers. Owned by feat/qc-metrics."""
+"""QC metrics and older normalisation helpers. Owned by feat/qc-metrics."""
 
 from __future__ import annotations
 

@@ -59,7 +59,7 @@ def combat(
     device: str | None = None,
     inplace: bool = True,
 ) -> np.ndarray | None:
-    """Correct batch effects with ComBat (Johnson et al. 2007), an empirical Bayes method.
+    """Correct batch effects with ComBat (Johnson et al. 2007).
 
     The corrected matrix is written back to `adata.X`.
     """

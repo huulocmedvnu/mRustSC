@@ -1,8 +1,7 @@
 """Single-cell RNA-seq analysis on Apple silicon Macs.
 
-Metalcyte does the computation in a compiled Rust library. It runs the heaviest steps
-on the Mac's graphics processor (GPU) through Apple's Metal interface. The CPU and the
-GPU share one memory, so data does not need to be copied between them.
+Metalcyte does the computation in Rust. It runs the heaviest steps on the GPU through
+Metal. The CPU and the GPU share one memory, so data is not copied between them.
 
 The functions sit in five modules. `pp` holds preprocessing, `tl` the analysis tools,
 `metrics` the scores, `get` the helpers that pull tables out of the results, and `pl`

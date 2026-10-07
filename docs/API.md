@@ -64,7 +64,7 @@ later steps. There is no
 
 #### `pp.highly_variable_genes(adata, *, n_top_genes=2000, flavor="seurat", inplace=True)`
 
-Marks the `n_top_genes` genes whose expression varies most between cells. `flavor` is
+Marks the `n_top_genes` most variable genes. `flavor` is
 `"seurat"` or `"cell_ranger"`. Any other value raises a `ValueError`. The function
 writes three `var` columns:
 
@@ -90,7 +90,7 @@ flavour centres each bin on its median and divides by its median absolute deviat
 (MAD). With two genes in a bin, the median is their midpoint and both genes get the
 value `±0.6744897501960817`. Every gene in such bins then has the same score, and the
 `>= cutoff` rule decides between tied genes. Metalcyte computes this constant exactly.
-A value a few ulps (units in the last decimal place) off would make the rule stop at a
+A value a few ulps off would make the rule stop at a
 different gene. With three or more genes per bin there are no such ties.
 
 #### `pp.scale(adata, *, zero_center=True, max_value=None, inplace=True)`
@@ -107,8 +107,7 @@ highly variable genes before you call it.
 
 #### `pp.pca(adata, *, n_comps=50, zero_center=True, random_state=0, device=None)`
 
-Principal component analysis computed with a randomised SVD (singular value
-decomposition). `random_state` fixes the random start, so the same seed gives the same
+PCA by randomised SVD. `random_state` fixes the random start, so the same seed gives the same
 components. The leading components are stable. The trailing ones, with small and close
 singular values, can change with the seed. [VALIDATION.md](VALIDATION.md) measures
 where that starts. The function writes:
@@ -122,8 +121,8 @@ There is no `svd_solver`, `use_highly_variable` or `mask_var` argument.
 
 #### `pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", method="auto", random_state=0, device=None)`
 
-Finds the k nearest neighbours of each cell and turns them into a weighted cell graph.
-The weights follow UMAP's method (the "fuzzy simplicial set", McInnes et al. 2018).
+Builds a k-nearest-neighbour graph weighted by UMAP's fuzzy simplicial set (McInnes et
+al. 2018).
 `n_neighbors` counts the cell itself, so Metalcyte searches for `n_neighbors - 1` other
 cells. A value below 2 raises a `ValueError`. The function writes `obsp["distances"]`,
 `obsp["connectivities"]` and `uns["neighbors"]`. The `params` entry records the search
@@ -134,16 +133,14 @@ method used, under `knn_method`.
 - `"exact"` compares every pair of cells. On data without duplicate cells, it finds
   the true k nearest neighbours of every cell. Its run time grows with the square of
   the number of cells: 2 s at 117 000 cells and 120 s at a million on the GPU. On a
-  Metal GPU it runs the hand-written `knn` kernel (a small GPU program). On the CPU it
+  Metal GPU it runs the hand-written `knn` kernel. On the CPU it
   uses every core.
-- `"approximate"` uses NN-descent, an algorithm that improves a rough neighbour list by
-  checking the neighbours of each cell's neighbours. A random-projection forest provides
-  the starting list (Dong et al. 2011). It runs on
+- `"approximate"` uses NN-descent (Dong et al. 2011), initialised from a
+  random-projection forest. It runs on
   every core, and its run time grows roughly in proportion to the number of cells: 0.8 s
   at 117 000 cells and 16 s at 953 000. Recall is the fraction of the true k nearest
   neighbours that the search finds. On PCA embeddings at k = 15, recall is 0.98 at
-  100 000 cells and 0.96 at 953 000. `random_state` sets the random seed, and the same
-  seed gives the same graph.
+  100 000 cells and 0.96 at 953 000. The same `random_state` gives the same graph.
 - `"auto"`, the default, uses the exact search up to `pp.APPROXIMATE_FROM` cells
   (200 000) and the approximate search above that.
 
@@ -153,7 +150,7 @@ down. See [Devices](#devices).
 
 #### `pp.calculate_qc_metrics(adata, *, qc_vars=(), percent_top=(50, 100, 200, 500), log1p=True, inplace=True)`
 
-Computes quality-control (QC) measures per cell and per gene. `qc_vars` names boolean
+Computes QC metrics per cell and per gene. `qc_vars` names boolean
 `var` columns, such as `"mt"` for mitochondrial genes. Each one adds
 `total_counts_<name>` and `pct_counts_<name>` to `obs`. `percent_top` is sorted before
 use, and the columns follow that order. With
@@ -209,8 +206,8 @@ categories of `obs[key]`. You can add other `obs` columns as `covariates`. The b
 cannot also be a covariate, and each covariate may appear only once. Breaking either
 rule raises a `ValueError`. The result is dense, with the same memory rule as
 `regress_out`. Metalcyte reads the sparse input twice, one block of genes at a time.
-Between the two passes it runs the empirical-Bayes step on per-batch summary values
-(sums that are enough to compute the means and variances). Only the result is held in
+Between the two passes it runs the empirical-Bayes step on per-batch sufficient
+statistics. Only the result is held in
 memory as a whole.
 
 #### `pp.harmony_integrate(adata, key="batch", *, basis="X_pca", adjusted_basis="X_pca_harmony", theta=2.0, sigma=0.1, lamb=None, alpha=0.2, batch_prop_cutoff=1e-5, n_clusters=None, max_iter_harmony=10, max_iter_kmeans=20, random_state=0, device=None)`
@@ -229,7 +226,7 @@ same by default. A number fixes one penalty for every batch, as in the original
 Harmony. If a batch makes up less than `batch_prop_cutoff` of a cluster, Metalcyte does
 not correct that batch in that cluster.
 
-Harmony repeats its steps many times and starts from a k-means clustering. So Metalcyte
+Harmony is iterative and starts from a k-means clustering. So Metalcyte
 does not reproduce `harmonypy` exactly. [VALIDATION.md](VALIDATION.md)
 measures batch mixing and convergence instead. On the 953 436-cell embryo embedding with
 seven experiment batches, the median per-cell cosine similarity between the two results
@@ -240,7 +237,7 @@ assignments, the block-wise update with the diversity penalty, the objective and
 k-means start. For each cluster, Metalcyte solves the ridge regression from soft batch
 counts and sums collected in one pass. It never builds an array of size cells by
 clusters by components. The 953 436-cell embedding takes 9 s on the M3 Pro. harmonypy
-2.1, a compiled implementation of the same algorithm, takes 3 s on the same input.
+2.1 (compiled) takes 3 s on the same input.
 `device` is accepted and ignored. The matrix products are too small for the GPU to
 make up for the cost of copying the data.
 
@@ -259,7 +256,7 @@ Randomly removes counts while keeping every cell. Give exactly one of
 
 #### `pp.preprocess_backed(path, *, ..., keep_hvg=False)`
 
-Runs preprocessing on a count matrix that is too large to fit in memory. Metalcyte reads
+Runs preprocessing on a count matrix larger than memory. Metalcyte reads
 the file from disk in blocks of cells. See
 [Out-of-core](#out-of-core-pppreprocess_backed) at the end of this page.
 
@@ -286,9 +283,8 @@ to `obsm["X_umap"]`. `n_epochs` defaults to 200. umap-learn uses 500 for small d
 UMAP gives a different layout for each random seed. Two layouts are compared by how
 well they keep the same neighbours, and they are never equal point by point.
 
-`parallel=True` runs the layout optimisation on all cores at once. The threads update
-the shared coordinates without waiting for each other (lock-free "Hogwild" stochastic
-gradient descent, like umap-learn's `parallel=True`). This is several times faster on
+`parallel=True` runs the optimisation on all cores with lock-free (Hogwild) SGD, like
+umap-learn's `parallel=True`. This is several times faster on
 large graphs. The layout then depends on thread timing as well as on `random_state`,
 so it is no longer reproducible. For that reason the default stays sequential and
 reproducible.
@@ -304,16 +300,16 @@ to `obsm["X_tsne"]`. `method` chooses how the layout is computed.
   1.6 GB at 20 000 cells. Each gradient step holds three more arrays of that size, so
   memory peaks near 6.5 GB. Above 20 000 cells it raises a `ValueError` before it
   allocates any memory.
-- `"fft"` is FIt-SNE (Linderman et al. 2019), a faster approximation of t-SNE. Each cell
+- `"fft"` is FIt-SNE (Linderman et al. 2019). Each cell
   is compared only with its `3 * perplexity` nearest neighbours. Metalcyte finds 15 of
   them with NN-descent and adds their neighbours. The push between distant cells is
-  computed on a grid with one FFT (fast Fourier transform) per iteration, using Lagrange
+  computed on a grid with one FFT per iteration, using Lagrange
   interpolation between the cells and the grid. On a Metal GPU, every per-cell step of
   an iteration runs on the GPU. These steps are the attraction between neighbours, the
   placement of cells on the grid, the spreading of their charges, the FFT, the reading
-  back from the grid and the update. Between GPU programs, the CPU sorts the cells by
+  back from the grid and the update. Between kernels, the CPU sorts the cells by
   grid box. Every sum runs in a fixed order, so the same seed gives the same output, byte
-  for byte. On the CPU the FFT uses Apple's Accelerate library. With 1 000 iterations on
+  for byte. On the CPU the FFT uses Accelerate. With 1 000 iterations on
   the M3 Pro it takes 13 s for 117 308 cells and 54 s for 953 436 (20 s and about 130 s
   on the CPU alone). It produces two-dimensional layouts only.
 - `"auto"`, the default, uses the exact method up to 20 000 cells and the FFT method
@@ -328,16 +324,16 @@ One limit applies to both:
 `learning_rate=None` uses the automatic rule `max(n / early_exaggeration / 4, 50)`.
 A fixed rate of 1000 is far too large for small datasets.
 
-> **Limitation: the exact method does not scale.** Its cost grows with the square of
-> the number of cells, `O(n^2)`. Above 20 000 cells it refuses to run. With
+> **Limitation: the exact method does not scale.** Its cost is `O(n^2)` in the number
+> of cells. Above 20 000 cells it refuses to run. With
 > `method="auto"` any dataset above that size uses the FFT method. For a fast overview
 > of a large dataset, `tl.umap` is the better choice. See
 > [PERFORMANCE.md](PERFORMANCE.md#limits).
 
 #### `tl.rank_genes_groups(adata, groupby, *, groups="all", reference="rest", method="wilcoxon", device=None)`
 
-Finds the genes that differ between groups of cells (differential expression). p-values
-are corrected for multiple testing with the Benjamini-Hochberg method. Four methods
+Tests for differential expression between groups of cells. p-values are adjusted with
+Benjamini-Hochberg. Four methods
 are available: `"wilcoxon"` (the default), `"t-test"`, `"t-test_overestim_var"` and
 `"logreg"`. Any other value raises a `ValueError`.
 
@@ -399,8 +395,7 @@ equal, more than one maximum spanning tree exists, and the function returns one 
 them. The `min(..., 1)` cap makes such ties common.
 
 `device` is accepted and ignored on purpose. The work is one pass over the stored edges
-into a small group-by-group matrix. Its speed depends on memory access, and a GPU would
-not help.
+into a small group-by-group matrix. It is memory-bound, and a GPU would not help.
 
 #### `tl.rank_genes_groups_backed(path, adata, groupby, *, genes="highly_variable", groups="all", reference="rest", target_sum=1e4, gene_block=4096, block_size=None, key_added="rank_genes_groups")`
 
@@ -442,7 +437,7 @@ the base by hand.
 
 #### `tl.louvain(adata, resolution=1.0, *, key_added="louvain", neighbors_key="neighbors", random_state=0, device=None)`
 
-Finds clusters (communities) of cells in the graph `obsp["connectivities"]`, with the
+Finds clusters of cells in the graph `obsp["connectivities"]`, with the
 Leiden algorithm (Traag et al. 2019) or the Louvain algorithm (Blondel et al. 2008).
 The quality measure is the Reichardt-Bornholdt configuration model (RBConfiguration) at
 the given `resolution`. The function writes `obs[key_added]` as a `Categorical`, and
@@ -520,8 +515,7 @@ reasoning is in `diffusion.rs`.
 
 #### `tl.dpt(adata, *, n_dcs=10, n_branchings=0, min_group_size=0.01, device=None)`
 
-Computes diffusion pseudotime (DPT, Haghverdi et al. 2016), an ordering of cells along
-a developmental path, starting from the root cell in `uns["iroot"]`. The result goes to
+Computes diffusion pseudotime (DPT, Haghverdi et al. 2016) from the root cell in `uns["iroot"]`. The result goes to
 `obs["dpt_pseudotime"]`. If no `X_diffmap` is stored, the function computes one with 15
 components. That is `tl.diffmap`'s own default, and it does not depend on `n_dcs`. So a
 later `dpt` call with a larger `n_dcs` fails. `n_branchings > 0` also detects branches
@@ -573,7 +567,7 @@ All four are implemented.
 
 #### `metrics.gearys_c(adata, *, vals=None, use_graph="connectivities", device=None)`
 
-Measure how similar a value is between neighbouring cells in the graph (autocorrelation).
+Spatial autocorrelation of a value on the neighbour graph.
 `vals=None` scores every gene in `adata.X`. Otherwise `vals` names one gene or one `obs`
 column, names several, or is an array. A 2-D array has shape
 `(n_features, n_cells)`, the transpose of `X`. A single feature returns a number and not
@@ -594,8 +588,7 @@ divides each row by its own total.
 
 #### `metrics.modularity(adata, keys, *, neighbors_key="neighbors")`
 
-Computes the Newman modularity of the clustering in `obs[keys]`. Modularity measures how
-many more edges fall inside clusters than chance would give. The resolution is 1.0.
+Computes the Newman modularity of the clustering in `obs[keys]`. The resolution is 1.0.
 The graph is the one that
 `neighbors_key` points to, so a clustering is always scored on the graph it came from.
 There is no `device` argument.
@@ -604,7 +597,7 @@ There is no `device` argument.
 
 ## `get`: accessors
 
-All four are implemented in plain Python, with no Rust code behind them.
+All four are pure Python.
 
 #### `get.obs_df(adata, keys=(), *, obsm_keys=(), layer=None)`
 
@@ -631,7 +624,7 @@ are skipped without an error.
 #### `get.aggregate(adata, by, func, *, axis=0, layer=None, device=None)`
 
 Groups cells (or genes, with `axis=1`) and summarises each group. `func` is one or more
-of `count_nonzero`, `mean`, `median`, `sum`, `var`. `var` divides by n - 1 (ddof 1).
+of `count_nonzero`, `mean`, `median`, `sum`, `var`. `var` uses ddof 1.
 The function returns a new AnnData with one layer per function and an
 `obs["n_obs_aggregated"]` column.
 
@@ -654,7 +647,7 @@ saved, so a script that saves figures never waits on an open window. `show=True`
 
 Plots the variance explained by each principal component, from
 `uns["pca"]["variance_ratio"]`. It shows one bar per component and a line for the
-running total. Use it to choose how many components to keep.
+running total.
 
 #### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="plotly", cmap="plasma", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=None, save=None)`
 
@@ -735,14 +728,13 @@ autocorrelation statistics.
 `"gpu"`/`"metal"` (an error if no Metal GPU is found). `metalcyte.gpu_available()`
 tells you whether the Metal GPU started.
 
-The CPU and GPU versions are built from the same source code in candle, a Rust library
-for numerical arrays. So they run the same algorithm. They do not give bit-for-bit
+The CPU and GPU versions are built from the same source code in candle, a Rust tensor
+library. So they run the same algorithm. They do not give bit-for-bit
 identical results, though. This matters because with `"auto"`, most users run on the
 GPU without having chosen it.
 
-Floating-point addition gives slightly different results when the numbers are added in
-a different order. A GPU splits a sum across many threads, so its result can differ from
-the CPU's by a few ulps (units in the last decimal place). Usually you cannot see this.
+A GPU splits a sum across many threads, so its result can differ from the CPU's by a
+few ulps. Usually this is invisible.
 In `pp.neighbors` you could. The squared distance `|a - b|^2` is computed as
 `|a|^2 + |b|^2 - 2 a.b`. For two identical cells this gives exactly zero on the CPU. On
 Metal it leaves a tiny positive value, and the square root enlarges it to about `1e-3`.
@@ -758,8 +750,7 @@ Metal GPU starts, so this check runs only on a machine with a GPU.
 `METALCYTE_TEST_DEVICE` (default `"cpu"`, set it to `"auto"`) chooses the device that
 the audit tests run on. Both settings pass on Apple silicon.
 
-`crates/metalcyte-gpu` contains four hand-written Metal kernels (small programs that
-run on the GPU). Only one of them, `knn`, is used. `crates/metalcyte-py` depends on that
+`crates/metalcyte-gpu` contains four hand-written Metal kernels. Only one of them, `knn`, is used. `crates/metalcyte-py` depends on that
 crate and sends the k-nearest-neighbour search behind `pp.neighbors` to `knn` when the
 device is Metal. The candle CPU code is the fallback and the reference. `knn` repeats
 the core's mean-centering and its zeroing of tiny squared distances. So
@@ -776,9 +767,8 @@ how much the GPU speeds up each operation. For some operations it is slower.
 
 ## Out-of-core: `pp.preprocess_backed`
 
-Use this function when your count matrix is too large to fit in the computer's memory.
-It reads the matrix from disk in blocks of cells and keeps only one block in memory at
-a time.
+Use this function when the count matrix is larger than memory. It reads the matrix from
+disk in blocks of cells.
 
 ```python
 adata = mc.pp.preprocess_backed(
@@ -815,9 +805,8 @@ The function reads the blocks of `X` from disk four times:
 2. The second pass collects the mean and variance of the log values of the variable
    genes.
 3. The third pass scales each block with those values into a dense array. It adds up
-   the `(genes, genes)` scatter matrix on the device. The top eigenvectors of that
-   matrix are the principal axes. This is PCA by eigendecomposition of the gene by
-   gene covariance matrix.
+   the `(genes, genes)` scatter matrix on the device. PCA comes from the
+   eigendecomposition of this covariance matrix.
 4. The fourth pass projects each block onto those axes.
 
 Peak memory is one block plus the embedding. `tests/test_streaming.py` checks the

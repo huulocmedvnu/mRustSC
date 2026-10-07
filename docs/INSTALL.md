@@ -1,20 +1,19 @@
 # Installing Metalcyte
 
-Metalcyte is a compiled package. Its calculations live in an extension module written in Rust
-(`metalcyte._metalcyte`), and a small Python layer calls into it. Metalcyte has no Python-only
-version, so the extension must be installed for anything to work.
+Metalcyte's calculations live in a Rust extension module (`metalcyte._metalcyte`) that a thin
+Python layer calls. There is no pure-Python fallback, so the extension must be installed.
 
 ## From PyPI
 
-PyPI hosts ready-built packages (wheels) for macOS on Apple silicon, Python 3.11 to 3.13:
+PyPI hosts wheels for macOS on Apple silicon, Python 3.11 to 3.13:
 
 ```bash
 pip install metalcyte            # numpy, scipy, pandas and anndata come with it
 pip install "metalcyte[plot]"    # matplotlib and seaborn for metalcyte.pl
 ```
 
-On any other platform, pip tries to build Metalcyte from its source code. That build needs a Rust
-toolchain. It also links Apple's Accelerate maths library by default, so it fails outside macOS. To
+On any other platform, pip builds from the source distribution, which needs a Rust toolchain. The
+build also links Apple's Accelerate by default, so it fails outside macOS. To
 get a CPU-only package there, clone the repository, remove `accelerate` from `features` in
 `pyproject.toml`, and build from the clone.
 
@@ -23,8 +22,7 @@ get a CPU-only package there, clone the repository, remove `accelerate` from `fe
 You need:
 
 - a Rust toolchain (`rustup`, stable). The workspace requires `rust-version = 1.88`.
-- on macOS, the Xcode command line tools. They supply the Apple files that the extension needs to
-  use Metal, Apple's interface to the GPU.
+- on macOS, the Xcode command line tools, which supply the SDK that the Metal code builds against.
 - Python 3.11 or newer.
 
 ```bash
@@ -35,15 +33,14 @@ python3 -m venv .venv
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
-`maturin develop` compiles the extension and installs it into the virtual environment. pip also
-installs numpy, scipy, pandas and anndata. To produce a wheel file instead:
+`maturin develop` builds the extension and installs it into the venv, along with numpy, scipy,
+pandas and anndata. To build a wheel instead:
 
 ```bash
 VIRTUAL_ENV=.venv .venv/bin/maturin build --release   # writes target/wheels/*.whl
 ```
 
-Always build with `--release`. Without it, the compiler skips its optimisations and the
-calculations run so slowly that the package seems broken.
+Always build with `--release`. A debug build is slow enough to look broken.
 
 The example script and the tutorial draw their figures with `metalcyte.pl`. Install matplotlib and
 seaborn to run them:
@@ -54,10 +51,10 @@ seaborn to run them:
 
 ### Apple Accelerate (macOS on Apple silicon)
 
-Accelerate is Apple's library for fast linear algebra (BLAS and LAPACK, also called vecLib). On
-Apple silicon it uses the chip's matrix unit. Metalcyte can send its dense matrix calculations (PCA,
+Accelerate provides Apple's BLAS and LAPACK (vecLib). On Apple silicon it runs on the AMX matrix
+coprocessor. Metalcyte can send its dense matrix calculations (PCA,
 Harmony, neighbour distances, diffusion maps) to Accelerate. Without it, Metalcyte uses
-`matrixmultiply`, a matrix library written in Rust.
+the pure-Rust `matrixmultiply` crate.
 
 The `accelerate` cargo feature turns this on. `pyproject.toml` lists it under
 `[tool.maturin] features`, so the `maturin develop` command above already includes it. To ask for
@@ -91,9 +88,8 @@ python -c "import metalcyte; print(metalcyte.__version__); print(metalcyte.gpu_a
 
 The CPU and GPU versions use the same algorithms. The test suite uses the CPU version as the
 reference for the GPU version. Their results agree within a small tolerance, though they can differ
-in the last digits. The GPU adds numbers in a different order than the CPU, and with 32-bit floating
-point numbers the order changes the last bits of the sum. Some formulas can make such tiny
-differences larger.
+in the last digits. The GPU sums in a different order from the CPU, and some formulas amplify these
+small differences.
 
 The neighbour search handles one such case on purpose. For two identical cells, the CPU computes a
 distance of exactly zero and the GPU computes 9.8e-4. Metalcyte sets squared distances below the
@@ -103,7 +99,7 @@ precision of the calculation to zero, so both devices report zero.
 `gpu_available()` is `True` and you do not name a device, Metalcyte runs on the GPU. To keep a whole
 session on the CPU, set `METALCYTE_DEVICE=cpu` in the environment.
 
-A quick check from start to end, without downloading any dataset:
+An end-to-end check, without downloading any dataset:
 
 ```python
 import numpy as np, scipy.sparse as sp
@@ -119,7 +115,7 @@ print(adata.obsm["X_pca"].shape)
 
 ## Running the tests
 
-You run the tests from a copy of the source code, after installing the extension with
+Run the tests from a source checkout, after installing the extension with
 `maturin develop --release`. Many tests compare Metalcyte with a reference implementation, so the
 suite needs the `dev` and `reference` extras. [VALIDATION.md](VALIDATION.md) describes these tests.
 
@@ -128,7 +124,7 @@ VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --extras dev,reference
 PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
 ```
 
-`pyproject.toml` defines two test labels (markers):
+`pyproject.toml` defines two pytest markers:
 
 - `reference`: comparisons with the reference implementation that need the PBMC 3k dataset
   download.
@@ -154,8 +150,8 @@ Run both. Most users get `"auto"`, so the GPU run tests what they use.
 
 ## Type checking
 
-The package includes a `py.typed` file. Type checkers such as mypy and pyright then read the type
-annotations in the installed package, with no extra stub package.
+The package ships a `py.typed` marker, so mypy and pyright read its inline annotations with no stub
+package.
 
 ```bash
 .venv/bin/pip install mypy

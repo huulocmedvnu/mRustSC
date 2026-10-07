@@ -97,7 +97,7 @@ def dpt(
 def paga(
     adata: AnnData, groups: str | None = None, *, model: str = "v1.2", device: str | None = None
 ) -> None:
-    """Build a graph of how clusters connect (PAGA, Wolf et al. 2019) and write `uns["paga"]`.
+    """PAGA cluster graph (Wolf et al. 2019), written to `uns["paga"]`.
 
     `device` is accepted so all tools share one signature, and it is ignored. The
     computation is one pass over the neighbour graph into a small group by group

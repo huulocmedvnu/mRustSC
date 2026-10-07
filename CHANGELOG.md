@@ -2,16 +2,15 @@
 
 ## 0.3.0 (2026-10-07)
 
-First release on PyPI. Ready-built packages (wheels) are available for macOS on Apple silicon,
+First release on PyPI. Prebuilt wheels are available for macOS on Apple silicon,
 Python 3.11 to 3.13.
 
 ### Added
 
-- A faster, approximate neighbour search for large datasets. It uses NN-descent, which improves a
-  rough first guess of each cell's neighbours step by step. A random-projection forest makes the
-  first guess. `pp.neighbors(method="auto")` switches to it above 200 000 cells.
+- A faster, approximate neighbour search for large datasets, using NN-descent initialised from a
+  random-projection forest. `pp.neighbors(method="auto")` switches to it above 200 000 cells.
 - A fast t-SNE for more than 20 000 cells (FIt-SNE). It approximates the forces between cells on
-  a grid with the fast Fourier transform (FFT). All main steps of each iteration run on the GPU: the
+  a grid with an FFT. All main steps of each iteration run on the GPU: the
   attractive forces, spreading values onto the grid, the FFT convolution, reading values back from
   the grid, and the position update.
 - Harmony integration, running on all CPU cores. It estimates its penalty settings as Harmony 1.2
@@ -49,4 +48,4 @@ Python 3.11 to 3.13.
 ## 0.2.0
 
 Preprocessing and PCA for datasets larger than memory (`pp.preprocess_backed`), reading the counts
-from disk in blocks. GPU programs (Metal kernels) for the neighbour search and the Wilcoxon test.
+from disk in blocks. Metal kernels for the neighbour search and the Wilcoxon test.

@@ -17,8 +17,8 @@ python/metalcyte/pp/_basics.py writes obsm["X_pca"], varm["PCs"], uns["pca"]
 ```
 
 The Python layer takes the matrix out of the AnnData object and passes it to Rust as three plain
-arrays. Rust runs the algorithm with candle, a Rust library for array calculations that can run on
-the CPU or the GPU. Python then writes the results back into the AnnData object.
+arrays. Rust runs the algorithm with candle, a Rust tensor library with CPU and
+Metal back ends. Python then writes the results back into the AnnData object.
 
 You can notice three effects of this design:
 
@@ -27,8 +27,8 @@ You can notice three effects of this design:
 - **Only Python sets default values.** Python passes every value that the Rust code needs. Each
   default is one line in `python/metalcyte/`, and [API.md](API.md) states its value.
 - **Matrices are cells by genes, stored as `float32` with `uint32` indices.** Metalcyte converts a
-  `float64` matrix on the way in, so results come back as `float32` even if you passed 64-bit
-  numbers. p-values are the exception and stay `float64`. A small rank-sum p-value would become
+  `float64` matrix on the way in, so results come back as `float32` even for `float64`
+  input. p-values are the exception and stay `float64`. A small rank-sum p-value would become
   exactly zero in `float32`.
 
 ## What runs on the GPU
@@ -42,20 +42,18 @@ tells you which device you will get. `METALCYTE_DEVICE=cpu` in the environment k
 on the CPU.
 
 On Apple silicon the CPU and the GPU share the same memory (unified memory). The GPU reads data
-where the CPU left it, with no copy. On a computer with a separate graphics card, data must first
-travel over the PCIe connection to the card. That copy only pays off for large operations. Without
+where the CPU left it, with no copy. On a discrete GPU, data must first cross the PCIe bus. That copy only pays off for large operations. Without
 it, the GPU helps even at single-cell sizes.
 
 Three points limit this:
 
-- **The GPU does not speed up every step, so some steps do not use it.** Element-by-element work on
-  a sparse matrix (log transform, total-count normalisation, scaling) is small and limited by memory
-  speed. The GPU helps most with PCA and the neighbour graph. The fastest steps after those, the
+- **The GPU does not speed up every step, so some steps do not use it.** Elementwise work on
+  a sparse matrix (log transform, total-count normalisation, scaling) is small and memory-bound. The GPU helps most with PCA and the neighbour graph. The fastest steps after those, the
   marker test and PAGA, run as plain Rust code on the CPU. [PERFORMANCE.md](PERFORMANCE.md) gives
   the timings.
-- **Only one hand-written GPU program (kernel) runs in a normal call: `knn`.**
-  `crates/metalcyte-gpu` holds kernels for sparse matrix products (CSR SpMM), column moments, row
-  scaling, k-NN, the UMAP optimisation (SGD) and the t-SNE gradient. Each is tested against the
+- **Only one hand-written Metal kernel runs in a normal call: `knn`.**
+  `crates/metalcyte-gpu` holds kernels for CSR SpMM, column moments, row scaling, k-NN, UMAP SGD
+  and the t-SNE gradient. Each is tested against the
   matching Rust code. For a call on Metal, the k-NN search behind the neighbour graph goes to the
   `knn` kernel. It is ~2-2.5x faster than the candle version and gives exactly the same result as
   the CPU (`tests/test_device_parity.py`). The other kernels (SpMM, UMAP SGD, t-SNE gradient) are
@@ -70,8 +68,8 @@ Three points limit this:
   Metalcyte still checks the device name, so `device="gpu"` on a machine without Metal raises an
   error. The name never changes where that work runs.
 
-One build option affects the CPU side. The `accelerate` cargo feature links Apple's Accelerate maths
-library (vecLib BLAS), which uses the chip's matrix unit. Metalcyte then uses it for dense matrix
+One build option affects the CPU side. The `accelerate` cargo feature links Apple's Accelerate
+(vecLib BLAS), which runs on the AMX matrix coprocessor. Metalcyte then uses it for dense matrix
 work on the CPU: the ndarray `.dot()` and candle-CPU calculations in PCA, Harmony, the neighbour
 graph and the diffusion map. It does not affect the sparse matrix code. It makes CPU runs a little
 faster (~7-8% on Harmony, ~4-9% on the full pipeline). With the default `"auto"` device it changes
@@ -80,18 +78,17 @@ on and off.
 
 ## Why the CPU and GPU results differ in the last digits
 
-The same code can give slightly different numbers on the two devices. With 32-bit floating point
-numbers (`f32`), the order of additions changes the last bits of a sum. The GPU adds terms in a
-different order than the CPU, so the same formula ends a few units in the last place (ulps) apart.
-Usually nobody notices. One case matters, and it shows the general risk. It happens when a
+The same code can give slightly different numbers on the two devices. In `f32` the GPU sums terms
+in a different order from the CPU, so the same formula can end a few ulps apart. This is usually
+harmless. One case matters, and it shows the general risk. It happens when a
 subtraction should give exactly zero and later steps depend on that zero.
 
 The neighbour search computes all distances with one matrix product, using
 `|a - b|^2 = |a|^2 + |b|^2 - 2 a.b`. For two identical cells the three terms cancel to exactly
 zero on the CPU. On Metal they leave a tiny positive value, 9.5e-7 against a norm scale of 12. The
 square root makes it a thousand times larger, 9.8e-4. A duplicated cell would then get a non-zero
-`rho`, the distance to its nearest neighbour. UMAP subtracts `rho` when it builds its graph of
-neighbour weights (the fuzzy simplicial set), so the cell's connectivities would no longer be 1. A
+`rho`, the distance to its nearest neighbour. UMAP subtracts `rho` when it builds the fuzzy
+simplicial set, so the cell's connectivities would no longer be 1. A
 distance of 1e-3 would visibly change the graph.
 
 Metalcyte fixes this with the precision limit of the formula. Each multiplication and addition adds
@@ -114,7 +111,7 @@ Two practical points follow:
 
 ## A stored zero means different things in different modules
 
-A sparse matrix in CSR format can hold "no entry" or "an entry with value 0.0". The neighbour graph
+A CSR matrix can hold "no entry" or "an entry with value 0.0". The neighbour graph
 contains many entries of the second kind. Two identical cells are at distance zero, and the graph
 stores that zero. On 120 cells, of which 60 are exact duplicates, `pp.neighbors(n_neighbors=10)`
 stores 540 zeros out of 1080 entries, half the graph. Each function that reads the graph must decide
@@ -138,7 +135,7 @@ rules it follows before you start.
 ## Memory
 
 The count matrix stays sparse when it passes from Python to Rust. Python hands over the three CSR
-arrays as they are. A matrix that is 95% zeros is never expanded into a full (dense) matrix.
+arrays as they are. A matrix that is 95% zeros is never densified.
 
 Two steps do create a dense matrix, and you should plan for them:
 
@@ -146,16 +143,15 @@ Two steps do create a dense matrix, and you should plan for them:
   That takes 400 MB at 50 000 x 2 000 and 4 GB at 50 000 x 20 000. This is why you keep only the
   highly variable genes before scaling.
 - The exact t-SNE builds an `(n, n)` matrix of cell-to-cell similarities, so it stops at 20 000
-  cells. Above that, `tl.tsne` switches to FIt-SNE, a fast approximation. FIt-SNE keeps
-  similarities only between nearest neighbours. It estimates the pushing-apart force between all
-  cells on a grid with the fast Fourier transform (FFT). The time per iteration then grows in
-  proportion to the number of cells.
+  cells. Above that, `tl.tsne` switches to FIt-SNE. FIt-SNE keeps
+  similarities only between nearest neighbours and interpolates the repulsive forces on a grid with
+  an FFT. The time per iteration then grows linearly with the number of cells.
 
 For matrices that do not fit in memory at all, Metalcyte reads the `.h5ad` file from disk in
 blocks of rows. It sizes the blocks to stay within `settings.max_memory_gb`. Total-count
 normalisation and the log transform do this automatically when `adata.isbacked` is true. They read
 `X` one block at a time and write the result back to the same file. Peak memory is one block, and
-the output is exactly the same, bit for bit, as the in-memory result (`benches/backed_transform.py`:
+the output is bit-identical to the in-memory result (`benches/backed_transform.py`:
 737 MB peak against 1141 MB in memory, 0.65x). For other calculations you can use the lower-level
 `open_backed` iterator yourself. To sum each gene on a 50 000 x 20 000 file, it peaks at 1.41 GB.
 Reading the file and making the matrix dense peaks at 4.34 GB. [API.md](API.md) documents both
@@ -169,14 +165,14 @@ agreement we test depends on the algorithm. A test of the wrong kind would prove
 - **Calculations with one correct answer** (total-count normalisation, the log transform, scaling)
   are compared value by value.
 - **Selections** (highly variable genes, nearest neighbours) are compared as sets.
-- **Layouts that depend on random numbers** (UMAP) are compared with the range that the reference
+- **Stochastic layouts** (UMAP) are compared with the range that the reference
   reaches when it runs again with a different seed. On PBMC 3k, umap-learn agrees with itself on
   about half of each cell's neighbours. A required agreement above that level would test nothing.
-- **Methods that minimise a stated quantity** (t-SNE) are judged on that quantity. The test asks
+- **Methods that minimise an objective** (t-SNE) are judged on that objective. The test asks
   whether the final KL divergence is as low as the reference's. It does not ask whether both runs
   ended at the same layout.
 - **PCA** is compared on the components that a randomised solver can determine reliably, and on the
-  variances of all components (the spectrum). On PBMC 3k that is the first 7 of 50 components.
+  full variance spectrum. On PBMC 3k that is the first 7 of 50 components.
   Beyond those, two exact solvers and a randomised one do not agree with each other either.
 
 [VALIDATION.md](VALIDATION.md) gives every number behind these statements, measured by the

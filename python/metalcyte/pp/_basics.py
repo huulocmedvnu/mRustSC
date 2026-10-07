@@ -245,7 +245,7 @@ def pca(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Principal component analysis (PCA), computed with a randomised SVD."""
+    """PCA by randomised SVD."""
     device = _resolve_device(device)
     ext, x = _extension(), adata.X
     if isinstance(x, np.ndarray) and x.ndim == 2 and _fast_path(ext, "pca_dense"):

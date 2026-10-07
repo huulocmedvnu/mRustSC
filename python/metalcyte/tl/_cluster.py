@@ -1,4 +1,4 @@
-"""Find clusters (communities) of cells in the neighbour graph. Owned by feat/leiden."""
+"""Leiden and Louvain clustering of the neighbour graph. Owned by feat/leiden."""
 
 from __future__ import annotations
 
