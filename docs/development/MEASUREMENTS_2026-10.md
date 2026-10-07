@@ -422,8 +422,13 @@ head.
 
 ## 12. Addendum, 2026-10-07: t-SNE, batch correction and Harmony at scale
 
-- `tl.tsne(method="fft")` (FIt-SNE, `tsne_fft.rs`): 94 s at 117 308 cells, 189 s at 953 436
-  (1 000 iterations). Interpolated repulsive forces within 2% RMS of brute force at the default
+- `tl.tsne(method="fft")` (FIt-SNE, `tsne_fft.rs`): first 94 s at 117 308 cells and 189 s at 953 436
+  (1 000 iterations). Profiled: the exact neighbour search with k = 90 fell outside the tiled
+  kernel's limit (33 s of the 94), the charge spreading zeroed a grid per rayon split (12 s), and
+  the radix-2 f64 FFTs took 40 s. Now NN-descent for the affinities (3 s), spreading by bands of
+  box rows (0.6 s), the kernel transform cached while the grid is unchanged, and the FFTs through
+  Accelerate's vDSP in f32 (12 s): **21 s** at 117 308 cells and **127 s** at 953 436, where the
+  attractive term over 180 affinities per cell (46 s) and the 90-neighbour search (44 s) remain. Interpolated repulsive forces within 2% RMS of brute force at the default
   grid; the exact objective of the FFT layout within 7% of the exact path's on 3 000 cells.
 - `regress_out` and `combat` by gene blocks from a column-major copy of the sparse input
   (`batch::ColumnBlocks`); ComBat's empirical Bayes step on per-batch `n`, `sum x`, `sum x^2`.

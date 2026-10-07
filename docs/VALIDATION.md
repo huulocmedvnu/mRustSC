@@ -77,7 +77,7 @@ held to the exact lists by recall at k = 15 (`tests/test_neighbors_approximate` 
 The FFT path is held to the exact one on the same input (`crates/metalcyte-core/src/tsne_fft.rs`
 tests): the interpolated repulsive forces agree with brute force to 2% of the root-mean-square
 force at the default grid, ten planted blobs stay separated, and the exact objective of the FFT
-layout is within 15% of the exact path's (measured: 1.34 against 1.26 on 3 000 cells). On PBMC 3k
+layout is within 15% of the exact path's (measured: 1.37 against 1.26 on 3 000 cells). On PBMC 3k
 the 15-neighbour sets of the two layouts overlap as two t-SNE runs do
 (`tests/test_reference.py::test_tsne_fft_keeps_cell_types_together`).
 
