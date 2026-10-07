@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use candle_core::Device;
 use metalcyte_core::neighbors::{self, KnnGraph};
 use metalcyte_core::nndescent::{knn_approximate as core_knn_approximate, NnDescentParams};
-use metalcyte_core::tsne::{self as core_tsne, TsneParams};
+use metalcyte_core::tsne::{self as core_tsne, TsneMethod, TsneParams};
 use metalcyte_core::umap::{self as core_umap, UmapParams};
 use metalcyte_core::Error;
 use metalcyte_gpu::{kernels::knn::knn_metal, MetalContext};
@@ -196,7 +196,7 @@ fn umap<'py>(
 
 #[pyfunction]
 #[pyo3(signature = (embedding, n_components, perplexity, early_exaggeration, learning_rate,
-                    n_iterations, seed, device))]
+                    n_iterations, seed, device, method = "auto"))]
 fn tsne<'py>(
     py: Python<'py>,
     embedding: &Bound<'py, PyAny>,
@@ -207,9 +207,21 @@ fn tsne<'py>(
     n_iterations: usize,
     seed: u64,
     device: &str,
+    method: &str,
 ) -> PyResult<Bound<'py, PyArray2<f32>>> {
     let embedding = array2_from_py::<f32>(embedding, "embedding")?;
+    let method = match method {
+        "auto" => TsneMethod::Auto,
+        "exact" => TsneMethod::Exact,
+        "fft" => TsneMethod::Fft,
+        other => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "method must be 'auto', 'exact' or 'fft', got {other:?}"
+            )))
+        }
+    };
     let params = TsneParams {
+        method,
         n_components,
         perplexity,
         early_exaggeration,

@@ -174,3 +174,10 @@ atlas and finishes a million cells where scanpy cannot start; against the publis
 NVIDIA-GPU figures it is within an order of magnitude of a 48 GB server card on a
 machine that draws under 30 W, and the ablation shows which hardware feature buys
 which second.
+
+### 2.5 t-SNE and batch correction at scale
+**Done (2026-10-07):** `tl.tsne(method="fft")` (FIt-SNE in `tsne_fft.rs`), the default above
+20 000 cells: 94 s at 117 308 cells, 189 s at 953 436. `regress_out` and `combat` read gene blocks
+from the sparse input (`batch::ColumnBlocks`), `combat` runs its empirical Bayes step on per-batch
+sufficient statistics between two passes, and the only dense array is the result, budgeted at 60%
+of physical memory instead of a fixed 8 GiB.

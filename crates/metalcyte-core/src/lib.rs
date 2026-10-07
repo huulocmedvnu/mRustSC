@@ -30,6 +30,7 @@ pub mod sampling;
 pub mod scoring;
 pub mod sparse;
 pub mod tsne;
+pub mod tsne_fft;
 pub mod umap;
 
 pub use device::{gpu_available, DeviceKind};

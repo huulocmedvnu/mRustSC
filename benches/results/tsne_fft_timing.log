@@ -1,0 +1,5 @@
+117308 cells: fft t-SNE 94.4 s, nearest-centroid agreement 0.407
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: ImplicitModificationWarning: Transforming to str index.
+  return dispatch(args[0].__class__)(*args, **kw)
+953436 cells: fft t-SNE 188.9 s, nearest-centroid agreement 0.378
+TSNE_DONE

@@ -99,11 +99,22 @@ def tsne(
     perplexity: float = 30.0,
     early_exaggeration: float = 12.0,
     learning_rate: float | None = None,
+    method: str = "auto",
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Lay the principal components out with t-SNE, writing `obsm["X_tsne"]`."""
+    """Lay the principal components out with t-SNE, writing `obsm["X_tsne"]`.
+
+    `method` is `"exact"`, `"fft"` or `"auto"`. The exact formulation holds the
+    `(n, n)` affinity matrix and accepts at most 20 000 cells. `"fft"` is FFT-accelerated
+    interpolation-based t-SNE (FIt-SNE): sparse affinities over the `3 * perplexity`
+    nearest neighbours and the repulsive term by interpolation on a grid, which scales to
+    a million cells. `"auto"` picks the exact formulation up to 20 000 cells and the FFT
+    one above.
+    """
     device = _resolve_device(device)
+    if method not in ("auto", "exact", "fft"):
+        raise ValueError(f"method must be 'auto', 'exact' or 'fft', got {method!r}")
     embedding = _representation(adata, "X_pca")[:, :n_pcs]
     if learning_rate is None:
         learning_rate = _automatic_learning_rate(embedding.shape[0], early_exaggeration)
@@ -116,5 +127,6 @@ def tsne(
         _TSNE_ITERATIONS,
         random_state,
         device,
+        method,
     )
     adata.obsm["X_tsne"] = np.asarray(result, dtype=_VALUE_DTYPE)

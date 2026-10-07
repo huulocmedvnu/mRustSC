@@ -186,13 +186,18 @@ Unlike scanpy's version it never subsets `adata`. The flag goes to
 #### `pp.regress_out(adata, keys, *, device=None, inplace=True)`
 
 Regresses every gene on the `obs` columns named by `keys` and keeps the residuals.
-`keys` may be a single name. **The result is dense**, as `pp.scale`'s is.
+`keys` may be a single name. **The result is dense**, as `pp.scale`'s is. The input is
+read one block of genes at a time from its sparse form, so the result is the only
+cell-by-gene array held; it must fit within 60% of the machine's memory, which is
+checked before anything is allocated (a `ValueError` otherwise).
 
 #### `pp.combat(adata, key="batch", *, covariates=None, device=None, inplace=True)`
 
 Empirical-Bayes batch correction over the categorical `obs[key]`, with optional
 `covariates` in the design. The batch key cannot also be a covariate, and covariates
-must be unique. Both are `ValueError`. Dense result.
+must be unique. Both are `ValueError`. Dense result, with the same memory rule as
+`regress_out`: two passes over gene blocks of the sparse input, the empirical Bayes
+step on per-batch sufficient statistics between them, and only the result held whole.
 
 #### `pp.harmony_integrate(adata, key="batch", *, basis="X_pca", adjusted_basis="X_pca_harmony", theta=2.0, sigma=0.1, lamb=1.0, n_clusters=None, max_iter_harmony=10, max_iter_kmeans=20, random_state=0, device=None)`
 
@@ -246,15 +251,26 @@ the default stays sequential and deterministic.
 `device` is accepted and ignored: the layout runs on the CPU whichever device you
 name.
 
-#### `tl.tsne(adata, *, n_pcs=50, perplexity=30.0, early_exaggeration=12.0, learning_rate=None, random_state=0, device=None)`
+#### `tl.tsne(adata, *, n_pcs=50, perplexity=30.0, early_exaggeration=12.0, learning_rate=None, method="auto", random_state=0, device=None)`
 
-Exact t-SNE over the first `n_pcs` columns of `obsm["X_pca"]`. Writes
-`obsm["X_tsne"]`. Two limits, both raised as `ValueError` before any memory is
-allocated:
+t-SNE over the first `n_pcs` columns of `obsm["X_pca"]`. Writes `obsm["X_tsne"]`.
+`method` chooses the formulation.
 
-- **at most 20 000 cells.** The formulation is exact, not Barnes-Hut, so the
-  `(n, n)` affinity matrix is materialised: 1.6 GB at 20 000 cells, and the gradient
-  step holds three more buffers of that shape, for a peak near 6.5 GB.
+- `"exact"` materialises the `(n, n)` affinity matrix: 1.6 GB at 20 000 cells, and
+  the gradient step holds three more buffers of that shape, for a peak near 6.5 GB.
+  It refuses more than 20 000 cells with a `ValueError` before any memory is
+  allocated.
+- `"fft"` is FFT-accelerated interpolation-based t-SNE (FIt-SNE, Linderman et al.
+  2019): affinities over the `3 * perplexity` nearest neighbours of each cell (the
+  exact search up to 200 000 cells, NN-descent above), and the repulsive term by
+  Lagrange interpolation onto a grid with one FFT convolution per iteration. The
+  cost per iteration is linear in cells: 94 s for 117 308 cells and 189 s for
+  953 436 on the M3 Pro, 1 000 iterations. Two-dimensional layouts only.
+- `"auto"`, the default, runs the exact formulation up to 20 000 cells and the FFT
+  one above.
+
+One limit applies to both:
+
 - **perplexity below the cell count**, which is scikit-learn's own precondition.
   A t-SNE is hard to read once the perplexity approaches a third of the cell
   count, but that is advice about the plot and not a limit of the implementation,

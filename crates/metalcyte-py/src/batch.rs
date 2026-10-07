@@ -6,9 +6,6 @@
 
 use metalcyte_core::batch;
 use metalcyte_core::harmony;
-use metalcyte_core::sparse::CsrMatrix;
-use metalcyte_core::{Error, Result};
-use ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
 
@@ -30,7 +27,7 @@ fn regress_out<'py>(
     let covariates = array2_from_py::<f32>(covariates, "covariates")?;
     let device = device_from_py(device)?;
     let residuals = py
-        .allow_threads(|| batch::regress_out(&densify(&matrix)?, &covariates, &device))
+        .allow_threads(|| batch::regress_out_csr(&matrix, &covariates, &device))
         .map_err(to_py_error)?;
     Ok(residuals.into_pyarray(py))
 }
@@ -56,13 +53,7 @@ fn combat<'py>(
     let device = device_from_py(device)?;
     let corrected = py
         .allow_threads(|| {
-            batch::combat(
-                &densify(&matrix)?,
-                &labels,
-                n_batches,
-                covariates.as_ref(),
-                &device,
-            )
+            batch::combat_csr(&matrix, &labels, n_batches, covariates.as_ref(), &device)
         })
         .map_err(to_py_error)?;
     Ok(corrected.into_pyarray(py))
@@ -113,14 +104,6 @@ fn harmony_integrate<'py>(
         })
         .map_err(to_py_error)?;
     Ok((result.corrected.into_pyarray(py), result.objective))
-}
-
-/// Both algorithms are dense over the whole matrix, so the CSR arrays are
-/// expanded once here rather than per call inside the core.
-fn densify(matrix: &CsrMatrix) -> Result<Array2<f32>> {
-    let shape = (matrix.n_rows(), matrix.n_cols());
-    Array2::from_shape_vec(shape, matrix.densify_rows(0, matrix.n_rows()))
-        .map_err(|error| Error::shape(format!("{} x {}", shape.0, shape.1), error.to_string()))
 }
 
 pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {

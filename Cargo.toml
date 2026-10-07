@@ -16,6 +16,7 @@ metal = "0.29"
 ndarray = "0.16"
 rand = "0.8"
 rayon = "1.10"
+libc = "0.2"
 thiserror = "2.0"
 # Optional Apple Accelerate (vecLib) BLAS/LAPACK for dense linear algebra on macOS ARM64.
 # Off by default so the pure-Rust build stays cross-platform (Linux/CI); the `accelerate`

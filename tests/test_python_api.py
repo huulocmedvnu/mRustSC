@@ -168,7 +168,9 @@ class FakeCore:
         n_iterations,
         seed,
         device,
+        method="auto",
     ):
+        self.tsne_method = method
         self._record(
             "tsne",
             (
@@ -543,6 +545,14 @@ def test_tsne_slices_the_pca_to_n_pcs(core: FakeCore) -> None:
     assert params == [2, 30.0, 12.0, 50.0, 1000, 0, _DEVICE]
     assert adata.obsm["X_tsne"].shape == (N_OBS, 2)
     assert adata.obsm["X_tsne"].dtype == np.float32
+
+
+def test_tsne_forwards_the_method_and_rejects_an_unknown_one(core: FakeCore) -> None:
+    adata = _with_pca(core, n_comps=4)
+    tl.tsne(adata, method="fft")
+    assert core.tsne_method == "fft"
+    with pytest.raises(ValueError, match="method"):
+        tl.tsne(adata, method="barnes-hut")
 
 
 def test_tsne_defaults_take_all_available_components(core: FakeCore) -> None:
