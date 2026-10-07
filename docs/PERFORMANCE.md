@@ -1,20 +1,26 @@
 # Performance
 
-Every number on this page was measured on one laptop, an Apple MacBook Pro with the M3 Pro
-chip (5 performance and 6 efficiency cores, 14-core GPU, 18 GB of unified memory), running
-macOS 26.6, Python 3.12, scanpy 1.12.4 and Metalcyte 0.3.0. The data files, the scripts, the
-result of every run and the figure code are in the repository under `benches/`, so each table
-can be reproduced with one command, given in its section. The development notes under
-`docs/development/` keep the longer account, including the measurements that did not come
-out as expected.
+All numbers on this page come from one laptop. It is an Apple MacBook Pro with the M3 Pro chip.
+The chip has 5 performance cores, 6 efficiency cores, a 14-core GPU and 18 GB of unified memory.
+Unified memory means the CPU and the GPU share the same memory, so data does not have to be
+copied between them. The software was macOS 26.6, Python 3.12, scanpy 1.12.4 and Metalcyte 0.3.0.
+
+The data files, scripts, raw results and figure code are in the repository under `benches/`.
+Each section gives the one command that reproduces its table. The notes under
+`docs/development/` give the longer account, including measurements that did not turn out as
+expected.
+
+In the tables, "Metal" means Metalcyte used the Mac's GPU through Apple's Metal interface. "CPU"
+means it used only the processor cores.
 
 ## A real atlas, start to finish
 
-117 308 bone-marrow cells from CZ CELLxGENE, through the standard pipeline: quality-control
-metrics, the cell and gene filters, normalisation, the log transform, 2 000 variable genes,
-scaling, 50 principal components, a 15-neighbour graph, UMAP, Leiden and a Wilcoxon marker test
-per author cell type. Each library runs the whole pipeline in its own process, so every step sees
-the previous step's output from the same library. Seconds per step, mean ± sd over three runs.
+This test uses 117 308 bone-marrow cells from CZ CELLxGENE. Each library ran the standard
+pipeline: quality-control metrics, cell and gene filters, normalisation, the log transform,
+selection of 2 000 variable genes, scaling, 50 principal components, a 15-neighbour graph, UMAP,
+Leiden clustering and a Wilcoxon marker test for each author cell type. Each library ran the
+whole pipeline in its own process. So every step received the previous step's output from the
+same library. The table gives seconds per step, as the mean ± sd of three runs.
 
 | step | scanpy (defaults) | scanpy (tuned) | Metalcyte, CPU | Metalcyte, Metal |
 |---|--:|--:|--:|--:|
@@ -27,19 +33,20 @@ the previous step's output from the same library. Seconds per step, mean ± sd o
 | marker genes | 7.9 ± 0.4 | 7.2 ± 0.1 | 0.5 ± 0.0 | 0.5 ± 0.0 |
 | **whole pipeline** | 213.2 ± 1.5 | 79.3 ± 1.5 | 15.8 ± 0.6 | 11.9 ± 0.2 |
 
-"scanpy (tuned)" is scanpy with the covariance-eigendecomposition PCA solver, the igraph Leiden
-backend with two iterations and an unseeded UMAP, the fastest settings it offers. Metalcyte uses
-the parallel UMAP optimiser. Both libraries find 36 or 37 Leiden clusters on this atlas.
+"scanpy (tuned)" uses the fastest settings scanpy offers. These are the
+covariance-eigendecomposition PCA solver, the igraph Leiden backend with two iterations, and an
+unseeded UMAP. Metalcyte uses its parallel UMAP optimiser, which runs on all cores. Both
+libraries find 36 or 37 Leiden clusters on this atlas.
 
 ```bash
 PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library scanpy --tuned
 PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline.py data/bone_marrow_117k_counts.h5ad --library metalcyte --umap-parallel
 ```
 
-## The same answer
+## Both libraries give the same answer
 
-The two libraries were compared on every intermediate of that pipeline, on the same cells with
-the same seeds (`benches/agreement.py`).
+We compared the two libraries at every step of that pipeline. Both used the same cells and the
+same random seeds (`benches/agreement.py`). A value of 1.00 means full agreement.
 
 | what is compared | agreement |
 |---|---:|
@@ -52,16 +59,21 @@ the same seeds (`benches/agreement.py`).
 | the Wilcoxon marker scores, median Spearman correlation over cell types | 1.00 |
 | the top-50 marker lists, median overlap | 1.00 |
 
-The two libraries select the same genes, span the same leading principal subspace and rank the
-same marker genes. The neighbour graphs differ where scanpy's approximate index differs from an
-exact search, and the clusterings built on them agree at an adjusted Rand index of 0.94.
+The two libraries select the same genes and find the same leading principal components. They
+also rank the same marker genes. The neighbour graphs differ a little. scanpy finds neighbours
+with an approximate search, and Metalcyte uses an exact one at this size. The two clusterings
+still agree with an adjusted Rand index (ARI) of 0.94. ARI measures how well two clusterings
+match, where 1 is a perfect match and 0 is chance level.
 
-## A million cells on 18 GB
+## A million cells on an 18 GB laptop
 
-1 001 288 human embryo cells from CZ CELLxGENE. Metalcyte runs the out-of-core head (quality
-control, filters, normalisation, log transform, variable genes, scaling and PCA over row blocks of
-the counts on disk, never holding the matrix), then the neighbour graph, UMAP and Leiden in memory.
-953 436 cells pass the filters. Seconds per step, one run.
+This test uses 1 001 288 human embryo cells from CZ CELLxGENE. Metalcyte runs the first steps
+"out of core", so it never holds the whole count matrix in memory. It reads the
+count matrix from disk in blocks of cells and keeps only one block in memory at a time. These
+first steps are quality control, filters, normalisation, log transform, variable genes, scaling
+and PCA. Metalcyte then builds the neighbour graph, UMAP and Leiden clusters in memory, from the
+much smaller PCA result. 953 436 cells pass the filters. The table gives seconds per step from
+one run.
 
 | step | Metalcyte, Metal | Metalcyte, CPU only | memory added, Metal |
 |---|---:|---:|---:|
@@ -71,28 +83,30 @@ the counts on disk, never holding the matrix), then the neighbour graph, UMAP an
 | Leiden | 10 | 9 | 1.3 GB |
 | whole run | **103** | 112 | |
 
-With the exact neighbour search instead (`method="exact"`), the graph takes 118 s on the GPU and
-283 s on the CPU, and the whole run 210 s and 409 s.
+You can ask for the exact neighbour search instead (`method="exact"`). Then the graph takes
+118 s on the GPU and 283 s on the CPU. The whole run takes 210 s and 409 s.
 
-scanpy on the same file and machine read the counts, filtered, normalised and selected genes in
-about four minutes, then its scaling step added 21.9 GB of footprint and its PCA paged through
-16 GB of swap until it was stopped at the 15-minute mark.
+scanpy ran on the same file and machine. It read the counts, filtered, normalised and selected
+genes in about four minutes. Its scaling step then added 21.9 GB of memory use. Its PCA then
+used 16 GB of swap, which is disk space the system uses when memory runs out. We stopped it at
+15 minutes.
 
-The in-memory pipeline also reaches a million cells on this laptop when the GPU is used: 308 s
-from counts to Leiden clusters, with the marker test included. The out-of-core head is faster and
-uses less memory, and is the recommended path above a quarter of a million cells.
+The in-memory pipeline of Metalcyte also handles a million cells on this laptop when it uses the
+GPU. It takes 308 s from counts to Leiden clusters, including the marker test. The out-of-core
+path is faster and uses less memory. We recommend it above a quarter of a million cells.
 
 ```bash
 .venv/bin/python benches/prepare_counts.py data/embryo_1m.h5ad data/embryo_1m_counts.h5ad
 PYTHONPATH=$PWD/python .venv/bin/python benches/pipeline_1m.py data/embryo_1m_counts.h5ad --umap-parallel
 ```
 
-## Scaling
+## How run time grows with the number of cells
 
-Random subsamples of the embryo atlas, the same pipeline, one run per point, with a 40-minute cap
-and a watchdog that stops a run adding more than 10 GB of swap. Whole-pipeline seconds. Up to
-250 000 cells every configuration runs the in-memory pipeline; from 500 000 cells Metalcyte runs
-the out-of-core head and the graph steps.
+We took random subsamples of the embryo atlas and ran the same pipeline once per size. Each run
+had a 40-minute limit. A watchdog stopped any run that added more than 10 GB of swap. The table
+gives whole-pipeline seconds. Up to 250 000 cells, every configuration runs the in-memory
+pipeline. From 500 000 cells, Metalcyte runs the out-of-core first steps and then the graph
+steps.
 
 | cells | scanpy (defaults) | scanpy (tuned) | Metalcyte, CPU | Metalcyte, Metal |
 |---:|---:|---:|---:|---:|
@@ -104,21 +118,27 @@ the out-of-core head and the graph steps.
 | 500 000 | over 40 minutes | 377 | 113 | 75 |
 | 1 000 000 | not attempted | out of memory | 366 | 207 |
 
-The gap widens with size: Metalcyte on Metal is 21 times faster than scanpy's defaults at 10 000
-cells and 27 times at 250 000, and 19 and 3.4 times faster than scanpy tuned. The sweep above ran
-the exact neighbour search at every size; the next section gives the approximate search that the
-default now uses above 200 000 cells.
+The gap grows with size. Metalcyte on Metal is 21 times faster than scanpy's defaults at 10 000
+cells and 27 times faster at 250 000. Against tuned scanpy it is 19 and 3.4 times faster. This
+sweep used the exact neighbour search at every size. The next section covers the approximate
+search, which is now the default above 200 000 cells.
 
 ```bash
 PYTHONPATH=$PWD/python .venv/bin/python benches/scaling.py data/embryo_1m_counts.h5ad --source data/embryo_1m.h5ad --json benches/results/scaling_embryo.json
 ```
 
-## Exact against approximate neighbour search
+## Exact and approximate neighbour search
 
-Subsamples of the embryo atlas's 50-dimensional PCA embedding, 15 neighbours, one run per point
-(`benches/knn_methods.py`). The exact search compares every pair; the approximate search is
-NN-descent seeded with a random-projection forest, on every core. Recall is the fraction of the
-exact neighbours the approximate lists contain.
+To build the neighbour graph, Metalcyte finds the 15 closest cells to each cell in PCA space.
+The exact search compares every pair of cells. Its cost grows with the square of the number of
+cells. The approximate search uses NN-descent. NN-descent starts from rough neighbour lists,
+which here come from a random-projection forest. It then improves each list by checking the
+neighbours of a cell's neighbours. It runs on all cores. Recall is the share of the true (exact)
+neighbours that the approximate lists contain. A recall of 1 means every true neighbour was
+found.
+
+The test used subsamples of the embryo atlas's 50-dimensional PCA embedding, with one run per
+size (`benches/knn_methods.py`).
 
 | cells | approximate | exact, GPU | exact, CPU | recall |
 |---:|---:|---:|---:|---:|
@@ -130,9 +150,9 @@ exact neighbours the approximate lists contain.
 | 500 000 | 8.4 s | 33.9 s | 85.8 s | 0.970 |
 | 953 436 | 15.9 s | 118.1 s | 282.5 s | 0.961 |
 
-The exact search is faster on the GPU up to about 100 000 cells and on the CPU up to about
-50 000. `pp.neighbors` switches to the approximate search above 200 000 cells by default, where
-the exact graph, which matches scanpy's cell for cell, stops being cheap.
+The exact search is faster on the GPU up to about 100 000 cells. On the CPU it is faster up to
+about 50 000 cells. The exact graph matches scanpy's cell for cell, but it becomes slow at large
+sizes. So by default `pp.neighbors` switches to the approximate search above 200 000 cells.
 
 ```bash
 PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
@@ -140,10 +160,10 @@ PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/e
 
 ## Four million cells
 
-The full survey of human embryonic development from CZ CELLxGENE (dataset
-f7c1c579-2dc0-47e2-ba19-8165c5a0e353): 4 062 980 cells by 45 676 genes, 2.38 billion stored
-counts, a 28.9 GB counts file. The same laptop, 18 GB of memory, single runs, the default
-neighbour search. Nothing was tuned for this file.
+This test uses the full survey of human embryonic development from CZ CELLxGENE (dataset
+f7c1c579-2dc0-47e2-ba19-8165c5a0e353). It has 4 062 980 cells and 45 676 genes. The file stores
+2.38 billion counts and takes 28.9 GB on disk. We used the same laptop with 18 GB of memory,
+single runs and the default neighbour search. Nothing was tuned for this file.
 
 | step | seconds | memory added |
 |---|---:|---:|
@@ -152,23 +172,27 @@ neighbour search. Nothing was tuned for this file.
 | UMAP (parallel) | 237 | 4.9 GB |
 | Leiden | 61 | 7.3 GB |
 | **from counts to clusters** | **538** (9 minutes, 71 clusters) | peak about 9 GB |
-
-The cluster count varies between runs of this file: 71, 65 and 59 in three runs. The approximate
-neighbour search updates its lists from parallel threads, so two runs with the same seed give
-nearly the same graph but not the same one (5 of 300 000 rows differed in a test on the embryo
-atlas), and Leiden splits this atlas's many similar fine clusters differently.
 | Wilcoxon markers on the 2 000 variable genes kept by the head (0.63 GB) | 1.3 | |
 | UMAP scatter of all 4 062 980 cells, `pl.umap`, saved | 1.5 | |
 | t-SNE, FFT-accelerated, on the GPU | 497 | |
 
-Converting the CELLxGENE file to counts (`benches/prepare_counts.py`, streamed) took 118 s at
-2.9 GB resident. For a 2 002 576-cell point in between, the 1M atlas stacked with a thinned copy
-of itself (`benches/double_counts.py`) ran in 202 s on Metal (head 62, neighbours 38, UMAP 83,
-Leiden 20) and 222 s on the cores, with streamed markers on 2 000 genes in 8.4 s.
+The number of clusters changes between runs on this file. Three runs gave 71, 65 and 59. The
+approximate neighbour search updates its lists from many threads at once. So two runs with the
+same seed give nearly the same graph, with small differences. In a test on the embryo atlas, 5
+of 300 000 rows differed. This atlas has many similar small clusters, and Leiden splits them
+differently when the graph changes slightly.
 
-## Beyond the standard pipeline at a million cells
+Converting the CELLxGENE file to a counts file (`benches/prepare_counts.py`, read in a stream)
+took 118 s and used 2.9 GB of memory. We also tested a size in between, 2 002 576 cells. We made
+it by stacking the 1M atlas with a thinned copy of itself (`benches/double_counts.py`). It ran
+in 202 s on Metal (first steps 62, neighbours 38, UMAP 83, Leiden 20) and 222 s on the CPU
+cores. Streamed markers on 2 000 genes took 8.4 s.
 
-Single runs on the 953 436-cell embryo embedding (50 principal components) on the M3 Pro.
+## Other steps at a million cells
+
+These are single runs on the 953 436-cell embryo embedding (50 principal components) on the
+M3 Pro. "FFT-accelerated" t-SNE computes the long-range forces between cells on a grid with a
+fast Fourier transform. This makes it fast on large data.
 
 | step | Metalcyte | note |
 |---|---:|---|
@@ -178,13 +202,14 @@ Single runs on the 953 436-cell embryo embedding (50 principal components) on th
 | UMAP scatter of all cells, `pl.umap` (render, legend, PNG at 300 dpi) | 0.6 s | the Metal rasteriser draws the 953 436 points in 0.2 s; scanpy's matplotlib scatter of the same cells takes 4.1 s to save and holds a million path objects |
 | Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
 
-`regress_out` and `combat` read the sparse matrix in gene blocks and hold only their dense
-result, so their limit is the result's size against 60% of the machine's memory.
+`regress_out` and `combat` read the sparse matrix in blocks of genes. They keep only their dense
+result in memory. So the limit is the size of that result, which must fit in 60% of the
+machine's memory.
 
-## Energy
+## Energy use
 
-The package's own power counters, sampled every 100 ms while the 117 308-cell pipeline ran, with
-the idle draw measured just before each run subtracted.
+We read the chip's own power counters every 100 ms while the 117 308-cell pipeline ran. Just
+before each run we measured the power the idle machine draws, and we subtracted it.
 
 | run | seconds | net energy | mean power |
 |---|---:|---:|---:|
@@ -192,35 +217,46 @@ the idle draw measured just before each run subtracted.
 | Metalcyte, CPU only, parallel UMAP | 16 | 273 J | 15.8 W |
 | Metalcyte, Metal, parallel UMAP | 13 | 168 J | 11.8 W |
 
-Metalcyte on Metal does the same analysis for one seventh of the energy: 19 times sooner at twice the
-power, because scanpy keeps one core busy and Metalcyte keeps eleven and the GPU. The CPU-only run
-draws more power than the Metal run and takes longer, so the GPU saves energy as well as time. Per
-million cells the Metal run is about 1.4 kJ. The published rapids-singlecell run on an NVIDIA L40S
-takes 92 s for a million cells on a card rated at 300 W with a 200 W host, which puts that run at
-20 to 45 kJ even at half load.
+Metalcyte on Metal does the same analysis with one seventh of the energy. It finishes 19 times
+sooner at twice the power. scanpy keeps one core busy, while Metalcyte keeps eleven cores and
+the GPU busy. The CPU-only run draws more power than the Metal run and takes longer. So the GPU
+saves energy as well as time. On Metal, the run uses about 1.4 kJ per million cells. For
+comparison, the published rapids-singlecell run on an NVIDIA L40S GPU takes 92 s for a million
+cells. That card is rated at 300 W with a 200 W host computer. Even at half load, that run
+would use 20 to 45 kJ.
 
-On the full 4 062 980-cell survey (the out-of-core pipeline, counts to clusters):
+On the full 4 062 980-cell survey (out-of-core pipeline, counts to clusters):
 
 | run | seconds | gross energy | net energy | mean power |
 |---|---:|---:|---:|---:|
 | Metalcyte, Metal | 557 | 7 089 J | 6 244 J | 12.7 W |
 | Metalcyte, CPU only | 568 | 7 028 J | not comparable | 12.3 W |
 
-About 1.5 kJ per million cells on Metal, close to the 117 308-cell figure. The two runs draw the
-same energy within 1%: at this size the default path runs the approximate neighbour search and
-UMAP on the cores, so the GPU has little to do. The CPU run's net figure is left out because its
-idle baseline was taken just after the Metal run, with the machine still warm (3.9 W against
-1.5 W). The timed runs under `powermetrics` took 557 s and 568 s against 538 s without it.
+On Metal this is about 1.5 kJ per million cells, close to the 117 308-cell figure. The two runs
+use the same energy within 1%. At this size the default path runs the approximate neighbour
+search and UMAP on the CPU cores, so the GPU has little to do. We left out the net figure for
+the CPU run. Its idle reading was taken just after the Metal run, while the machine was still
+warm (3.9 W against 1.5 W). Measuring power slows the runs a little. They took 557 s and 568 s
+under `powermetrics`, against 538 s without it.
 
 ```bash
 sudo sh benches/run_energy.sh data/bone_marrow_117k_counts.h5ad
 sudo sh benches/run_energy_4m.sh data/embryo_4m_counts.h5ad
 ```
 
-## What each part of the chip is worth
+## What each part of the chip contributes
 
-The 117 308-cell pipeline again, with one feature switched off at a time (`benches/ablation.py`).
-Seconds for the whole pipeline and for the steps that move; the run-to-run noise is about 2 s.
+We ran the 117 308-cell pipeline again and switched off one feature at a time
+(`benches/ablation.py`). The table gives seconds for the whole pipeline and for the steps that
+change. Times vary by about 2 s from run to run.
+
+Some terms in the table:
+
+- Accelerate is Apple's library of fast maths routines. Its matrix routines (BLAS) run on the
+  AMX units, which are matrix-multiplication units built into the CPU.
+- Zero-copy means Metalcyte reads numpy's arrays in place, without making a copy.
+- The parallel UMAP optimiser lets all cores update the layout at the same time without waiting
+  for each other (a lock-free optimiser). The sequential version uses one core.
 
 | configuration | what is off | whole | PCA | neighbours | UMAP | markers |
 |---|---|---:|---:|---:|---:|---:|
@@ -232,25 +268,28 @@ Seconds for the whole pipeline and for the steps that move; the run-to-run noise
 | no zero-copy | the in-place numpy borrows | 23.2 | 6.5 | 2.1 | 4.9 | 0.9 |
 | sequential UMAP | the lock-free optimiser | 40.4 | 0.9 | 2.2 | 32.5 | 0.6 |
 
-- The GPU is worth 2.3 times on the neighbour search and 2.4 times on PCA, and nothing elsewhere at
-  this size.
-- All eleven cores are worth 7.0 times on the UMAP optimiser, and the efficiency cores carry a
+- The GPU makes the neighbour search 2.3 times faster and PCA 2.4 times faster. At this size it
+  makes no difference to the other steps.
+- Using all eleven cores makes the UMAP optimiser 7.0 times faster. The efficiency cores do a
   third of that work.
-- The zero-copy borrows of numpy's buffers are worth 10 s of a 13 s run, most of it in PCA.
-- Accelerate shows nothing at 2 000 genes. The matrix products are too small for the AMX units to
-  make a difference.
+- Reading numpy's arrays without copying saves 10 s of a 13 s run, mostly in PCA.
+- Accelerate makes no difference at 2 000 genes. The matrix products are too small for the AMX
+  units to help.
 
 ## Limits
 
-- The exact neighbour search is quadratic in cells. The approximate search covers the large
-  regime with a recall of 0.96 at a million cells; a user who needs the exact graph above
-  200 000 cells pays the quadratic cost. The approximate search is not bit-reproducible across
-  runs: its parallel updates make the graph, and so the cluster count, vary slightly.
-- The Metal neighbour kernel runs at about 15% of the chip's arithmetic peak. A version on the
-  GPU's matrix units is in the tree, opt-in, and is not yet faster.
-- t-SNE is exact up to 20 000 cells and FFT-accelerated above: 13 s for the 117 308-cell atlas and
-  54 s for the 953 436 embryo cells (1 000 iterations, from the 50 principal components).
+- The cost of the exact neighbour search grows with the square of the number of cells. The
+  approximate search handles large datasets with a recall of 0.96 at a million cells. If you need
+  the exact graph above 200 000 cells, you pay that higher cost.
+- The approximate search does not give exactly the same result on every run. Its parallel
+  updates make the graph vary slightly between runs, and so the number of clusters can vary.
+- The Metal neighbour-search kernel (a program that runs on the GPU) reaches about 15% of the
+  chip's peak arithmetic speed. A version that uses the GPU's matrix units is in the code. You
+  must switch it on yourself, and it is not yet faster.
+- t-SNE is exact up to 20 000 cells and FFT-accelerated above that. It takes 13 s for the
+  117 308-cell atlas and 54 s for the 953 436 embryo cells (1 000 iterations, from the 50
+  principal components).
 - `regress_out` and `combat` produce a dense result that must fit within 60% of the machine's
-  memory; the input is read in gene blocks.
-- Metalcyte is built and tested on macOS on Apple silicon only. The continuous-integration runners
-  have no usable GPU, so the GPU tests run locally.
+  memory. They read the input in blocks of genes.
+- Metalcyte is built and tested only on macOS on Apple silicon. The automatic test machines
+  (continuous integration) have no usable GPU, so the GPU tests run on a local Mac.

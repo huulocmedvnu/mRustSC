@@ -1,4 +1,7 @@
-"""Diffusion maps, pseudotime and abstracted graphs. Owned by feat/diffusion and feat/paga."""
+"""Diffusion maps, diffusion pseudotime and PAGA cluster graphs.
+
+Owned by feat/diffusion and feat/paga.
+"""
 
 from __future__ import annotations
 
@@ -91,7 +94,7 @@ def dpt(
 def paga(
     adata: AnnData, groups: str | None = None, *, model: str = "v1.2", device: str | None = None
 ) -> None:
-    """Partition-based graph abstraction, writing `uns["paga"]`, as `scanpy.tl.paga`.
+    """Build a graph of how clusters connect (PAGA), writing `uns["paga"]`, as `scanpy.tl.paga`.
 
     `device` is accepted for signature consistency and ignored: coarse-graining a
     neighbour graph is a single memory-bound pass over its stored entries into a

@@ -1,18 +1,21 @@
-"""Native DPT branch detection: a faithful port of scanpy's Haghverdi 2016 algorithm.
+"""Find branches in a trajectory with diffusion pseudotime (DPT), as scanpy does.
 
-Branch detection is graph/label logic, not tensor algebra, so it lives in the binding
-layer rather than the Rust core. It reads the diffusion map metalcyte already computed
-(`obsm["X_diffmap"]`, `uns["diffmap_evals"]`) plus the pseudotime, builds the Haghverdi
-DPT distance matrix, and recursively splits segments by the Kendall-tau correlation of the
-distances to a segment's tips. The result is the partition scanpy writes to
-`obs["dpt_groups"]`; the labels are arbitrary, so parity is measured by adjusted Rand index.
+This is a Python port of scanpy's version of the Haghverdi 2016 algorithm. Finding
+branches is mostly graph and label logic, so it lives in the Python layer and not in the
+Rust core. It reads the diffusion map that metalcyte already computed
+(`obsm["X_diffmap"]`, `uns["diffmap_evals"]`) and the pseudotime. It builds the DPT
+distance matrix between cells. It then splits segments of the trajectory again and
+again, using the Kendall-tau correlation of each cell's distances to the segment's end
+cells (tips). The result is the grouping that scanpy writes to `obs["dpt_groups"]`.
+The group numbers are arbitrary, so agreement with scanpy is measured with the adjusted
+Rand index.
 
 Ported from `scanpy/tools/_dpt.py` (`detect_branchings`, `select_segment`,
 `detect_branching`, `_detect_branching`, `__detect_branching_haghverdi16`,
-`kendall_tau_split`) and `scanpy/neighbors` (`_get_dpt_row`). Only the partition is built;
-the segment-adjacency tree scanpy also computes is not part of `dpt_groups`. The one shared
-external numeric is `scipy.stats.kendalltau`, which scanpy itself uses for each split's
-initial tau — using the same routine is what keeps the split points identical.
+`kendall_tau_split`) and `scanpy/neighbors` (`_get_dpt_row`). Only the grouping is
+built. scanpy also computes a tree of how segments connect, which is not part of
+`dpt_groups`. The code calls `scipy.stats.kendalltau` for the first tau of each split,
+as scanpy does. Using the same function keeps the split points identical.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ def dpt_groups(
     allow_kendall_tau_shift: bool = True,
     n_dcs: int = 10,
 ) -> np.ndarray:
-    """Integer branch label per cell, as scanpy's `dpt(n_branchings>0)` writes to obs."""
+    """A branch number for each cell, as scanpy's `dpt(n_branchings>0)` writes to obs."""
     eigen_basis = np.asarray(adata.obsm["X_diffmap"], dtype=np.float64)[:, :n_dcs]
     eigen_values = np.asarray(adata.uns["diffmap_evals"], dtype=np.float64)[:n_dcs]
     pseudotime = np.asarray(adata.obs["dpt_pseudotime"], dtype=np.float64)

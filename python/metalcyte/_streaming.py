@@ -1,28 +1,30 @@
-"""The head of the pipeline for a matrix that never fits in memory.
+"""Preprocess a count matrix that is too large to fit in memory.
 
-`preprocess_backed` takes a counts `.h5ad` on disk and returns an in-memory `AnnData`
-holding what the rest of the pipeline needs — the per-cell QC columns, the
-highly-variable flags and the PCA embedding — without ever holding the count matrix
-whole. Three passes over the row blocks of `X`:
+`preprocess_backed` takes a counts `.h5ad` file on disk. It returns an in-memory
+`AnnData` with what the rest of the analysis needs: the per-cell QC columns, the
+highly variable gene flags and the PCA embedding. It never loads the whole count
+matrix. It reads the rows of `X` in blocks and goes through the file three times:
 
-1. **moments**: per-cell `n_genes` and `total_counts`, per-gene `n_cells`, and the
-   `sum` / `sum of squares` behind `highly_variable_genes`, each block normalised and
-   log-transformed on the fly (the same core kernels as the in-memory path, so the
-   numbers match it).
-2. **scatter**: the highly-variable columns of each block are scaled against the
-   per-gene moments from pass 1 and their `(g, g)` scatter is accumulated on the GPU.
-   The principal axes are the top eigenvectors of that scatter, which is scanpy's
+1. **moments**: Metalcyte counts per-cell `n_genes` and `total_counts` and per-gene
+   `n_cells`. It also adds up, per gene, the `sum` and `sum of squares` that
+   `highly_variable_genes` needs. Each block is normalised and log-transformed as it is
+   read. This uses the same core functions as the in-memory path, so the numbers match.
+2. **scatter**: Metalcyte scales the highly variable genes of each block with the
+   per-gene means and variances from pass 1. It then adds the block's `(g, g)` gene by
+   gene scatter matrix to a running total on the GPU. The principal axes are the top
+   eigenvectors of that matrix. This is the method of scanpy's
    `svd_solver="covariance_eigh"`.
-3. **project**: each block is scaled again and multiplied by the loadings, giving its
-   rows of `X_pca`.
+3. **project**: Metalcyte scales each block again and multiplies it by the loadings.
+   This gives the block's rows of `X_pca`.
 
-Peak memory is one block (`metalcyte.settings.max_memory_gb`) plus the `(n_cells, n_comps)`
-embedding, so a million cells by 2 000 genes need the 400 MB embedding and a block,
-where the dense scaled matrix alone would be 8 GB. Apple's unified memory means the
-block the CPU just scaled is the buffer the GPU multiplies: nothing is copied to a
-device. A cell is dropped before any statistic if it has fewer than `min_genes`
-genes, and a gene before the variable-gene step if it is in fewer than `min_cells`
-cells, as `pp.filter_cells` / `pp.filter_genes` would.
+Memory use is one block (`metalcyte.settings.max_memory_gb`) plus the
+`(n_cells, n_comps)` embedding. For a million cells by 2 000 genes, that is the 400 MB
+embedding and one block. The dense scaled matrix alone would need 8 GB. On Apple
+silicon the CPU and the GPU share one memory. The GPU multiplies the same buffer the CPU
+just scaled, and nothing is copied to a separate device. As in `pp.filter_cells` and
+`pp.filter_genes`, cells with fewer than `min_genes` genes are dropped before any
+statistic is computed. Genes found in fewer than `min_cells` cells are dropped before
+the variable-gene step.
 """
 
 from __future__ import annotations
@@ -79,7 +81,7 @@ def preprocess_backed(
     keep_hvg: bool = False,
     progress: Callable[[str, float], None] | None = None,
 ) -> anndata.AnnData:
-    """QC, normalisation, feature selection, scaling and PCA for an on-disk matrix.
+    """QC, normalisation, gene selection, scaling and PCA for a count matrix kept on disk.
 
     Returns an `AnnData` with no `X`: `obs` carries `n_genes` and `total_counts` and the
     requested `obs_columns`; `var` the `highly_variable`, `means` and `dispersions_norm`

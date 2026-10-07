@@ -1,7 +1,7 @@
 """UMAP and t-SNE embeddings. Owned by feat/python-tl.
 
-Like `metalcyte.pp` this is plumbing only; the AnnData conventions it needs live in
-`metalcyte.pp` as private helpers.
+Like `metalcyte.pp`, this module only moves data. The `AnnData` conventions it needs
+are private helpers in `metalcyte.pp`.
 """
 
 from __future__ import annotations

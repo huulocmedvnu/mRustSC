@@ -1,13 +1,16 @@
-"""Harmony batch-effect correction, as `scanpy.external.pp.harmony_integrate`.
+"""Harmony batch-effect correction, like `scanpy.external.pp.harmony_integrate`.
 
-A native port of Harmony (Korsunsky et al. 2019): a soft k-means E-step that clusters the
-PCA embedding while penalising batch-imbalanced clusters, and a ridge-regression M-step
-that removes the batch shift within each cluster, alternated to convergence. The heavy
-matmuls run in the Rust core on the GPU; see `crates/metalcyte-core/src/harmony.rs`.
+This is a Rust reimplementation of Harmony (Korsunsky et al. 2019). Harmony repeats two
+steps until the result stops changing. First it clusters the cells in PCA space with a
+soft k-means, and it penalises clusters that contain mostly one batch. Then, within each
+cluster, it fits a ridge regression and removes the shift between batches. The large
+matrix multiplications run on the GPU in the Rust core. See
+`crates/metalcyte-core/src/harmony.rs`.
 
-Harmony is iterative and k-means seeded, so this does not reproduce `harmonypy` bit for
-bit. Correctness is judged by batch mixing (iLISI rising after correction) and by cosine
-correlation with harmonypy, pinned in `tests/test_harmony_audit.py`.
+Harmony is iterative and starts from a random k-means seed, so this code does not
+reproduce `harmonypy` exactly. Two checks confirm that it is correct. Batches mix
+better after correction (iLISI goes up), and the coordinates have a high cosine
+correlation with harmonypy. Both checks are in `tests/test_harmony_audit.py`.
 """
 
 from __future__ import annotations

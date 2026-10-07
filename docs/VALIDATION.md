@@ -1,20 +1,22 @@
 # Validation
 
-Three kinds of test run against Metalcyte, and they answer different questions.
+This page shows how we check that Metalcyte gives correct results. We compare it against scanpy,
+the standard Python library for single-cell analysis, and against the other reference packages
+that scanpy relies on. Three kinds of test do this, and each answers a different question.
 
-* **Unit tests** (`cargo test --workspace`) hold each Rust function to its own
-  contract on inputs the author chose.
-* **Reference tests** (`tests/test_reference.py`, 26 collected) run the whole pipeline
-  against scanpy twice, on a 240-cell synthetic matrix and on real PBMC 3k
-  (2 638 cells) under the `reference` marker, and ask whether the results agree.
-  The form of agreement is chosen per algorithm and fixed in
+* **Unit tests** (`cargo test --workspace`) check each Rust function on its own, on inputs the
+  author chose.
+* **Reference tests** (`tests/test_reference.py`, 26 collected) run the whole pipeline in both
+  Metalcyte and scanpy and check that the results agree. They run twice, on a 240-cell synthetic
+  matrix and on the real PBMC 3k dataset (2 638 cells), under the `reference` marker. The
+  required kind of agreement is chosen for each algorithm. It is fixed in
   [development/API_CONTRACT.md](development/API_CONTRACT.md#scanpy-is-the-reference).
-* **Audits** (`tests/test_*_audit.py`, 21 files) take one module at a time and go
-  after the places the reference tests cannot fail: term-by-term identities against
-  the reference implementation's own code, boundaries, degenerate inputs, and
-  deliberate divergences pinned with the size of the gap.
+* **Audits** (`tests/test_*_audit.py`, 21 files) test one module at a time. They target errors
+  that the reference tests could miss. They check formulas term by term against the reference
+  package's own code. They also test edge cases, unusual inputs, and the places where Metalcyte
+  differs from scanpy on purpose, with the size of each difference.
 
-Reproduce the reference numbers with:
+To reproduce the reference numbers, run:
 
 ```bash
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
@@ -22,34 +24,36 @@ PYTHONPATH=$PWD/python .venv/bin/python -m pytest tests/test_reference.py \
     -o junit_family=xunit1 --junitxml=ref.xml
 ```
 
-The figures here are from one such run on Apple silicon with the GPU path live
-(`gpu_available() == True`), 26 of 26 reference tests passing. A stochastic step
-moves in the last digit or two between runs. A deterministic one does not.
+The figures on this page come from one such run on Apple silicon with the GPU in use
+(`gpu_available() == True`). All 26 of 26 reference tests passed. Steps that use random numbers
+can change in the last digit or two between runs. Steps without randomness give the same result
+every time.
 
-### The Accelerate build passes the same suite
+### The Accelerate build passes the same tests
 
-The `accelerate` feature (Apple vecLib BLAS behind the dense CPU paths, see
-[INSTALL.md](INSTALL.md)) is a build switch and does not change the numerics: it
-routes ndarray's `.dot()` and candle's CPU backend through a different BLAS, and the
-sparse CSR paths never touch it. It is held to the same bar as the pure-Rust build,
-and passes it:
+Accelerate is Apple's library of fast maths routines. The `accelerate` build option makes the
+dense matrix maths on the CPU use Apple's vecLib BLAS (see [INSTALL.md](INSTALL.md)). It does
+not change the algorithms. It sends ndarray's `.dot()` and candle's CPU backend through a
+different BLAS library. The sparse-matrix (CSR) code never uses it. We hold this build to the
+same standard as the pure-Rust build, and it passes:
 
 | build | command | result |
 | --- | --- | --- |
 | pure-Rust | `cargo test --workspace` | pass |
 | Accelerate | `cargo test --workspace --features accelerate` | **300 / 300 pass** |
 
-`cargo clippy --workspace` is clean under both feature sets. The one caveat is the
-pure-Rust build's `umap_sgd::is_reproducible_only_in_structure...` unit test, a
-Hogwild race check that accepts racing writes by design and can flake on its own.
-It passes under `--features accelerate`. Because both builds compute the same
-algorithm to within floating-point reassociation, the reference and audit numbers
-below are not re-tabulated per feature. They hold for either build.
+`cargo clippy --workspace` reports no warnings with either build option. There is one caveat.
+The pure-Rust build has a unit test, `umap_sgd::is_reproducible_only_in_structure...`, that can
+fail at random on its own. It checks the parallel UMAP optimiser, where threads write to shared
+memory without waiting for each other ("Hogwild"), so its result varies a little by design. It
+passes with `--features accelerate`. Both builds compute the same algorithm. They differ only in
+the order of floating-point additions, which changes the last digits. So the reference and audit
+numbers below are not repeated for each build. They hold for either build.
 
-## Deterministic transforms: element-wise
+## Deterministic steps: compared value by value
 
-Compared with `numpy.testing.assert_allclose` at `rtol=1e-5, atol=1e-6`. Measured
-worst absolute deviation on PBMC 3k:
+These steps involve no randomness. We compare every value with `numpy.testing.assert_allclose`
+at `rtol=1e-5, atol=1e-6`. The table gives the largest absolute difference on PBMC 3k.
 
 | step | max abs difference | note |
 | --- | --- | --- |
@@ -58,7 +62,9 @@ worst absolute deviation on PBMC 3k:
 | `pp.scale` | 1.8e-6 (rel 1.8e-7) | f32 rounding of mean and variance |
 | `pp.filter_cells` / `pp.filter_genes` | 0.0 | same cells, same genes kept |
 
-## Selections: set overlap
+"Bit-identical" means the two results are exactly the same numbers, down to the last bit.
+
+## Gene and neighbour selection: overlap of the chosen sets
 
 | step | criterion | measured (PBMC 3k) |
 | --- | --- | --- |
@@ -66,81 +72,92 @@ worst absolute deviation on PBMC 3k:
 | `pp.neighbors` (exact) | mean per-cell neighbour overlap ≥ 0.90 | **1.00**, worst cell 1.00 |
 | `pp.neighbors(method="approximate")` | mean recall against the exact lists ≥ 0.95 | **0.99** |
 
-The exact search is why the overlap is total: the same k nearest points, in the same
-graph. The approximate search (NN-descent seeded with a random-projection forest) is
-held to the exact lists by recall at k = 15 (`tests/test_neighbors_approximate` in
-`tests/test_reference.py`); on the embryo embedding `benches/knn_methods.py` measures
-0.98 at 100 000 cells and 0.96 at 953 000.
+The exact search finds the same k nearest cells as scanpy, so the overlap is complete. The
+approximate search uses NN-descent. NN-descent starts from rough neighbour lists from a
+random-projection forest and improves them by checking each cell's neighbours' neighbours. We
+measure it by recall at k = 15. Recall is the share of the exact neighbours that the approximate
+lists contain (`tests/test_neighbors_approximate` in `tests/test_reference.py`). On the embryo
+embedding, `benches/knn_methods.py` measures a recall of 0.98 at 100 000 cells and 0.96 at
+953 000.
 
 ## t-SNE above 20 000 cells
 
-The FFT path is held to the exact one on the same input (`crates/metalcyte-core/src/tsne_fft.rs`
-tests): the interpolated repulsive forces agree with brute force to 2% of the root-mean-square
-force at the default grid, ten planted blobs stay separated, and the exact objective of the FFT
-layout is within 15% of the exact path's (measured: 1.37 against 1.26 on 3 000 cells). On PBMC 3k
-the 15-neighbour sets of the two layouts overlap as two t-SNE runs do
-(`tests/test_reference.py::test_tsne_fft_keeps_cell_types_together`). The GPU engine is held to
-the engine on the cores (`crates/metalcyte-gpu/src/kernels/tsne_fft_gpu.rs` tests): the device
-convolution within 1e-4 relative RMS of Accelerate's, the repulsive forces within 1e-3 of their
-RMS, the objective within 1e-3 at every step and within 0.5% after 500 iterations, and the same
-bytes for the same seed.
+Above 20 000 cells, t-SNE uses an FFT method. It computes the long-range forces between cells on
+a grid with a fast Fourier transform. We compare it with the exact method on the same input
+(tests in `crates/metalcyte-core/src/tsne_fft.rs`):
+
+- The grid forces agree with the exact forces to within 2% of the root-mean-square (RMS) force at
+  the default grid.
+- Ten planted clusters stay separated.
+- The t-SNE objective of the FFT layout is within 15% of the exact method's (measured: 1.37
+  against 1.26 on 3 000 cells).
+
+On PBMC 3k, the two layouts share as many of each cell's 15 neighbours as two t-SNE runs
+normally do (`tests/test_reference.py::test_tsne_fft_keeps_cell_types_together`).
+
+We also compare the GPU version with the CPU version (tests in
+`crates/metalcyte-gpu/src/kernels/tsne_fft_gpu.rs`). The GPU convolution is within 1e-4 relative
+RMS of Accelerate's. The forces are within 1e-3 of their RMS. The objective is within 1e-3 at
+every step and within 0.5% after 500 iterations. The same seed gives exactly the same bytes.
 
 ## Embedding plots
 
-The Metal rasteriser is held to the one on the cores (`crates/metalcyte-gpu/src/kernels/raster.rs`
-tests and `tests/test_plotting_gpu.py`): on 5 000 overlapping translucent discs the two images
-differ by 0.03 of 255 per channel on average, and a point lands on the same pixel in both.
+Metalcyte can draw scatter plots on the GPU. We compare the GPU drawing with the CPU drawing
+(tests in `crates/metalcyte-gpu/src/kernels/raster.rs` and `tests/test_plotting_gpu.py`). On
+5 000 overlapping semi-transparent discs, the two images differ by 0.03 of 255 per colour channel
+on average. Each point lands on the same pixel in both images.
 
-## PCA: determined components and spectrum
+## PCA: stable components and explained variance
 
-scanpy's default solver is deterministic `arpack`. Metalcyte does a randomised SVD, the
-same algorithm class as scanpy's randomised solver. A component is "determined"
-when scanpy's own randomised solver reproduces its arpack result to correlation
-≥ 0.99. Beyond those, the eigenvectors are free to rotate and per-component
-correlation measures nothing, so only the spectrum is asserted there.
+scanpy's default PCA solver, `arpack`, gives the same answer every time. Metalcyte uses a
+randomised SVD, the same kind of method as scanpy's randomised solver. Some components are
+well determined by the data. We call a component "determined" when scanpy's own randomised
+solver reproduces scanpy's arpack result with a correlation of at least 0.99. The later
+components are not well determined. Small changes in the method can rotate them, so comparing
+them one by one tells us nothing. For those we only check the variance each component explains.
 
 | dataset | components | determined | Metalcyte matches (corr ≥ 0.99) | worst variance-ratio gap |
 | --- | --- | --- | --- | --- |
 | synthetic | 50 | 31 | 48 | 0.003 |
 | PBMC 3k | 50 | 7 | 8 | 0.042 |
 
-The `7 of 50` on PBMC 3k is a property of the data's spectrum: past the 7th
-component the reference implementation cannot reproduce itself either. Metalcyte
-matches every determined component and holds the variance ratios within the
-tolerance a randomised SVD drifts on its own.
+On PBMC 3k only 7 of 50 components are determined. This comes from the data. After the 7th
+component, scanpy cannot reproduce its own result either. Metalcyte matches every determined
+component. Its variance ratios stay within the range that a randomised SVD varies by on its own.
 
-## UMAP: preservation band
+## UMAP: how well neighbourhoods are kept
 
-UMAP is stochastic and does not reproduce itself across seeds, so the bar is
-relative: Metalcyte's neighbourhood preservation against scanpy must reach at least 85%
-of the preservation scanpy reaches against itself reseeded (K_REF=15 in the
-reference layout, K_CAND=30 in the candidate).
+UMAP uses random numbers, and two runs with different seeds give different layouts. So we use a
+relative standard. We measure how many of each cell's neighbours in scanpy's layout are also
+near it in Metalcyte's layout (K_REF=15 in the reference layout, K_CAND=30 in the candidate). We
+call this neighbourhood preservation. We also measure it for scanpy against scanpy with a new
+seed. This gives the best value we can expect (the ceiling). Metalcyte must reach at least 85%
+of that ceiling.
 
 | dataset | Metalcyte vs scanpy | scanpy vs itself (ceiling) | floor (0.85 × ceiling) | pass |
 | --- | --- | --- | --- | --- |
 | synthetic | 0.564 | 0.623 | 0.530 | yes |
 | PBMC 3k | 0.456 | 0.511 | 0.434 | yes |
 
-The ceiling of ~0.51 on PBMC 3k is the headline: umap-learn agrees with itself, on
-its own output, on only about half of each cell's neighbourhood across a change of
-seed. Metalcyte sits just under that ceiling, which is as close as a different
-implementation can come to a target that unstable.
+The ceiling of about 0.51 on PBMC 3k is the main point. When umap-learn runs again with a new
+seed, it keeps only about half of each cell's neighbourhood. Metalcyte comes just below that
+ceiling. A different program cannot get much closer to a target that changes this much between
+runs.
 
-On the `blobs` fixture (six clusters smaller than K_REF, so neighbour sets are
-seed-independent) the absolute 0.80 threshold is reachable, and Metalcyte records
-**1.00**.
+The `blobs` test data has six clusters, each smaller than K_REF. So the neighbour sets do not
+depend on the seed. Here a fixed threshold of 0.80 is possible, and Metalcyte scores **1.00**.
 
-This is the shape of test the audits exist to supplement: a bar that a
-roughly-similar optimiser clears whether or not it is right. The UMAP audit
-compares term by term against a transcription of umap-learn's `layouts.py` instead.
+This kind of test is weak on its own. A roughly similar optimiser could pass it even with a
+mistake. So the UMAP audit also compares Metalcyte term by term with a copy of umap-learn's
+`layouts.py`.
 
-## t-SNE: the objective
+## t-SNE: the quality score
 
-t-SNE has an explicit objective, so the test asks the direct question: is the KL
-divergence Metalcyte reaches no worse than scanpy's (within 5% for f32 and a different
-random start)? Both libraries are given scikit-learn's `auto` learning rate, because
-scanpy's legacy default of 1000 costs scanpy itself an order of magnitude in KL at
-these sizes and would flatter Metalcyte.
+t-SNE minimises a defined score, the KL divergence. Lower is better. So the test asks whether
+Metalcyte reaches a KL divergence no worse than scanpy's. We allow 5%, because Metalcyte uses
+32-bit numbers (f32) and a different random start. Both libraries use scikit-learn's `auto`
+learning rate. scanpy's older default of 1000 makes scanpy's own KL about ten times worse at
+these sizes, which would make Metalcyte look better than it is.
 
 | dataset | Metalcyte KL | scanpy KL | ratio | pass (≤ 1.05) |
 | --- | --- | --- | --- | --- |
@@ -148,14 +165,13 @@ these sizes and would flatter Metalcyte.
 | PBMC 3k | 2.028 | 2.076 | 0.977 | yes |
 | blobs | 0.170 | 0.180 | 0.943 | yes |
 
-On PBMC 3k and blobs Metalcyte reaches a lower KL than scanpy, a better local
-optimum of the same objective. On the synthetic set it is 1.4% higher, inside
-tolerance.
+On PBMC 3k and blobs, Metalcyte reaches a lower KL than scanpy. It finds a better solution of the
+same problem. On the synthetic set its KL is 1.4% higher, within the allowed range.
 
-## Differential expression: element-wise on the top genes
+## Differential expression: top genes compared value by value
 
-Per group, the top 100 genes are compared field by field against scanpy's Wilcoxon.
-Worst relative deviation across all groups and both datasets:
+For each group, we compare the top 100 genes field by field with scanpy's Wilcoxon test. The
+table gives the largest relative difference over all groups and both datasets.
 
 | field | worst deviation |
 | --- | --- |
@@ -164,27 +180,27 @@ Worst relative deviation across all groups and both datasets:
 | `pvals` | ~2e-13 |
 | `pvals_adj` | ~2e-13 |
 
-Scores and fold changes are bit-identical. The p-values differ only in the last
-digits of `float64`, from the order of a long sum. This holds for every cell type in
-PBMC 3k, including the 8-cell Megakaryocytes.
+Scores and fold changes are bit-identical. The p-values differ only in the last digits of a
+`float64` number. This comes from adding a long list of numbers in a different order. It holds
+for every cell type in PBMC 3k, including the Megakaryocytes, which have only 8 cells.
 
-## PAGA: element-wise on the connectivities
+## PAGA: connection strengths compared value by value
 
-`tests/test_paga.py` compares the abstracted-graph connectivities against scanpy's
-v1.2 model and requires the same spanning tree.
+PAGA builds a simplified graph of how clusters connect. `tests/test_paga.py` compares the
+connection strengths with scanpy's v1.2 model. It also requires the same spanning tree.
 
 | dataset | max relative deviation | tree |
 | --- | --- | --- |
 | synthetic | 2.3e-8 | identical edges |
 | PBMC 3k | 5.5e-8 | identical edges |
 
-## The audits: what is cross-checked, and against what
+## The audits: what each one checks, and against what
 
-One file per module, each naming the reference line it holds the Rust to. Test counts
-are `pytest --collect-only -q` on that file, so parametrised cases are counted
-individually. (`test_de_audit.py` loads the compiled cdylib at import time and skips at
-module level when it is absent, so its 56 are counted from the parametrisations and
-not from a collection.)
+There is one audit file per module. Each names the reference code it compares the Rust code
+with. The test counts come from `pytest --collect-only -q` on each file, so each parameter case
+counts as one test. `test_de_audit.py` is an exception. It loads the compiled library when it is
+imported and skips the whole file if the library is missing. So its 56 tests are counted from
+its parameter lists, without collection.
 
 | module | file | reference | tests |
 | --- | --- | --- | --- |
@@ -208,136 +224,141 @@ not from a collection.)
 | `dpt` branching | `test_dpt_branching_audit.py` | scanpy `tl.dpt(n_branchings>0)`, adjusted Rand index | 4 |
 | `harmony` | `test_harmony_audit.py` | `harmonypy 2.0.0` (iLISI, objective convergence) | 3 |
 
-The suite also holds backed streaming to the in-memory path in
-`test_backed_streaming.py`. Wherever the reference can be driven on the same input it
-is driven. The exceptions (umap-learn's SGD inner loop, scikit-learn's t-SNE gradient,
-scanpy's `transitions_sym` spectrum) transcribe the reference and then check the
-transcription against the installed package in a test of its own.
+`test_backed_streaming.py` checks that the out-of-core path gives the same result as the
+in-memory path. (The out-of-core path reads the data from disk in blocks.) Where we can run the
+reference package on the same input, we do. In three places we cannot call the inner code
+directly: umap-learn's SGD inner loop, scikit-learn's t-SNE gradient and scanpy's
+`transitions_sym` spectrum. There we copy the reference code into the test. A separate test then
+checks the copy against the installed package.
 
-Two divergences are pinned with `xfail(strict=True)`, so they will announce themselves
-the day they are closed: the PCA Gram eigendecomposition losing roughly half the digits
-of the trailing singular values (3.6e-4 against an exact f64 reference where
-scikit-learn is 6.3e-7), and UMAP's random initialisation failing to recover the global
-arrangement of clusters that a spectral initialisation would.
+Two known differences are marked with `xfail(strict=True)`. This means the test reports an error
+on the day a difference disappears, so we will notice. The first is in PCA. The Gram
+eigendecomposition loses about half the digits of the smallest singular values (3.6e-4 against
+an exact f64 reference, where scikit-learn gives 6.3e-7). The second is in UMAP. A random
+starting layout does not recover the overall arrangement of the clusters, which a spectral
+starting layout would.
 
-`chunked` and `sparse` are internal and have no scanpy or scipy equivalent to compare
-against, so their audits (`test_chunked_audit.py`, `test_sparse_audit.py`) pin
-invariants instead: block-size invariance for `chunked`, and round-trip and validation
-behaviour for `sparse`, against `scipy.sparse.csr_matrix` where the two overlap.
+`chunked` and `sparse` are internal modules. No scanpy or scipy function does the same thing, so
+there is nothing to compare them against. Their audits (`test_chunked_audit.py`,
+`test_sparse_audit.py`) check fixed properties instead. For `chunked`, the result must not
+depend on the block size. For `sparse`, data must survive a round trip, and input checks must
+work. Where the two overlap, `sparse` is compared with `scipy.sparse.csr_matrix`.
 
-## The device dimension
+## CPU or GPU
 
-`settings.device` defaults to `"auto"`, which resolves to Metal when a Metal device
-initialises and to the CPU otherwise (`crates/metalcyte-core/src/device.rs`). On any
-Mac with Metal, **a caller who names no device is on the GPU.** Which device a result
-came from is therefore a property of the machine, not of the code.
+`settings.device` defaults to `"auto"`. With `"auto"`, Metalcyte uses the GPU (Metal) if a Metal
+device starts up, and the CPU otherwise (`crates/metalcyte-core/src/device.rs`). So on any Mac
+with Metal, **code that does not name a device runs on the GPU.** Which device produced a result
+depends on the machine, and the code does not decide it.
 
-The audits pin behaviour against scanpy on one device at a time. `METALCYTE_TEST_DEVICE`
-(`tests/metalcyte_call.py`, default `"cpu"`) selects which. Set it to `"auto"` to run the
-same suite the other way. Both legs pass on Apple silicon.
+The audits compare with scanpy on one device at a time. `METALCYTE_TEST_DEVICE`
+(`tests/metalcyte_call.py`, default `"cpu"`) chooses the device. Set it to `"auto"` to run the
+same tests on the GPU. Both settings pass on Apple silicon.
 
-Same candle source means the same algorithm, and does not mean bit-identical results:
-f32 addition is not associative, and a GPU reduction lands a few ulps from a sequential
-one. So `tests/test_device_parity.py` (4 tests) holds the two devices against each
-other, which is a different question from either device against scanpy.
+The CPU and GPU run the same candle code, so they run the same algorithm. They can still give
+slightly different numbers. With 32-bit numbers (f32), the order of additions changes the last
+digits. A GPU adds numbers in a different order from a single CPU thread, so its result can
+differ by a few units in the last place (ulps). So `tests/test_device_parity.py` (4 tests)
+compares the two devices with each other. This is a separate check from comparing either device
+with scanpy.
 
-Not every module has a device to differ on. `pca`, `neighbors` and `tsne` use the
-resolved `Device`. `umap` and `cluster` take it and ignore it (`_device` in
-`crates/metalcyte-core/src/umap.rs` and `cluster.rs`) and always run on the CPU.
+Not every module uses the device. `pca`, `neighbors` and `tsne` use the chosen `Device`. `umap`
+and `cluster` accept it but ignore it (`_device` in `crates/metalcyte-core/src/umap.rs` and
+`cluster.rs`). They always run on the CPU.
 
 ## What the audits found
 
-Each behaviour below was found by an audit in code that already had passing tests,
-and each is pinned by a test that fails if it drifts.
+The audits found each behaviour below in code that already passed its tests. Each is now fixed
+in place by a test that fails if the behaviour changes.
 
-* **The neighbour graph snaps sub-resolution distances to zero.**
-  `|a-b|² = |a|² + |b|² - 2a·b` cancels to exactly 0 for two identical cells on the CPU
-  but leaves a sub-ulp positive on Metal (9.5e-7 at norm scale 12), which the square
-  root amplifies to 9.8e-4. `rho` would then be non-zero, and it is subtracted when the
-  UMAP fuzzy set is built, so duplicate cells' connectivities would stop being 1.
-  Squared distances below `(n_dims + 2) * f32::EPSILON * (|a|² + |b|²)` snap to zero.
-  On PBMC 3k's 50 PCs that floor is 0.049 against a smallest nearest-neighbour
-  distance of 6.40: it snaps 0 of 39 570 neighbours. This shows only with
-  `METALCYTE_TEST_DEVICE=auto`. Every test naming `"cpu"` passes either way.
-* **PAGA counts stored zeros as edges.** scanpy binarises first
-  (`ones.data = np.ones(len(ones.data))`, `_paga.py:182-183`), so every stored entry
-  is an edge. On 120 cells of which 60 are duplicates, `sc.pp.neighbors(n_neighbors=10)`
-  stores 540 zeros out of 1080 entries. Dropping them would overstate connectivities by
-  up to 0.096. Metalcyte agrees with scanpy to ~2e-8.
-* **The diffusion map counts only edges that carry weight** in its connected-graph
-  guard. A stored-but-zero entry walked as part of the sparsity pattern would join
-  separate components and return a degenerate map (spectrum `[1.0000001, 1.0, ...]`)
-  in place of an error. This is deliberately stricter than scipy and scanpy, which
-  read the pattern, and the reasoning is in the code.
-* **The dendrogram uses `complete` linkage**, as `sc.tl.dendrogram` does, and records
-  `linkage_method="complete"` in `uns`. On centroids where `average` and `complete`
-  disagree, leaf order differs outright and merge heights by up to 0.52.
-* **The force-directed layout reads the graph as undirected** and sorts the edge
-  list, so the layout is a function of the graph alone. Keeping only `column > row`
-  would give a lower-triangular graph no attraction at all and a silently
-  pure-repulsive layout, and the masses taken from row counts would carry the same
-  error.
-* **Scaling reduces per-gene moments in f64.** Reduced in f32, a constant gene's mean
-  lands one ulp out, and the whole column comes back as a constant `-sqrt((n-1)/n)`
-  in place of 0, which is order 1e7 without zero-centering.
-* **The neighbour graph and t-SNE centre coordinates before expanding `|a-b|²`.**
-  Without centring, an embedding far from the origin cancels to zero and the graph
-  degenerates.
-* **The UMAP GPU kernel's alpha schedule matches umap-learn's** `layouts.py:431`
-  epoch for epoch.
-* **The t-SNE perplexity guard is scikit-learn's.** It requires only
+* **The neighbour graph sets tiny distances to zero.** The squared distance is computed as
+  `|a-b|² = |a|² + |b|² - 2a·b`. For two identical cells this gives exactly 0 on the CPU. On
+  Metal it leaves a tiny positive value (9.5e-7 at norm scale 12). The square root enlarges this
+  to 9.8e-4. Then `rho` would not be zero. UMAP subtracts `rho` when it builds its fuzzy
+  neighbour set, so duplicate cells would no longer get a connection strength of 1. Metalcyte
+  now sets squared distances below `(n_dims + 2) * f32::EPSILON * (|a|² + |b|²)` to zero. On
+  PBMC 3k's 50 PCs that cut-off is 0.049. The smallest nearest-neighbour distance is 6.40. So it
+  changes 0 of 39 570 neighbours. The problem appears only with `METALCYTE_TEST_DEVICE=auto`.
+  Every test that names `"cpu"` passes either way.
+* **PAGA counts stored zeros as edges.** scanpy first sets every stored entry to one
+  (`ones.data = np.ones(len(ones.data))`, `_paga.py:182-183`). So every stored entry counts as an
+  edge. Take 120 cells of which 60 are duplicates. Here `sc.pp.neighbors(n_neighbors=10)` stores
+  540 zeros out of 1080 entries. Dropping those zeros would overstate connection strengths by up
+  to 0.096. Metalcyte agrees with scanpy to ~2e-8.
+* **The diffusion map counts only edges with a non-zero weight** when it checks that the graph is
+  connected. If it also counted stored zero entries, it could join separate parts of the graph.
+  It would then return a useless map (spectrum `[1.0000001, 1.0, ...]`) and no error. This check
+  is stricter than in scipy and scanpy on purpose. They count every stored entry. The code
+  explains the reason.
+* **The dendrogram uses `complete` linkage**, as `sc.tl.dendrogram` does. It records
+  `linkage_method="complete"` in `uns`. On cluster centres where `average` and `complete` linkage
+  disagree, the leaf order differs completely and merge heights differ by up to 0.52.
+* **The force-directed layout treats the graph as undirected** and sorts the list of edges. So
+  the layout depends only on the graph. If it kept only `column > row`, a graph stored as a lower
+  triangle would have no attraction at all. The layout would then use only repulsion, with no
+  warning. The masses taken from row counts would have the same error.
+* **Scaling computes each gene's mean and variance in 64-bit numbers (f64).** In f32, the mean of
+  a constant gene is off by one unit in the last place. The whole column then comes back as a
+  constant `-sqrt((n-1)/n)` in place of 0. Without zero-centering this value is of order 1e7.
+* **The neighbour graph and t-SNE centre the coordinates before expanding `|a-b|²`.** Without
+  centring, the distances in an embedding far from the origin round to zero, and the graph
+  breaks down.
+* **The UMAP GPU kernel's learning-rate (alpha) schedule matches umap-learn's**
+  `layouts.py:431` at every epoch.
+* **The t-SNE perplexity check is the same as scikit-learn's.** It requires only
   `perplexity < n_samples`. scanpy has no stricter rule.
 
-The audits also pin a dozen divergences from scanpy that are correct and are kept
-deliberately: `score_genes` ignoring `random_state` below ~1200 genes,
-`normalize_total`'s storage-dependent median, Wilcoxon on a one-cell group, the
-`cell_ranger` HVG flavour at two genes per bin, and others. Those live in
-[development/API_CONTRACT.md](development/API_CONTRACT.md). Each is a test that fails
-if the behaviour drifts.
+The audits also fix about a dozen intended differences from scanpy. We consider these correct
+and keep them on purpose. Examples are `score_genes` ignoring `random_state` below ~1200 genes,
+the median in `normalize_total` that depends on how the matrix is stored, Wilcoxon on a group of
+one cell, and the `cell_ranger` HVG method at two genes per bin. The full list is in
+[development/API_CONTRACT.md](development/API_CONTRACT.md). Each one has a test that fails if
+the behaviour changes.
 
 ## What is not validated
 
-**The GPU path is validated only on Apple hardware.** `tests/test_device_parity.py`
-skips in its entirety where `gpu_available()` is false, and the `cargo test` unit
-tests inside `crates/metalcyte-gpu` likewise return early when `MetalContext::new()`
-fails. The audits themselves run against `METALCYTE_TEST_DEVICE`, which defaults to
-`cpu`. A passing run on a machine without Metal is evidence about the CPU path and
-nothing else, and the device most callers get (see "The device dimension" above) is
-checked only on a machine with a Metal device.
+**The GPU code is validated only on Apple hardware.** `tests/test_device_parity.py` skips all its
+tests where `gpu_available()` is false. The `cargo test` unit tests in `crates/metalcyte-gpu`
+also return early when `MetalContext::new()` fails. The audits run on the device set by
+`METALCYTE_TEST_DEVICE`, which defaults to `cpu`. A passing run on a machine without Metal only
+tells you about the CPU code. Most users run on the GPU (see "CPU or GPU" above), and that path
+is checked only on a machine with a Metal device.
 
-**One Metal kernel, `knn`, is reachable from Python. The other three are not.**
-`crates/metalcyte-py` depends on `metalcyte-gpu` and routes a Metal caller's k-NN to
-`knn_metal` (`metalcyte-py/src/embedding.rs`). It is validated two ways on Apple
-silicon: as a kernel, `cargo test -p metalcyte-gpu` holds it against a brute-force CPU
-reference (35 of 35 pass), and end to end, `tests/test_device_parity.py` holds its
-neighbour lists equal to the candle CPU path (4 of 4, `METALCYTE_TEST_DEVICE=auto`),
-including a knot tighter than `f32` can resolve, which both devices collapse the same
-way because the kernel reproduces the CPU path's mean-centering and squared-distance
-snapping. `spmm`, `tsne_gradient` and `umap_sgd` are unreachable (`spmm` has no plain
-sparse times dense caller, and `umap_sgd` is Hogwild and left unwired on purpose) and
-are checked only against their in-module CPU references, which is vacuous on a machine
-without Metal. All other GPU work goes through candle.
+**Python can reach one Metal kernel, `knn`. It cannot reach the other three.** A kernel is a
+small program that runs on the GPU. `crates/metalcyte-py` depends on `metalcyte-gpu`. It sends a
+Metal user's k-nearest-neighbour search to `knn_metal` (`metalcyte-py/src/embedding.rs`). We
+validate this kernel in two ways on Apple silicon:
 
-**`de/glm` and `de/dispersion` are not reachable from Python.** No pyfunction in
-`crates/metalcyte-py/src/` mentions `fit_negative_binomial`,
-`size_factors_median_of_ratios`, `dispersions_method_of_moments` or
-`shrink_towards_trend`, and `metalcyte._metalcyte` exports no entry point to them. (The
-`dispersions` that `_metalcyte.highly_variable_genes` reports come from `preprocess.rs`,
-not from `de/dispersion.rs`.) `test_destats_audit.py` therefore does not validate that
-code. What it validates is the reference data `glm.rs`'s own unit tests are judged
-against, re-deriving the two hard-coded coefficient tables with statsmodels straight
-from the counts and design parsed out of the Rust source. `dispersion.rs` carries no
-transcribed numeric reference, so nothing about it can be checked from Python at all.
-`de/hypothesis.rs` is partly reachable: its `erfc` runs on every Wilcoxon call and
-agrees with `scipy.special` to 6.6e-15 relative (the smallest p-value returned is
-2.5e-34, correct to 14 digits). Its `wald_test` is called by nothing outside the module
-and is untested from Python.
+- As a kernel, `cargo test -p metalcyte-gpu` compares it with a brute-force CPU search. 35 of 35
+  tests pass.
+- From end to end, `tests/test_device_parity.py` checks that its neighbour lists equal those of
+  the candle CPU code (4 of 4, `METALCYTE_TEST_DEVICE=auto`). One test uses points packed closer
+  than `f32` can tell apart. Both devices merge them the same way, because the kernel centres the
+  data and sets tiny squared distances to zero, as the CPU code does.
 
-What the Python audit cannot reach in `glm.rs` is covered by Rust tests: an all-zero
-gene, a perfectly separating covariate, a single sample, an out-of-scale count,
-per-gene convergence reporting, and a rank-deficient design. `glm.rs` has four guard
-constants for those cases, and each was checked by disabling it and re-running the
-suite:
+`spmm`, `tsne_gradient` and `umap_sgd` cannot be reached from Python. `spmm` has no caller that
+multiplies a plain sparse matrix by a dense one. `umap_sgd` uses the Hogwild method and is left
+unconnected on purpose. These three are checked only against CPU code in the same module. On a
+machine without Metal, that check tests nothing. All other GPU work goes through candle.
+
+**Python cannot reach `de/glm` and `de/dispersion`.** No Python-facing function in
+`crates/metalcyte-py/src/` mentions `fit_negative_binomial`, `size_factors_median_of_ratios`,
+`dispersions_method_of_moments` or `shrink_towards_trend`. `metalcyte._metalcyte` exports no
+entry point to them. (The `dispersions` that `_metalcyte.highly_variable_genes` reports come from
+`preprocess.rs`, and not from `de/dispersion.rs`.) So `test_destats_audit.py` does not validate
+that code. It validates the reference data that the unit tests of `glm.rs` use. It reads the
+counts and design from the Rust source and recomputes the two fixed tables of coefficients with
+statsmodels. `dispersion.rs` contains no copied reference numbers, so nothing about it can be
+checked from Python. `de/hypothesis.rs` is partly reachable. Its `erfc` runs on every Wilcoxon
+call. It agrees with `scipy.special` to 6.6e-15 relative. The smallest p-value returned is
+2.5e-34, correct to 14 digits. Its `wald_test` is not called from outside the module and is not
+tested from Python.
+
+Rust tests cover the parts of `glm.rs` that the Python audit cannot reach: a gene with all zero
+counts, a covariate that separates the samples perfectly, a single sample, an extremely large
+count, reporting of convergence for each gene, and a design matrix with dependent columns.
+`glm.rs` has four safeguard constants for these cases. We checked each one by switching it off
+and running the tests again:
 
 | constant | caught by |
 | --- | --- |
@@ -346,51 +367,51 @@ suite:
 | `MAXIMUM_WORKING_RESIDUAL` | **nothing** |
 | `MINIMUM_MEAN` | **nothing** |
 
-The last two can be set to absurd values with the whole suite still green, so nothing
-depends on them and nothing would notice if they were wrong. Both carry a comment in
-`glm.rs` saying so.
+The last two can be set to absurd values and all tests still pass. So no test depends on them,
+and no test would notice if they were wrong. Both have a comment in `glm.rs` that says so.
 
-No entry point in `python/metalcyte/` raises `NotImplementedError`. See
-[API.md](API.md) for what each function accepts and what it leaves out.
+No function in `python/metalcyte/` raises `NotImplementedError`. See [API.md](API.md) for what
+each function accepts and what it leaves out.
 
-## DPT branch detection: adjusted Rand index against scanpy
+## DPT branch detection: agreement with scanpy
 
-`tl.dpt(n_branchings > 0)` runs a native port of scanpy's Haghverdi 2016 branch
-detection and writes `obs["dpt_groups"]`. Branch labels are arbitrary, so parity is the
-adjusted Rand index of the two partitions, per the clustering rule in
-[development/API_CONTRACT.md](development/API_CONTRACT.md). To test the branching
-alone, `tests/test_dpt_branching_audit.py` feeds Metalcyte's port and scanpy's `dpt`
-the **same** diffusion map, so any difference is the branching logic and not the
-diffmap:
+`tl.dpt(n_branchings > 0)` finds branches in a developmental trajectory. It is a direct port of
+scanpy's method (Haghverdi 2016) and writes the branches to `obs["dpt_groups"]`. Branch labels
+are arbitrary. So we measure agreement with the adjusted Rand index (ARI) of the two groupings,
+following the clustering rule in [development/API_CONTRACT.md](development/API_CONTRACT.md).
+ARI is 1 for identical groupings and about 0 for chance agreement. To test only the branching
+step, `tests/test_dpt_branching_audit.py` gives Metalcyte and scanpy's `dpt` the **same**
+diffusion map. So any difference must come from the branching code and not from the diffusion
+map.
 
 | dataset | `n_branchings` | ARI vs scanpy | group sizes |
 | --- | --- | --- | --- |
 | PBMC 3k | 1 | **1.0000** | identical (e.g. 153 / 2275 / 266 / 6) |
 | PBMC 3k | 2 | **1.0000** | identical |
 
-The partition is identical: the group sizes match as multisets. End-to-end, with
-Metalcyte computing its own diffmap, the ARI is also 1.0000, because Metalcyte's
-diffmap agrees with scanpy's closely enough that the branch cut lands in the same
-place. Passes on cpu and Metal.
+The groupings are identical, and the group sizes match. When Metalcyte also computes its own
+diffusion map, the ARI is still 1.0000. Its diffusion map agrees with scanpy's closely enough
+that the branches fall in the same place. The test passes on the CPU and on Metal.
 
-## Harmony batch integration: integration metrics, not bit-for-bit
+## Harmony batch correction: checked by how well batches mix
 
-`pp.harmony_integrate` is iterative and k-means seeded, so it does not reproduce
-`harmonypy` (a compiled C++ backend) to the bit. Correctness for a batch-integration
-method is instead batch mixing and convergence, measured in `tests/test_harmony_audit.py`
-on PBMC 3k with a batch shift injected into the PCA embedding:
+`pp.harmony_integrate` removes batch effects. It works by repeated steps and starts from a
+random k-means clustering. So it does not reproduce `harmonypy` (a compiled C++ program) exactly.
+For batch correction, the right check is whether the batches mix and whether the method
+converges. `tests/test_harmony_audit.py` measures this on PBMC 3k, after adding an artificial
+batch shift to the PCA embedding:
 
-* **iLISI** (integration Local Inverse Simpson's Index): the effective number of batches
-  in each cell's neighbourhood, 1 (separated) to 2 (mixed for two batches). Metalcyte
-  raises it from **1.00 before correction to 1.90 after**. The test asserts iLISI ≥ 1.85.
-* **Objective convergence**: the harmony objective decreases and its final relative step
-  is within the harmony tolerance (~1%). The test asserts this.
-* **Reference**: `harmonypy 2.0.0` is run on the same data as a black box. Metalcyte is
-  asserted to mix batches at least as well (iLISI), and the cosine correlation with
-  harmonypy is recorded (0.88) and not asserted, since the two seed and converge
-  differently.
+* **iLISI** (integration Local Inverse Simpson's Index) is the effective number of batches among
+  each cell's neighbours. For two batches it runs from 1 (fully separated) to 2 (fully mixed).
+  Metalcyte raises it from **1.00 before correction to 1.90 after**. The test requires
+  iLISI ≥ 1.85.
+* **Convergence**: the harmony objective decreases, and its last relative step is within the
+  harmony tolerance (~1%). The test checks this.
+* **Reference**: we run `harmonypy 2.0.0` on the same data. Metalcyte must mix batches at least
+  as well (iLISI). We record the cosine correlation with harmonypy (0.88) but do not test it,
+  because the two programs start and converge differently.
 
-Passes on cpu and Metal. Cell-cycle scoring is validated separately by
-`tests/test_cell_cycle_audit.py` (S/G2M scores element-wise against scanpy, its exact
-three-way phase rule, 4/4 on cpu and Metal), and backed streaming by
-`tests/test_backed_streaming.py` (bit-for-bit against the in-memory path).
+The test passes on the CPU and on Metal. `tests/test_cell_cycle_audit.py` validates cell-cycle
+scoring separately. It compares the S and G2M scores value by value with scanpy, and checks the
+exact three-way phase rule (4/4 on the CPU and on Metal). `tests/test_backed_streaming.py`
+checks that the out-of-core path gives exactly the same result as the in-memory path.

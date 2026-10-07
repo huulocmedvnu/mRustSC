@@ -1,9 +1,9 @@
-"""Filtering, normalisation, scaling, HVG, PCA and neighbours.
+"""Filtering, normalisation, scaling, highly variable genes (HVG), PCA and neighbours.
 
-This module is AnnData plumbing and defaults only: it pulls a matrix out of an
-`AnnData`, hands it to the Rust core as flat typed arrays, and writes the result
-back into the slot scanpy uses. It also holds the private helpers that
-`metalcyte.tl` reuses, so the conventions live in exactly one place.
+This module only moves data and sets defaults. It takes the matrix out of an `AnnData`,
+passes it to the Rust core as plain typed arrays, and writes the result back into the
+slot scanpy uses. It also holds private helpers that `metalcyte.tl` reuses, so these
+conventions are defined in one place.
 """
 
 from __future__ import annotations
@@ -246,7 +246,7 @@ def pca(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Principal component analysis by randomised SVD."""
+    """Principal component analysis (PCA), computed with a randomised SVD."""
     device = _resolve_device(device)
     ext, x = _extension(), adata.X
     if isinstance(x, np.ndarray) and x.ndim == 2 and _fast_path(ext, "pca_dense"):
@@ -274,7 +274,7 @@ def neighbors(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Build the k-nearest-neighbour graph and its UMAP connectivities.
+    """Find each cell's k nearest neighbours and build the weighted graph that UMAP uses.
 
     `method` is `"exact"`, `"approximate"` or `"auto"`. The exact search compares every
     pair of cells and costs quadratic time; the approximate search is NN-descent seeded

@@ -1,4 +1,4 @@
-"""Gene-set scoring and marker comparison. Owned by feat/scoring."""
+"""Score cells for a gene set and compare marker gene lists. Owned by feat/scoring."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def score_genes(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Mean expression of a gene set minus a binned control, as `scanpy.tl.score_genes`."""
+    """Score each cell for a gene set against matched control genes, as `scanpy.tl.score_genes`."""
     device = _resolve_device(device)
     scores = _extension().score_genes(
         *_csr_args(adata.X),

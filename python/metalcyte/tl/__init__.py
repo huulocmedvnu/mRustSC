@@ -1,6 +1,6 @@
-"""Tools, mirroring `scanpy.tl`.
+"""Analysis tools, like `scanpy.tl`.
 
-One module per area of responsibility; this file only re-exports.
+Each area of work has its own module. This file only re-exports their functions.
 """
 
 from metalcyte.tl._cluster import leiden, louvain

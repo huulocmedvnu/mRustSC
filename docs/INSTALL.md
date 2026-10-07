@@ -1,29 +1,30 @@
 # Installing Metalcyte
 
-Metalcyte is a compiled package: a Rust extension module (`metalcyte._metalcyte`) with a
-thin Python layer around it. There is no pure-Python fallback.
+Metalcyte is a compiled package. Its calculations live in an extension module written in Rust
+(`metalcyte._metalcyte`), and a small Python layer calls into it. Metalcyte has no Python-only
+version, so the extension must be installed for anything to work.
 
 ## From PyPI
 
-Wheels are published for macOS on Apple silicon, Python 3.11 to 3.13:
+PyPI hosts ready-built packages (wheels) for macOS on Apple silicon, Python 3.11 to 3.13:
 
 ```bash
 pip install metalcyte            # numpy, scipy, pandas and anndata come with it
 pip install "metalcyte[plot]"    # matplotlib and seaborn for metalcyte.pl
 ```
 
-On any other platform pip falls back to the source distribution, which needs a Rust
-toolchain. That build links Apple Accelerate by default and so fails outside macOS; build
-from a clone instead, with `accelerate` removed from `features` in `pyproject.toml`, for a
-CPU-only package.
+On any other platform, pip tries to build Metalcyte from its source code. That build needs a Rust
+toolchain. It also links Apple's Accelerate maths library by default, so it fails outside macOS. To
+get a CPU-only package there, clone the repository, remove `accelerate` from `features` in
+`pyproject.toml`, and build from the clone.
 
 ## From source
 
-Needed:
+You need:
 
-- a Rust toolchain (`rustup`, stable, and the workspace pins `rust-version = 1.88`),
-- on macOS, the Xcode command line tools, which supply the SDK the extension links
-  Metal against,
+- a Rust toolchain (`rustup`, stable). The workspace requires `rust-version = 1.88`.
+- on macOS, the Xcode command line tools. They supply the Apple files that the extension needs to
+  use Metal, Apple's interface to the GPU.
 - Python 3.11 or newer.
 
 ```bash
@@ -34,68 +35,75 @@ python3 -m venv .venv
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
 ```
 
-`maturin develop` builds the extension and installs it into the virtualenv in
-place. pip pulls in numpy, scipy, pandas and anndata. To produce a wheel instead:
+`maturin develop` compiles the extension and installs it into the virtual environment. pip also
+installs numpy, scipy, pandas and anndata. To produce a wheel file instead:
 
 ```bash
 VIRTUAL_ENV=.venv .venv/bin/maturin build --release   # writes target/wheels/*.whl
 ```
 
-Always build `--release`. A debug build of the numerics is slow enough to look
-broken.
+Always build with `--release`. Without it, the compiler skips its optimisations and the
+calculations run so slowly that the package seems broken.
 
-scanpy is not a dependency. Install it alongside if you want its plotting or its
-readers, which is how the examples are written:
+Metalcyte does not require scanpy. The examples use scanpy to read files and to plot, so install it
+too if you want to run them:
 
 ```bash
 .venv/bin/pip install scanpy
 ```
 
-### Apple Accelerate BLAS (macOS ARM64)
+### Apple Accelerate (macOS on Apple silicon)
 
-On Apple silicon the dense linear algebra (PCA, Harmony, neighbour distances,
-diffusion) can run through Apple's Accelerate (vecLib) BLAS/LAPACK in place of
-the pure-Rust `matrixmultiply` backend. The `accelerate` cargo feature controls
-it, and `pyproject.toml` lists it under `[tool.maturin] features`, so the
-`maturin develop` command above builds with it on. To build it explicitly:
+Accelerate is Apple's library for fast linear algebra (BLAS and LAPACK, also called vecLib). On
+Apple silicon it uses the chip's matrix unit. Metalcyte can send its dense matrix calculations (PCA,
+Harmony, neighbour distances, diffusion maps) to Accelerate. Without it, Metalcyte uses
+`matrixmultiply`, a matrix library written in Rust.
+
+The `accelerate` cargo feature turns this on. `pyproject.toml` lists it under
+`[tool.maturin] features`, so the `maturin develop` command above already includes it. To ask for
+it explicitly:
 
 ```bash
 VIRTUAL_ENV=.venv .venv/bin/maturin develop --release --features accelerate
 ```
 
-For a pure-Rust BLAS build, remove `"accelerate"` from the
-`features` list in `pyproject.toml`. The sparse CSR paths (`normalize_total`,
-`log1p`) never touch BLAS either way, so the feature cannot change their memory
-profile. The gain is on the CPU path only: measured ~7-8% on Harmony and ~4-9% on
-the full PCA to Neighbors to UMAP to Harmony pipeline on an M3 Pro, because at
-single-cell sizes these routines are not purely matmul-bound, and the default
-`device="auto"` path runs that work on Metal.
+To build without Accelerate, remove `"accelerate"` from the `features` list in `pyproject.toml`.
 
-## Verifying the install
+The choice has little effect in practice:
+
+- `normalize_total` and `log1p` work on sparse matrices and never call BLAS, so their memory use is
+  the same either way.
+- Accelerate only speeds up work done on the CPU. On an M3 Pro it made Harmony ~7-8% faster and the
+  full PCA to Neighbors to UMAP to Harmony pipeline ~4-9% faster. At single-cell sizes these steps
+  spend only part of their time on matrix multiplication.
+- With the default `device="auto"`, this work runs on the GPU through Metal anyway.
+
+## Checking the install
 
 ```bash
 python -c "import metalcyte; print(metalcyte.__version__); print(metalcyte.gpu_available())"
 ```
 
-`gpu_available()` reports whether a Metal device was found and initialised:
+`gpu_available()` tells you whether Metalcyte found a GPU it can use through Metal:
 
-- `True`: the GPU path is live.
-- `False`: everything still runs, on the CPU path. The CPU path is the same
-  algorithm (it is the oracle the GPU path is tested against), but it is not
-  bit-identical: f32 addition is not associative, so a GPU reduction lands a few
-  ulps from a sequential one, and an unstable expression can amplify that. The
-  neighbour search handles one such case explicitly: an identical pair of cells
-  cancels to exactly zero distance on the CPU and to 9.8e-4 on Metal, and
-  squared distances below the expansion's resolution are snapped to zero so the
-  two devices agree. Expect agreement to tolerance, not to the last bit. A
-  machine without a usable GPU reports `False`.
+- `True`: Metalcyte will run on the GPU.
+- `False`: everything still runs, on the CPU. A machine without a usable GPU reports `False`.
 
-`settings.device` defaults to `"auto"`, which resolves to Metal wherever one
-exists, so on a machine where `gpu_available()` is `True` a caller who names no
-device is on the GPU. Setting `METALCYTE_DEVICE=cpu` in the environment keeps a
-whole session on the CPU.
+The CPU and GPU versions use the same algorithms. The test suite uses the CPU version as the
+reference for the GPU version. Their results agree within a small tolerance, though they can differ
+in the last digits. The GPU adds numbers in a different order than the CPU, and with 32-bit floating
+point numbers the order changes the last bits of the sum. Some formulas can make such tiny
+differences larger.
 
-A quick end-to-end check, without any dataset download:
+The neighbour search handles one such case on purpose. For two identical cells, the CPU computes a
+distance of exactly zero and the GPU computes 9.8e-4. Metalcyte sets squared distances below the
+precision of the calculation to zero, so both devices report zero.
+
+`settings.device` defaults to `"auto"`, which means "use the GPU if there is one". If
+`gpu_available()` is `True` and you do not name a device, Metalcyte runs on the GPU. To keep a whole
+session on the CPU, set `METALCYTE_DEVICE=cpu` in the environment.
+
+A quick check from start to end, without downloading any dataset:
 
 ```python
 import numpy as np, scipy.sparse as sp
@@ -111,46 +119,42 @@ print(adata.obsm["X_pca"].shape)
 
 ## Running the tests
 
-The suite runs from a source checkout, against an extension you have already
-installed with `maturin develop --release`. Every test file is collected through
-`tests/conftest.py`, which imports scanpy unconditionally, so scanpy is needed
-for the whole suite and not only for the cross-checks:
+You run the tests from a copy of the source code, after installing the extension with
+`maturin develop --release`. The whole suite needs scanpy. pytest loads every test file through
+`tests/conftest.py`, and that file imports scanpy.
 
 ```bash
 .venv/bin/pip install pytest scanpy
 PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
 ```
 
-Two markers are declared in `pyproject.toml`:
+`pyproject.toml` defines two test labels (markers):
 
-- `reference`: cross-checks against scanpy that want the PBMC 3k download.
-- `slow`: drives umap-learn or scikit-learn over a full run, which takes minutes.
-  Only `tests/test_umap_audit.py` carries it.
+- `reference`: comparisons with scanpy that need the PBMC 3k dataset download.
+- `slow`: tests that run umap-learn or scikit-learn in full, which takes minutes. Only
+  `tests/test_umap_audit.py` has this label.
 
-`-m "not reference"` is the fast loop: it selects 644 of the 710 collected
-tests. Dropping the filter adds the PBMC 3k legs, which download two h5ad files
-on first use and take appreciably longer.
+`-m "not reference"` is the quick run. It selects 644 of the 710 tests. Without the filter, pytest
+also runs the PBMC 3k tests. These download two h5ad files the first time and take much longer.
 
-### Which device the tests run against
+### Choosing the device for the tests
 
-`METALCYTE_TEST_DEVICE` (`tests/metalcyte_call.py`) names the device the audits pass
-into `_metalcyte`. It defaults to `"cpu"`. Set it to `"auto"` to run the same suite
-on the GPU:
+`METALCYTE_TEST_DEVICE` (`tests/metalcyte_call.py`) sets the device that the tests pass to
+`_metalcyte`. The default is `"cpu"`. To run the same tests on the GPU, set it to `"auto"`:
 
 ```bash
 METALCYTE_TEST_DEVICE=auto PYTHONPATH=$PWD/python .venv/bin/pytest -m "not reference"
 ```
 
-Both legs are worth running, because `"auto"` is the device most callers get.
+Run both. Most users get `"auto"`, so the GPU run tests what they use.
 
-`tests/test_device_parity.py` holds the two devices against each other, and its
-`pytestmark` skips the whole file where `gpu_available()` is false. A run on a
-machine without Metal therefore says nothing about the GPU path.
+`tests/test_device_parity.py` compares the CPU and GPU results. It skips itself when
+`gpu_available()` is false. So a test run on a machine without Metal does not check the GPU code.
 
 ## Type checking
 
-The package ships a `py.typed` marker, so mypy and pyright use the inline
-annotations of the installed package with no stub package needed.
+The package includes a `py.typed` file. Type checkers such as mypy and pyright then read the type
+annotations in the installed package, with no extra stub package.
 
 ```bash
 .venv/bin/pip install mypy
@@ -159,11 +163,11 @@ annotations of the installed package with no stub package needed.
 
 ## Other platforms
 
-The GPU path is Metal, so it exists only on Apple hardware.
+Metalcyte uses the GPU through Metal, which exists only on Apple hardware.
 
-- **Apple silicon macOS**: supported. GPU path active.
-- **Linux**: untested. The crates link Apple's Metal and Accelerate frameworks unconditionally, so
-  a Linux build would need those dependencies made optional first.
-- **Intel macOS**: a source build should compile, since Metal exists there too,
-  but it is neither tested nor benchmarked. Treat it as unsupported.
+- **macOS on Apple silicon**: supported, with the GPU.
+- **Linux**: not tested. The Rust code always links Apple's Metal and Accelerate libraries. A Linux
+  build would first need these to become optional.
+- **macOS on Intel**: a build from source should compile, since Metal exists there too. It is not
+  tested or benchmarked. Treat it as unsupported.
 - **Windows**: not tested.

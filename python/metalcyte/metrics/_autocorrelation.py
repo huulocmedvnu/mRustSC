@@ -1,4 +1,7 @@
-"""Spatial autocorrelation over the neighbour graph. Owned by feat/metrics."""
+"""Measure how similar each gene's expression is in neighbouring cells.
+
+Owned by feat/metrics.
+"""
 
 from __future__ import annotations
 

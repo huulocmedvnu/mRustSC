@@ -1,8 +1,9 @@
-"""Runtime settings, mirroring `scanpy.settings`. Owned by feat/accessors.
+"""Settings that apply to the whole session, like `scanpy.settings`. Owned by feat/accessors.
 
-Deliberately stdlib-only and side-effect free: importing `metalcyte` must not
-install a logging handler, probe for a GPU, or touch process-wide state beyond
-creating the singleton at the bottom of this module.
+This module uses only the Python standard library and does nothing when imported.
+Importing `metalcyte` must not add a logging handler, check for a GPU, or change any
+global state. The only exception is the settings object created at the bottom of this
+module.
 """
 
 from __future__ import annotations
