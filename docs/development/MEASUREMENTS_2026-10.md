@@ -490,8 +490,8 @@ sits in the page cache, so the passes are I/O-heavier than at 1M), approximate n
 parallel UMAP 237 s, Leiden 61 s (71 clusters): **538 s**, peak resident about 9 GB on 18 GB,
 no swap. Head with `keep_hvg=True` 144 s, kept matrix 0.63 GB (78 M entries); Wilcoxon markers
 on it, 71 clusters, 1.3 s. `pl.umap` of every cell 1.5 s. FFT t-SNE on the GPU 497 s, peak
-7.1 GB. Steps scale close to linearly from 1M: head 4.8x, neighbours 5.0x, UMAP 5.3x, Leiden
-6.3x for 4.26x the cells.
+7.1 GB. From the 1M run (953 436 cells kept) each step grew 4.9x to 6.3x (head 4.9x, neighbours
+5.0x, UMAP 5.3x, Leiden 6.3x) for 4.06x the cells kept (3 867 533).
 
 ## 16. Addendum, 2026-10-07: energy on the 4 062 980-cell survey
 
