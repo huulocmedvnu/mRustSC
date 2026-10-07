@@ -177,7 +177,7 @@ which second.
 
 ### 2.5 t-SNE and batch correction at scale
 **Done (2026-10-07):** `tl.tsne(method="fft")` (FIt-SNE in `tsne_fft.rs`), the default above
-20 000 cells: 94 s at 117 308 cells, 189 s at 953 436. `regress_out` and `combat` read gene blocks
+20 000 cells: 21 s at 117 308 cells, 127 s at 953 436, FFTs through Accelerate's vDSP. `regress_out` and `combat` read gene blocks
 from the sparse input (`batch::ColumnBlocks`), `combat` runs its empirical Bayes step on per-batch
 sufficient statistics between two passes, and the only dense array is the result, budgeted at 60%
 of physical memory instead of a fixed 8 GiB.

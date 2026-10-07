@@ -22,7 +22,7 @@ use rayon::prelude::*;
 use candle_core::Device;
 
 use crate::error::{Error, Result};
-use crate::neighbors;
+use crate::neighbors::KnnGraph;
 use crate::nndescent::{knn_approximate, NnDescentParams};
 use crate::tsne::{
     principal_component_initialisation, TsneParams, CONVERGENCE_CHECK_INTERVAL,
@@ -30,14 +30,51 @@ use crate::tsne::{
     MACHINE_EPSILON, MIN_GAIN, MIN_GRADIENT_NORM, PERPLEXITY_SEARCH_STEPS, PERPLEXITY_TOLERANCE,
 };
 
-/// Cells above which the neighbour search behind the affinities is approximate.
-const APPROXIMATE_NEIGHBOURS_FROM: usize = 200_000;
 /// Interpolation nodes per box and side, as FIt-SNE's `n_interpolation_points`.
 const NODES_PER_BOX: usize = 3;
 /// Fewest boxes per side, as FIt-SNE's `min_num_intervals`.
 const MIN_BOXES: usize = 50;
 /// Boxes per unit of layout extent, as FIt-SNE's `intervals_per_integer`.
 const BOXES_PER_UNIT: f32 = 1.0;
+
+/// Cell indices sorted along a Z-order (Morton) curve of a two-dimensional layout.
+fn z_order(layout: &[f32], n_cells: usize) -> Vec<usize> {
+    let (mut lo, mut hi) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+    for i in 0..n_cells {
+        for axis in 0..2 {
+            lo[axis] = lo[axis].min(layout[2 * i + axis]);
+            hi[axis] = hi[axis].max(layout[2 * i + axis]);
+        }
+    }
+    let spread = |v: f32, axis: usize| {
+        let range = (hi[axis] - lo[axis]).max(1e-12);
+        (((v - lo[axis]) / range) * 65535.0) as u32
+    };
+    let interleave = |mut v: u32| -> u64 {
+        let mut out = 0u64;
+        for bit in 0..16 {
+            out |= ((v & 1) as u64) << (2 * bit);
+            v >>= 1;
+        }
+        out
+    };
+    let mut keys: Vec<(u64, usize)> = (0..n_cells)
+        .into_par_iter()
+        .map(|i| {
+            let x = interleave(spread(layout[2 * i], 0));
+            let y = interleave(spread(layout[2 * i + 1], 1));
+            (x | (y << 1), i)
+        })
+        .collect();
+    keys.par_sort_unstable();
+    keys.into_iter().map(|(_, i)| i).collect()
+}
+
+static PROFILE: std::sync::Mutex<[f64; 9]> = std::sync::Mutex::new([0.0; 9]);
+
+fn tick(slot: usize, since: std::time::Instant) {
+    PROFILE.lock().unwrap()[slot] += since.elapsed().as_secs_f64();
+}
 
 /// Symmetric affinities in compressed sparse row form, summing to one.
 struct SparseAffinities {
@@ -53,7 +90,7 @@ struct SparseAffinities {
 pub fn tsne_fft(
     embedding: &Array2<f32>,
     params: &TsneParams,
-    device: &Device,
+    _device: &Device,
 ) -> Result<Array2<f32>> {
     let (n_cells, _) = embedding.dim();
     if params.n_components != 2 {
@@ -64,29 +101,93 @@ pub fn tsne_fft(
         ));
     }
     let k = ((3.0 * params.perplexity).floor() as usize).clamp(1, n_cells - 1);
-    let graph = if n_cells > APPROXIMATE_NEIGHBOURS_FROM {
-        let nn = NnDescentParams {
-            seed: params.seed,
-            ..NnDescentParams::default()
-        };
-        knn_approximate(embedding, k, &nn)?
-    } else {
-        neighbors::knn(embedding, k, device)?
-    };
-    let affinities = symmetric_affinities(&graph, params.perplexity);
-    drop(graph);
+    let profile = std::env::var_os("METALCYTE_PROFILE").is_some();
 
+    // Cells are renumbered along a Z-order curve of their PCA initialisation, so that
+    // cells that will be neighbours in the layout sit near each other in memory: the
+    // attractive term and the neighbour search then read the layout mostly in order.
     let initial = principal_component_initialisation(embedding, params, &Device::Cpu)?
         .flatten_all()?
         .to_vec1::<f32>()?;
+    let order = z_order(&initial, n_cells);
+    let mut inverse = vec![0usize; n_cells];
+    for (new, &old) in order.iter().enumerate() {
+        inverse[old] = new;
+    }
+    let embedding = {
+        let d = embedding.ncols();
+        let source = embedding.as_standard_layout();
+        let source = source.as_slice().expect("contiguous");
+        let mut rows = vec![0f32; n_cells * d];
+        rows.par_chunks_mut(d)
+            .zip(order.par_iter())
+            .for_each(|(row, &old)| row.copy_from_slice(&source[old * d..(old + 1) * d]));
+        Array2::from_shape_vec((n_cells, d), rows).expect("sized above")
+    };
+    let initial: Vec<f32> = order
+        .iter()
+        .flat_map(|&old| [initial[2 * old], initial[2 * old + 1]])
+        .collect();
+
+    let t0 = std::time::Instant::now();
+    // NN-descent for the 3 * perplexity neighbours, as FIt-SNE uses an approximate
+    // index: the exact search with k near 90 falls outside the tiled kernel's limit and
+    // costs more than the whole optimisation.
+    // The affinities tolerate a recall a little below the graph step's, so the search
+    // stops earlier and joins fewer candidates per round than `pp.neighbors` does.
+    let graph: KnnGraph = knn_approximate(
+        &embedding,
+        k,
+        &NnDescentParams {
+            seed: params.seed,
+            max_candidates: 30,
+            delta: 0.01,
+            ..NnDescentParams::default()
+        },
+    )?;
+    if profile {
+        eprintln!(
+            "tsne profile: neighbours {:.2} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let t0 = std::time::Instant::now();
+    let affinities = symmetric_affinities(&graph, params.perplexity);
+    drop(graph);
+    if profile {
+        eprintln!(
+            "tsne profile: affinities {:.2} s",
+            t0.elapsed().as_secs_f64()
+        );
+    }
+
+    let t0 = std::time::Instant::now();
     let layout = optimise(initial, n_cells, &affinities, params);
+    if profile {
+        eprintln!(
+            "tsne profile: optimisation {:.2} s",
+            t0.elapsed().as_secs_f64()
+        );
+        let s = PROFILE.lock().unwrap();
+        eprintln!(
+            "tsne profile: repulsion placement {:.2} s, spread {:.2} s, kernel fft {:.2} s, charge ffts {:.2} s, gather {:.2} s, attraction {:.2} s, update {:.2} s, last grid {} nodes / fft {}",
+            s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7] as usize, s[8] as usize
+        );
+    }
+    // Back to the caller's cell order.
+    let mut out = vec![0f32; 2 * n_cells];
+    for (new, &old) in order.iter().enumerate() {
+        out[2 * old] = layout[2 * new];
+        out[2 * old + 1] = layout[2 * new + 1];
+    }
+    let layout = out;
     Array2::from_shape_vec((n_cells, 2), layout)
         .map_err(|_| Error::shape(format!("{n_cells} by 2"), "a mismatch"))
 }
 
 /// Conditional affinities over each cell's neighbours at the requested perplexity,
 /// symmetrised and normalised to sum to one, as scikit-learn's `_joint_probabilities_nn`.
-fn symmetric_affinities(graph: &neighbors::KnnGraph, perplexity: f32) -> SparseAffinities {
+fn symmetric_affinities(graph: &KnnGraph, perplexity: f32) -> SparseAffinities {
     let (n_cells, k) = graph.indices.dim();
     let target_entropy = (perplexity as f64).ln();
     // Row-wise bandwidth search, in parallel: the binary search of
@@ -244,6 +345,7 @@ fn optimise(
         let checking = (iteration + 1).is_multiple_of(CONVERGENCE_CHECK_INTERVAL);
         let (gradient, error) = gradient(&layout, n_cells, affinities, exaggeration, checking);
 
+        let t_upd = std::time::Instant::now();
         let norm_square: f64 = layout
             .par_iter_mut()
             .zip(update.par_iter_mut())
@@ -259,6 +361,7 @@ fn optimise(
             })
             .sum();
 
+        tick(6, t_upd);
         let exploring = iteration < exploration_end;
         iteration += 1;
         if !checking {
@@ -300,6 +403,7 @@ fn gradient(
     compute_error: bool,
 ) -> (Vec<f32>, Option<f64>) {
     let (repulsion, normaliser) = repulsive_forces(layout, n_cells);
+    let t_attr = std::time::Instant::now();
     let mut gradient = vec![0.0f32; 2 * n_cells];
     let error: f64 = gradient
         .par_chunks_mut(2)
@@ -325,6 +429,7 @@ fn gradient(
             kl
         })
         .sum();
+    tick(5, t_attr);
     (gradient, compute_error.then_some(error))
 }
 
@@ -342,7 +447,14 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
     }
     let extent = (hi - lo).max(1e-6);
     let n_boxes = ((extent * BOXES_PER_UNIT).ceil() as usize).max(MIN_BOXES);
-    let box_width = extent / n_boxes as f32;
+    // Boxes are exactly 1 / BOXES_PER_UNIT wide once the layout spans MIN_BOXES of them,
+    // so the node spacing, and with it the kernel transform, stays fixed between
+    // iterations; below that the grid stretches to the layout.
+    let box_width = if extent * BOXES_PER_UNIT >= MIN_BOXES as f32 {
+        1.0 / BOXES_PER_UNIT
+    } else {
+        extent / n_boxes as f32
+    };
     let n_nodes = n_boxes * NODES_PER_BOX;
     let node_spacing = box_width / NODES_PER_BOX as f32;
     // Node m sits at lo + (m + 0.5) * node_spacing.
@@ -362,6 +474,7 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
         })
         .collect();
 
+    let t_ph = std::time::Instant::now();
     // Each cell's box and Lagrange weights along both axes.
     let placement: Vec<([usize; 2], [[f32; NODES_PER_BOX]; 2])> = (0..n_cells)
         .into_par_iter()
@@ -386,94 +499,109 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
             (boxes, weights)
         })
         .collect();
+    // Cells bucketed by box row, so a band of box rows is one thread's and the grid
+    // rows it writes are its own: no per-thread grid and no reduction.
+    let mut offsets = vec![0usize; n_boxes + 1];
+    for (boxes, _) in &placement {
+        offsets[boxes[0] + 1] += 1;
+    }
+    for b in 0..n_boxes {
+        offsets[b + 1] += offsets[b];
+    }
+    let mut cursor = offsets.clone();
+    let mut order = vec![0u32; n_cells];
+    for (i, (boxes, _)) in placement.iter().enumerate() {
+        order[cursor[boxes[0]]] = i as u32;
+        cursor[boxes[0]] += 1;
+    }
+    tick(0, t_ph);
 
-    // Spread the four charges onto the nodes: per-thread grids, then a sum.
+    let t_ph = std::time::Instant::now();
     let grid_len = n_nodes * n_nodes;
-    let chunk = (n_cells / (rayon::current_num_threads() * 4)).max(4096);
-    let charges: Vec<f64> = placement
-        .par_chunks(chunk)
-        .enumerate()
-        .map(|(c, cells)| {
-            let mut grid = vec![0.0f64; 4 * grid_len];
-            for (offset, (boxes, weights)) in cells.iter().enumerate() {
-                let i = c * chunk + offset;
-                let (y0, y1) = (layout[2 * i] as f64, layout[2 * i + 1] as f64);
-                let q = [1.0, y0, y1, y0 * y0 + y1 * y1];
-                for a in 0..NODES_PER_BOX {
-                    let row = boxes[0] * NODES_PER_BOX + a;
-                    for b in 0..NODES_PER_BOX {
-                        let col = boxes[1] * NODES_PER_BOX + b;
-                        let w = (weights[0][a] * weights[1][b]) as f64;
-                        let at = row * n_nodes + col;
-                        for (charge, &value) in q.iter().enumerate() {
-                            grid[charge * grid_len + at] += w * value;
-                        }
+    let mut charges = vec![0f32; 4 * grid_len];
+    let charges_ptr = charges.as_mut_ptr() as usize;
+    let n_bands = (rayon::current_num_threads() * 4).min(n_boxes).max(1);
+    let rows_per_band = n_boxes.div_ceil(n_bands);
+    (0..n_bands).into_par_iter().for_each(|band| {
+        let (r0, r1) = (
+            band * rows_per_band,
+            ((band + 1) * rows_per_band).min(n_boxes),
+        );
+        if r0 >= r1 {
+            return;
+        }
+        // Safety: this band writes grid rows r0 * 3 .. r1 * 3 only, and bands are disjoint.
+        let grid = unsafe { std::slice::from_raw_parts_mut(charges_ptr as *mut f32, 4 * grid_len) };
+        for &i in &order[offsets[r0]..offsets[r1]] {
+            let i = i as usize;
+            let (y0, y1) = (layout[2 * i], layout[2 * i + 1]);
+            let q = [1.0f32, y0, y1, y0 * y0 + y1 * y1];
+            let (boxes, weights) = &placement[i];
+            for a in 0..NODES_PER_BOX {
+                let row = boxes[0] * NODES_PER_BOX + a;
+                for b in 0..NODES_PER_BOX {
+                    let col = boxes[1] * NODES_PER_BOX + b;
+                    let w = weights[0][a] * weights[1][b];
+                    let at = row * n_nodes + col;
+                    for (charge, &value) in q.iter().enumerate() {
+                        grid[charge * grid_len + at] += w * value;
                     }
                 }
             }
-            grid
-        })
-        .reduce(
-            || vec![0.0f64; 4 * grid_len],
-            |mut a, b| {
-                a.iter_mut().zip(&b).for_each(|(x, y)| *x += y);
-                a
-            },
-        );
-
-    // Convolve with the squared Cauchy kernel on the embedded circulant.
-    let size = (2 * n_nodes).next_power_of_two();
-    let mut kernel = vec![Complex::ZERO; size * size];
-    for di in 0..n_nodes {
-        for dj in 0..n_nodes {
-            let r2 = {
-                let x = di as f64 * node_spacing as f64;
-                let y = dj as f64 * node_spacing as f64;
-                x * x + y * y
-            };
-            let value = 1.0 / ((1.0 + r2) * (1.0 + r2));
-            for ii in [di, (size - di) % size] {
-                for jj in [dj, (size - dj) % size] {
-                    kernel[ii * size + jj] = Complex::real(value);
-                }
-            }
         }
-    }
-    fft_2d(&mut kernel, size, false);
-    // The kernel is even in both axes, so its transform is real, and two real charge
-    // grids packed as the real and imaginary parts of one field convolve independently.
-    let potentials: Vec<Vec<f64>> = (0..2)
+    });
+    tick(1, t_ph);
+
+    let t_ph = std::time::Instant::now();
+    // Convolve with the squared Cauchy kernel on the embedded circulant. The kernel is
+    // even in both axes, so its transform is real; two real charge grids packed as the
+    // real and imaginary parts of one field convolve independently.
+    let size = (2 * n_nodes).next_power_of_two();
+    let fft = Fft2d::new(size);
+    let kernel_re = kernel_transform(&fft, size, n_nodes, node_spacing);
+    tick(2, t_ph);
+    let t_ph = std::time::Instant::now();
+    let potentials: Vec<Vec<f32>> = (0..2)
         .into_par_iter()
         .flat_map_iter(|pair| {
             let (c_re, c_im) = (2 * pair, 2 * pair + 1);
-            let mut field = vec![Complex::ZERO; size * size];
+            let mut re = vec![0f32; size * size];
+            let mut im = vec![0f32; size * size];
             for r in 0..n_nodes {
-                for col in 0..n_nodes {
-                    let at = r * n_nodes + col;
-                    field[r * size + col] = Complex {
-                        re: charges[c_re * grid_len + at],
-                        im: charges[c_im * grid_len + at],
-                    };
-                }
+                let src = r * n_nodes;
+                let dst = r * size;
+                re[dst..dst + n_nodes].copy_from_slice(
+                    &charges[c_re * grid_len + src..c_re * grid_len + src + n_nodes],
+                );
+                im[dst..dst + n_nodes].copy_from_slice(
+                    &charges[c_im * grid_len + src..c_im * grid_len + src + n_nodes],
+                );
             }
-            fft_2d(&mut field, size, false);
-            for (f, k) in field.iter_mut().zip(&kernel) {
-                f.re *= k.re;
-                f.im *= k.re;
+            fft.forward(&mut re, &mut im);
+            for ((a, b), k) in re.iter_mut().zip(im.iter_mut()).zip(kernel_re.iter()) {
+                *a *= k;
+                *b *= k;
             }
-            fft_2d(&mut field, size, true);
-            let mut out_re = vec![0.0f64; grid_len];
-            let mut out_im = vec![0.0f64; grid_len];
+            fft.inverse(&mut re, &mut im);
+            let mut out_re = vec![0f32; grid_len];
+            let mut out_im = vec![0f32; grid_len];
             for r in 0..n_nodes {
-                for col in 0..n_nodes {
-                    out_re[r * n_nodes + col] = field[r * size + col].re;
-                    out_im[r * n_nodes + col] = field[r * size + col].im;
-                }
+                out_re[r * n_nodes..(r + 1) * n_nodes]
+                    .copy_from_slice(&re[r * size..r * size + n_nodes]);
+                out_im[r * n_nodes..(r + 1) * n_nodes]
+                    .copy_from_slice(&im[r * size..r * size + n_nodes]);
             }
             [out_re, out_im]
         })
         .collect();
+    tick(3, t_ph);
+    {
+        let mut s = PROFILE.lock().unwrap();
+        s[7] = n_nodes as f64;
+        s[8] = size as f64;
+    }
 
+    let t_ph = std::time::Instant::now();
     // Read the potentials back at the cells.
     let per_cell: Vec<[f64; 4]> = (0..n_cells)
         .into_par_iter()
@@ -487,14 +615,14 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
                     let w = (weights[0][a] * weights[1][b]) as f64;
                     let at = row * n_nodes + col;
                     for c in 0..4 {
-                        phi[c] += w * potentials[c][at];
+                        phi[c] += w * potentials[c][at] as f64;
                     }
                 }
             }
             phi
         })
         .collect();
-
+    tick(4, t_ph);
     // Z = sum_i [(1 + |y_i|^2) phi_1 - 2 y_i . phi_23 + phi_4], minus the n self terms.
     let normaliser: f64 = per_cell
         .par_iter()
@@ -516,30 +644,187 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
     (forces, normaliser)
 }
 
-#[derive(Clone, Copy, Debug)]
-struct Complex {
-    re: f64,
-    im: f64,
+/// The transform of the squared Cauchy kernel on the embedded circulant of a grid,
+/// cached: the grid changes only when the layout's extent crosses a box boundary, so
+/// most iterations reuse the previous transform.
+fn kernel_transform(
+    fft: &Fft2d,
+    size: usize,
+    n_nodes: usize,
+    node_spacing: f32,
+) -> std::sync::Arc<Vec<f32>> {
+    use std::sync::{Arc, Mutex};
+    type Cached = Option<((usize, u32), Arc<Vec<f32>>)>;
+    static CACHE: Mutex<Cached> = Mutex::new(None);
+    let key = (n_nodes, node_spacing.to_bits());
+    if let Some((cached_key, transform)) = CACHE.lock().unwrap().as_ref() {
+        if *cached_key == key {
+            return Arc::clone(transform);
+        }
+    }
+    let mut kernel_re = vec![0f32; size * size];
+    let mut kernel_im = vec![0f32; size * size];
+    for di in 0..n_nodes {
+        for dj in 0..n_nodes {
+            let x = di as f32 * node_spacing;
+            let y = dj as f32 * node_spacing;
+            let r2 = x * x + y * y;
+            let value = 1.0 / ((1.0 + r2) * (1.0 + r2));
+            for ii in [di, (size - di) % size] {
+                for jj in [dj, (size - dj) % size] {
+                    kernel_re[ii * size + jj] = value;
+                }
+            }
+        }
+    }
+    fft.forward(&mut kernel_re, &mut kernel_im);
+    let transform = Arc::new(kernel_re);
+    *CACHE.lock().unwrap() = Some((key, Arc::clone(&transform)));
+    transform
 }
 
-impl Complex {
-    const ZERO: Self = Self { re: 0.0, im: 0.0 };
+/// A square power-of-two 2-D FFT on split complex data: Apple's vDSP on macOS, a
+/// radix-2 implementation elsewhere.
+struct Fft2d {
+    size: usize,
+    #[cfg(target_os = "macos")]
+    setup: std::sync::Arc<vdsp::FftSetup>,
+}
 
-    fn real(re: f64) -> Self {
-        Self { re, im: 0.0 }
+impl Fft2d {
+    fn new(size: usize) -> Self {
+        debug_assert!(size.is_power_of_two());
+        Self {
+            size,
+            #[cfg(target_os = "macos")]
+            setup: vdsp::setup_for(size.trailing_zeros() as usize),
+        }
     }
 
-    fn mul(self, other: &Self) -> Self {
-        Self {
-            re: self.re * other.re - self.im * other.im,
-            im: self.re * other.im + self.im * other.re,
+    fn forward(&self, re: &mut [f32], im: &mut [f32]) {
+        #[cfg(target_os = "macos")]
+        {
+            self.setup.run(re, im, self.size, false);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            fft_2d_scalar(re, im, self.size, false);
+        }
+    }
+
+    /// The unnormalised inverse scaled by `1 / size^2`, so it undoes `forward`.
+    fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
+        #[cfg(target_os = "macos")]
+        {
+            self.setup.run(re, im, self.size, true);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            fft_2d_scalar(re, im, self.size, true);
+        }
+        let scale = 1.0 / (self.size * self.size) as f32;
+        re.iter_mut().for_each(|v| *v *= scale);
+        im.iter_mut().for_each(|v| *v *= scale);
+    }
+}
+
+/// Apple Accelerate's vDSP FFT, through its C interface.
+#[cfg(target_os = "macos")]
+mod vdsp {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    struct DspSplitComplex {
+        realp: *mut f32,
+        imagp: *mut f32,
+    }
+
+    #[link(name = "Accelerate", kind = "framework")]
+    extern "C" {
+        fn vDSP_create_fftsetup(log2n: usize, radix: i32) -> *mut c_void;
+        fn vDSP_destroy_fftsetup(setup: *mut c_void);
+        fn vDSP_fft2d_zip(
+            setup: *mut c_void,
+            data: *const DspSplitComplex,
+            stride_column: isize,
+            stride_row: isize,
+            log2n_columns: usize,
+            log2n_rows: usize,
+            direction: i32,
+        );
+    }
+
+    const FFT_RADIX2: i32 = 0;
+    const FFT_FORWARD: i32 = 1;
+    const FFT_INVERSE: i32 = -1;
+
+    /// A setup for one power-of-two size. vDSP setups are read-only after creation and
+    /// are used from several threads at once here.
+    pub struct FftSetup(*mut c_void);
+
+    /// Setups cost a twiddle table each, so one per size is kept for the process.
+    pub fn setup_for(log2n: usize) -> std::sync::Arc<FftSetup> {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        static SETUPS: Mutex<Option<HashMap<usize, Arc<FftSetup>>>> = Mutex::new(None);
+        let mut guard = SETUPS.lock().unwrap();
+        let map = guard.get_or_insert_with(HashMap::new);
+        Arc::clone(
+            map.entry(log2n)
+                .or_insert_with(|| Arc::new(FftSetup::new(log2n))),
+        )
+    }
+
+    unsafe impl Send for FftSetup {}
+    unsafe impl Sync for FftSetup {}
+
+    impl FftSetup {
+        pub fn new(log2n: usize) -> Self {
+            // Safety: plain C call; a null result is checked.
+            let setup = unsafe { vDSP_create_fftsetup(log2n, FFT_RADIX2) };
+            assert!(
+                !setup.is_null(),
+                "vDSP_create_fftsetup failed for 2^{log2n}"
+            );
+            Self(setup)
+        }
+
+        pub fn run(&self, re: &mut [f32], im: &mut [f32], size: usize, inverse: bool) {
+            debug_assert_eq!(re.len(), size * size);
+            debug_assert_eq!(im.len(), size * size);
+            let split = DspSplitComplex {
+                realp: re.as_mut_ptr(),
+                imagp: im.as_mut_ptr(),
+            };
+            let log2n = size.trailing_zeros() as usize;
+            // Safety: the split arrays hold size * size values each, as the setup expects
+            // for a log2n x log2n transform with unit strides.
+            unsafe {
+                vDSP_fft2d_zip(
+                    self.0,
+                    &split,
+                    1,
+                    0,
+                    log2n,
+                    log2n,
+                    if inverse { FFT_INVERSE } else { FFT_FORWARD },
+                );
+            }
+        }
+    }
+
+    impl Drop for FftSetup {
+        fn drop(&mut self) {
+            // Safety: created by vDSP_create_fftsetup and not used after this.
+            unsafe { vDSP_destroy_fftsetup(self.0) };
         }
     }
 }
 
-/// In-place radix-2 FFT of one row of `size` complex values.
-fn fft_1d(data: &mut [Complex], inverse: bool) {
-    let n = data.len();
+/// In-place radix-2 FFT of one row of split complex values.
+#[allow(dead_code)]
+fn fft_1d_scalar(re: &mut [f32], im: &mut [f32], inverse: bool) {
+    let n = re.len();
     let mut j = 0usize;
     for i in 1..n {
         let mut bit = n >> 1;
@@ -549,55 +834,53 @@ fn fft_1d(data: &mut [Complex], inverse: bool) {
         }
         j |= bit;
         if i < j {
-            data.swap(i, j);
+            re.swap(i, j);
+            im.swap(i, j);
         }
     }
     let mut len = 2;
     while len <= n {
         let angle = 2.0 * std::f64::consts::PI / len as f64 * if inverse { 1.0 } else { -1.0 };
-        let step = Complex {
-            re: angle.cos(),
-            im: angle.sin(),
-        };
+        let (step_re, step_im) = (angle.cos() as f32, angle.sin() as f32);
         for start in (0..n).step_by(len) {
-            let mut w = Complex::real(1.0);
+            let (mut w_re, mut w_im) = (1.0f32, 0.0f32);
             for k in 0..len / 2 {
-                let u = data[start + k];
-                let v = data[start + k + len / 2].mul(&w);
-                data[start + k] = Complex {
-                    re: u.re + v.re,
-                    im: u.im + v.im,
-                };
-                data[start + k + len / 2] = Complex {
-                    re: u.re - v.re,
-                    im: u.im - v.im,
-                };
-                w = w.mul(&step);
+                let (u_re, u_im) = (re[start + k], im[start + k]);
+                let (x_re, x_im) = (re[start + k + len / 2], im[start + k + len / 2]);
+                let v_re = x_re * w_re - x_im * w_im;
+                let v_im = x_re * w_im + x_im * w_re;
+                re[start + k] = u_re + v_re;
+                im[start + k] = u_im + v_im;
+                re[start + k + len / 2] = u_re - v_re;
+                im[start + k + len / 2] = u_im - v_im;
+                let next_re = w_re * step_re - w_im * step_im;
+                w_im = w_re * step_im + w_im * step_re;
+                w_re = next_re;
             }
         }
         len <<= 1;
     }
-    if inverse {
-        let scale = 1.0 / n as f64;
-        for v in data.iter_mut() {
-            v.re *= scale;
-            v.im *= scale;
-        }
-    }
 }
 
-/// In-place 2-D FFT of a `size x size` row-major array: rows, transpose, rows, transpose.
-fn fft_2d(data: &mut [Complex], size: usize, inverse: bool) {
-    data.par_chunks_mut(size)
-        .for_each(|row| fft_1d(row, inverse));
-    transpose(data, size);
-    data.par_chunks_mut(size)
-        .for_each(|row| fft_1d(row, inverse));
-    transpose(data, size);
+/// In-place 2-D FFT of a `size x size` row-major split array: rows, transpose, rows,
+/// transpose. Unnormalised in both directions.
+#[allow(dead_code)]
+fn fft_2d_scalar(re: &mut [f32], im: &mut [f32], size: usize, inverse: bool) {
+    re.par_chunks_mut(size)
+        .zip(im.par_chunks_mut(size))
+        .for_each(|(r, i)| fft_1d_scalar(r, i, inverse));
+    transpose(re, size);
+    transpose(im, size);
+    re.par_chunks_mut(size)
+        .zip(im.par_chunks_mut(size))
+        .for_each(|(r, i)| fft_1d_scalar(r, i, inverse));
+    transpose(re, size);
+    transpose(im, size);
 }
 
 /// Square transpose in place, by 32 x 32 tiles so each tile stays in cache.
-fn transpose(data: &mut [Complex], size: usize) {
+#[allow(dead_code)]
+fn transpose(data: &mut [f32], size: usize) {
     const TILE: usize = 32;
     let ptr = data.as_mut_ptr() as usize;
     let tiles = size.div_ceil(TILE);
@@ -609,7 +892,7 @@ fn transpose(data: &mut [Complex], size: usize) {
                     // Safety: tile (ti, tj) and its mirror are touched by this task only,
                     // and tasks cover disjoint tile pairs.
                     unsafe {
-                        let p = ptr as *mut Complex;
+                        let p = ptr as *mut f32;
                         std::ptr::swap(p.add(i * size + j), p.add(j * size + i));
                     }
                 }
@@ -782,16 +1065,24 @@ mod tests {
     }
 
     #[test]
-    fn fft_round_trip_is_identity() {
+    fn fft_round_trip_is_identity_and_matches_the_scalar_transform() {
         let size = 16;
-        let original: Vec<Complex> = (0..size * size)
-            .map(|i| Complex::real((i % 7) as f64 - 3.0))
-            .collect();
-        let mut data = original.clone();
-        fft_2d(&mut data, size, false);
-        fft_2d(&mut data, size, true);
-        for (a, b) in data.iter().zip(&original) {
-            assert!((a.re - b.re).abs() < 1e-9 && a.im.abs() < 1e-9);
+        let original: Vec<f32> = (0..size * size).map(|i| (i % 7) as f32 - 3.0).collect();
+        let fft = Fft2d::new(size);
+        let (mut re, mut im) = (original.clone(), vec![0f32; size * size]);
+        fft.forward(&mut re, &mut im);
+        let (mut re_s, mut im_s) = (original.clone(), vec![0f32; size * size]);
+        fft_2d_scalar(&mut re_s, &mut im_s, size, false);
+        for ((a, b), (c, d)) in re.iter().zip(&im).zip(re_s.iter().zip(&im_s)) {
+            assert!(
+                (a - c).abs() < 1e-3 && (b - d).abs() < 1e-3,
+                "{a} {b} vs {c} {d}"
+            );
         }
+        fft.inverse(&mut re, &mut im);
+        for (a, b) in re.iter().zip(&original) {
+            assert!((a - b).abs() < 1e-4);
+        }
+        assert!(im.iter().all(|v| v.abs() < 1e-4));
     }
 }

@@ -276,11 +276,12 @@ t-SNE over the first `n_pcs` columns of `obsm["X_pca"]`. Writes `obsm["X_tsne"]`
   It refuses more than 20 000 cells with a `ValueError` before any memory is
   allocated.
 - `"fft"` is FFT-accelerated interpolation-based t-SNE (FIt-SNE, Linderman et al.
-  2019): affinities over the `3 * perplexity` nearest neighbours of each cell (the
-  exact search up to 200 000 cells, NN-descent above), and the repulsive term by
-  Lagrange interpolation onto a grid with one FFT convolution per iteration. The
-  cost per iteration is linear in cells: 94 s for 117 308 cells and 189 s for
-  953 436 on the M3 Pro, 1 000 iterations. Two-dimensional layouts only.
+  2019): affinities over the `3 * perplexity` nearest neighbours of each cell from
+  NN-descent, and the repulsive term by Lagrange interpolation onto a grid with one FFT
+  convolution per iteration, run through Apple's Accelerate (vDSP) in single precision.
+  The cost per iteration is linear in cells plus the FFT of a grid a few hundred nodes
+  wide: 21 s for 117 308 cells and 127 s for 953 436 on the M3 Pro, 1 000 iterations.
+  Two-dimensional layouts only.
 - `"auto"`, the default, runs the exact formulation up to 20 000 cells and the FFT
   one above.
 
