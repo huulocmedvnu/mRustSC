@@ -85,6 +85,12 @@ convolution within 1e-4 relative RMS of Accelerate's, the repulsive forces withi
 RMS, the objective within 1e-3 at every step and within 0.5% after 500 iterations, and the same
 bytes for the same seed.
 
+## Embedding plots
+
+The Metal rasteriser is held to the one on the cores (`crates/metalcyte-gpu/src/kernels/raster.rs`
+tests and `tests/test_plotting_gpu.py`): on 5 000 overlapping translucent discs the two images
+differ by 0.03 of 255 per channel on average, and a point lands on the same pixel in both.
+
 ## PCA: determined components and spectrum
 
 scanpy's default solver is deterministic `arpack`. Metalcyte does a randomised SVD, the

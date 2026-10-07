@@ -19,6 +19,7 @@ mod paga;
 mod parametric;
 mod preprocess;
 mod qc;
+mod raster;
 mod sampling;
 mod scoring;
 
@@ -47,6 +48,7 @@ fn _metalcyte(module: &Bound<'_, PyModule>) -> PyResult<()> {
     preprocess::register(module)?;
     fast::register(module)?;
     embedding::register(module)?;
+    raster::register(module)?;
     de::register(module)?;
     diffusion::register(module)?;
     metrics::register(module)?;

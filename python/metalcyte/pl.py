@@ -1,10 +1,13 @@
-"""Native plotting for metalcyte — publication-grade matplotlib/seaborn, no scanpy.
+"""Native plotting for metalcyte: embeddings rasterised on the GPU, matplotlib around them.
 
 `mc.pl` draws the figures a single-cell analysis needs from the AnnData slots metalcyte
-writes: the PCA spectrum from `uns["pca"]`, the UMAP embedding from `obsm["X_umap"]`
-coloured by an `obs` column or a gene, and the differential-expression ranking from
-`uns["rank_genes_groups"]`. It depends only on matplotlib (and seaborn for palettes when
-present); it never imports scanpy.
+writes: the embeddings in `obsm` (`umap`, `tsne`, `pca`, `embedding`) coloured by an `obs`
+column or a gene, the PCA spectrum from `uns["pca"]`, and the differential-expression
+ranking from `uns["rank_genes_groups"]`. The embedding scatters are rendered by Metal
+into one bitmap (`render_embedding`), so a million cells draw in milliseconds and a
+notebook shows them as a single image; matplotlib supplies the axes, legend and colour
+bar. It depends only on matplotlib (and seaborn for palettes when present); it never
+imports scanpy.
 
 Every function shares the house style: clean spines, a subtle grid, a modern sans-serif,
 categorical clusters in a perceptually even palette (seaborn ``husl``) and gene
@@ -14,6 +17,7 @@ and `save` writes it; both can be combined.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,7 +36,15 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-__all__ = ["pca_variance_ratio", "rank_genes_groups", "umap"]
+__all__ = [
+    "embedding",
+    "pca",
+    "pca_variance_ratio",
+    "rank_genes_groups",
+    "render_embedding",
+    "tsne",
+    "umap",
+]
 
 # A safe-but-modern sans stack: DejaVu Sans is always present (no findfont warning),
 # the others are used when the machine has them.
@@ -176,98 +188,284 @@ def pca_variance_ratio(
     return _finish(fig, result, show, save)
 
 
-def umap(
+_DEFAULT_DPI = 300
+_RENDER_MARGIN = 0.03
+
+
+def _auto_pixel_size(n: int, dpi: float) -> float:
+    """Point diameter in pixels that keeps a dense embedding legible at `dpi`."""
+    return float(np.clip(900.0 / np.sqrt(max(n, 1)), 1.5, 24.0) * (dpi / _DEFAULT_DPI))
+
+
+def _pack_rgba(colours: np.ndarray, alpha: float) -> np.ndarray:
+    """`(n, 3)` or `(n, 4)` floats in [0, 1] to `0xRRGGBBAA` per point."""
+    rgba = np.empty((colours.shape[0], 4), dtype=np.float64)
+    rgba[:, :3] = colours[:, :3]
+    rgba[:, 3] = colours[:, 3] * alpha if colours.shape[1] == 4 else alpha
+    bytes_ = (np.clip(rgba, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint32)
+    return (bytes_[:, 0] << 24) | (bytes_[:, 1] << 16) | (bytes_[:, 2] << 8) | bytes_[:, 3]
+
+
+def _category_colours(adata: AnnData, key: str, palette: str) -> list:
+    """One colour per level: `uns[f"{key}_colors"]` when scanpy or a user set it, else
+    the palette."""
+    levels = list(adata.obs[key].astype("category").cat.categories)
+    stored = adata.uns.get(f"{key}_colors")
+    if stored is not None and len(stored) == len(levels):
+        from matplotlib.colors import to_rgb
+
+        return [to_rgb(c) for c in stored]
+    return _categorical_palette(len(levels), palette)
+
+
+def render_embedding(
     adata: AnnData,
+    basis: str = "X_umap",
     color: str | None = None,
     *,
-    title: str | None = None,
-    palette: str = "husl",
-    frameon: bool = False,
-    alpha: float = 0.7,
+    width: int = 2100,
+    height: int = 1800,
     size: float | None = None,
+    alpha: float = 1.0,
+    palette: str = "husl",
+    cmap: str = "viridis",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    background: str = "white",
+    device: str | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Rasterise `obsm[basis]` on the GPU into an RGBA image, `(height, width, 4)` uint8.
+
+    This is the primitive behind `embedding`, `umap`, `tsne` and `pca`: a million cells
+    become one bitmap in a few milliseconds, so a notebook shows them as a single image
+    and a figure file holds pixels, not a million paths. Returns the image and a
+    description of the colouring (`kind`, `levels`, `colours` or `vmin`/`vmax`) for a
+    legend or colour bar.
+    """
+    from matplotlib.colors import to_rgba
+
+    from metalcyte._shared import _extension, _resolve_device
+
+    coords = np.ascontiguousarray(np.asarray(adata.obsm[basis], dtype=np.float32)[:, :2])
+    n = coords.shape[0]
+    info: dict[str, Any] = {"kind": "single"}
+    if color is None:
+        rgb = np.tile(np.asarray(to_rgba(_ACCENT)[:3], dtype=np.float64), (n, 1))
+    elif color in adata.obs.columns and adata.obs[color].dtype.kind not in "biufc":
+        cats = adata.obs[color].astype("category")
+        colours = _category_colours(adata, color, palette)
+        codes = cats.cat.codes.to_numpy()
+        table = np.asarray([c[:3] for c in colours], dtype=np.float64)
+        rgb = np.where((codes >= 0)[:, None], table[np.maximum(codes, 0)], 0.8)
+        info = {"kind": "categorical", "levels": list(cats.cat.categories), "colours": colours}
+    else:
+        values = _expression(adata, color)
+        if values is None:
+            raise KeyError(f"{color!r} is not a numeric obs column or a gene in var_names / raw")
+        lo = float(np.nanmin(values)) if vmin is None else vmin
+        hi = float(np.nanmax(values)) if vmax is None else vmax
+        unit = (values - lo) / max(hi - lo, 1e-12)
+        table = plt.get_cmap(cmap)(np.linspace(0.0, 1.0, 256))[:, :3]
+        rgb = table[np.clip((np.nan_to_num(unit) * 255.0).astype(np.int64), 0, 255)]
+        info = {"kind": "continuous", "vmin": lo, "vmax": hi, "cmap": cmap}
+    rgba = _pack_rgba(rgb, alpha)
+
+    finite = np.isfinite(coords).all(axis=1)
+    if xlim is None or ylim is None:
+        x0, x1 = (
+            (float(coords[finite, 0].min()), float(coords[finite, 0].max()))
+            if finite.any()
+            else (0.0, 1.0)
+        )
+        y0, y1 = (
+            (float(coords[finite, 1].min()), float(coords[finite, 1].max()))
+            if finite.any()
+            else (0.0, 1.0)
+        )
+        # Equal data scale on both axes, centred, so the cloud is not stretched.
+        dx, dy = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
+        span = max(dx / width, dy / height) * (1.0 + 2 * _RENDER_MARGIN)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        xlim = xlim or (cx - span * width / 2, cx + span * width / 2)
+        ylim = ylim or (cy - span * height / 2, cy + span * height / 2)
+    dpi_size = _auto_pixel_size(n, _DEFAULT_DPI) if size is None else float(size)
+    bg = to_rgba(background)
+    bg_packed = int(_pack_rgba(np.asarray([bg[:3]]), bg[3])[0])
+    image = _extension().render_points(
+        coords,
+        rgba.astype(np.uint32),
+        int(width),
+        int(height),
+        float(dpi_size),
+        float(xlim[0]),
+        float(xlim[1]),
+        float(ylim[0]),
+        float(ylim[1]),
+        bg_packed,
+        _resolve_device(device),
+    )
+    info["xlim"], info["ylim"] = tuple(xlim), tuple(ylim)
+    return np.asarray(image), info
+
+
+def embedding(
+    adata: AnnData,
+    basis: str = "X_umap",
+    color: str | Sequence[str] | None = None,
+    *,
+    title: str | Sequence[str] | None = None,
+    palette: str = "husl",
+    cmap: str = "viridis",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    frameon: bool = False,
+    alpha: float = 1.0,
+    size: float | None = None,
+    legend_loc: str = "right margin",
+    legend_fontsize: float = 8.0,
     figsize: tuple[float, float] = (7, 6),
+    dpi: int = _DEFAULT_DPI,
+    ncols: int = 3,
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
+    device: str | None = None,
     show: bool = True,
     save: str | Path | None = None,
-) -> Axes | None:
-    """Scatter of `adata.obsm["X_umap"]`, coloured by a categorical `obs` column or a gene.
+) -> Axes | list[Axes] | None:
+    """Scatter of `obsm[basis]`, rendered on the GPU, coloured by `obs` columns or genes.
 
-    A string/categorical `obs` column (e.g. ``"leiden"``) draws one colour per level with a
-    legend; a numeric column or a gene name draws a `viridis` colour bar. `color=None` is a
-    single-colour scatter. `size=None` picks a point size from the cell count.
+    Mirrors `scanpy.pl.embedding`: `color` may be one key or several (one panel each,
+    `ncols` across). A categorical column draws one colour per level and a legend, in the
+    right margin or, with `legend_loc="on data"`, as labels at each level's median; a numeric
+    column or a gene draws a colour bar. The points are rasterised by Metal into an image of
+    `figsize * dpi` pixels, so a million cells draw in milliseconds and the figure stays
+    light. `xlim`/`ylim` zoom into a window of the embedding.
     """
-    coords = np.asarray(adata.obsm["X_umap"], dtype=float)
-    x, y = coords[:, 0], coords[:, 1]
-    point_size = _auto_point_size(coords.shape[0]) if size is None else size
+    keys: list[str | None] = list(color) if isinstance(color, (list, tuple)) else [color]
+    titles = list(title) if isinstance(title, (list, tuple)) else [title] * len(keys)
+    n_panels = len(keys)
+    cols = min(ncols, n_panels)
+    rows = int(np.ceil(n_panels / cols))
+    width_px = round(figsize[0] * dpi)
+    height_px = round(figsize[1] * dpi)
+    label = basis.removeprefix("X_").upper()
 
     with plt.rc_context(_style()):
-        fig, ax = plt.subplots(figsize=figsize)
-        heading = title if title is not None else (color or "UMAP")
-        legend_artist = None
-
-        categorical = (
-            color is not None
-            and color in adata.obs.columns
-            and adata.obs[color].dtype.kind not in "biufc"
+        fig, axes = plt.subplots(
+            rows, cols, figsize=(figsize[0] * cols, figsize[1] * rows), squeeze=False
         )
-        if color is None:
-            ax.scatter(x, y, s=point_size, c=_ACCENT, alpha=alpha, linewidths=0)
-        elif categorical:
-            cats = adata.obs[color].astype("category")
-            levels = list(cats.cat.categories)
-            codes = cats.cat.codes.to_numpy()
-            colours = _categorical_palette(len(levels), palette)
-            for i, level in enumerate(levels):
-                mask = codes == i
-                ax.scatter(
-                    x[mask],
-                    y[mask],
-                    s=point_size,
-                    color=colours[i],
-                    alpha=alpha,
-                    linewidths=0,
-                    label=str(level),
-                )
-            ncol = 1 if len(levels) <= 14 else 2
-            legend = ax.legend(
-                loc="upper left",
-                bbox_to_anchor=(1.05, 1.0),
-                title=color,
-                markerscale=2.0,
-                ncol=ncol,
-                handletextpad=0.3,
-                borderaxespad=0.0,
+        extra: list[Any] = []
+        flat_axes = list(axes.ravel())
+        for ax in flat_axes[n_panels:]:
+            ax.set_visible(False)
+        for ax, key, heading in zip(flat_axes, keys, titles, strict=False):
+            image, info = render_embedding(
+                adata,
+                basis,
+                key,
+                width=width_px,
+                height=height_px,
+                size=size,
+                alpha=alpha,
+                palette=palette,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                xlim=xlim,
+                ylim=ylim,
+                device=device,
             )
-            legend.get_title().set_fontweight("bold")
-            legend_artist = legend
-        else:
-            values = _expression(adata, color)
-            if values is None:
-                raise KeyError(
-                    f"{color!r} is not a numeric obs column or a gene in var_names / raw"
-                )
-            points = ax.scatter(
-                x, y, s=point_size, c=values, cmap="viridis", alpha=alpha, linewidths=0
-            )
-            bar = fig.colorbar(points, ax=ax, fraction=0.046, pad=0.02)
-            bar.set_label(color, rotation=90)
-            bar.outline.set_visible(False)
+            (x0, x1), (y0, y1) = info["xlim"], info["ylim"]
+            ax.imshow(image, extent=(x0, x1, y0, y1), origin="upper", interpolation="nearest")
+            ax.set_xlim(x0, x1)
+            ax.set_ylim(y0, y1)
+            ax.set_aspect("equal")
+            ax.set_title(heading if heading is not None else (key or label))
+            if frameon:
+                ax.set_xlabel(f"{label}1")
+                ax.set_ylabel(f"{label}2")
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.grid(False)
+            else:
+                _bare(ax)
+            if info["kind"] == "categorical":
+                levels, colours = info["levels"], info["colours"]
+                if legend_loc == "on data":
+                    cats = adata.obs[key].astype("category")
+                    coords = np.asarray(adata.obsm[basis], dtype=float)[:, :2]
+                    codes = cats.cat.codes.to_numpy()
+                    for i, level in enumerate(levels):
+                        inside = codes == i
+                        if inside.any():
+                            mx, my = np.median(coords[inside], axis=0)
+                            ax.text(
+                                mx,
+                                my,
+                                str(level),
+                                fontsize=legend_fontsize,
+                                ha="center",
+                                va="center",
+                                weight="bold",
+                                path_effects=_halo(),
+                            )
+                elif legend_loc != "none":
+                    from matplotlib.lines import Line2D
 
-        ax.set_title(heading)
-        if frameon:
-            ax.set_xlabel("UMAP1")
-            ax.set_ylabel("UMAP2")
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.grid(False)
-        else:
-            _bare(ax)
-        # Fill the canvas: equal aspect via data limits, with only a hair of margin so the
-        # cloud is not swimming in whitespace.
-        ax.margins(0.02)
-        ax.set_aspect("equal", adjustable="datalim")
-        result = ax
-        extra = [legend_artist] if legend_artist is not None else None
-    return _finish(fig, result, show, save, extra_artists=extra)
+                    handles = [
+                        Line2D([0], [0], marker="o", color="none", markerfacecolor=c, markersize=6)
+                        for c in colours
+                    ]
+                    ncol_legend = 1 if len(levels) <= 14 else 2
+                    legend = ax.legend(
+                        handles,
+                        [str(level) for level in levels],
+                        loc="upper left",
+                        bbox_to_anchor=(1.02, 1.0),
+                        title=key,
+                        fontsize=legend_fontsize,
+                        ncol=ncol_legend,
+                        handletextpad=0.3,
+                        borderaxespad=0.0,
+                    )
+                    legend.get_title().set_fontweight("bold")
+                    extra.append(legend)
+            elif info["kind"] == "continuous":
+                from matplotlib.cm import ScalarMappable
+                from matplotlib.colors import Normalize
+
+                mappable = ScalarMappable(
+                    norm=Normalize(info["vmin"], info["vmax"]), cmap=info["cmap"]
+                )
+                bar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.02)
+                bar.set_label(key, rotation=90)
+                bar.outline.set_visible(False)
+        result: Any = flat_axes[0] if n_panels == 1 else flat_axes[:n_panels]
+    return _finish(fig, result, show, save, extra_artists=extra or None)
+
+
+def _halo() -> list:
+    """A white halo behind on-data labels so they read over any colour."""
+    from matplotlib import patheffects
+
+    return [patheffects.withStroke(linewidth=2.5, foreground="white")]
+
+
+def umap(adata: AnnData, color: str | Sequence[str] | None = None, **kwargs: Any) -> Any:
+    """`embedding` on `obsm["X_umap"]`."""
+    return embedding(adata, "X_umap", color, **kwargs)
+
+
+def tsne(adata: AnnData, color: str | Sequence[str] | None = None, **kwargs: Any) -> Any:
+    """`embedding` on `obsm["X_tsne"]`."""
+    return embedding(adata, "X_tsne", color, **kwargs)
+
+
+def pca(adata: AnnData, color: str | Sequence[str] | None = None, **kwargs: Any) -> Any:
+    """`embedding` on `obsm["X_pca"]`, the first two components."""
+    return embedding(adata, "X_pca", color, **kwargs)
 
 
 def rank_genes_groups(

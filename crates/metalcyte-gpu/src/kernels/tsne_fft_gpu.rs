@@ -482,7 +482,8 @@ impl GpuEngine {
             set_scalar(encoder, 5, &(grid.n_boxes as u32));
             encoder.set_threadgroup_memory_length(
                 0,
-                (ROWS_PER_GROUP * NODES_PER_BOX * NODES_PER_BOX * 4 * size_of::<f32>()) as NSUInteger,
+                (ROWS_PER_GROUP * NODES_PER_BOX * NODES_PER_BOX * 4 * size_of::<f32>())
+                    as NSUInteger,
             );
             encoder.dispatch_thread_groups(
                 MTLSize::new(n_bins as u64, 1, 1),
@@ -626,7 +627,8 @@ impl GpuEngine {
             set_scalar(encoder, 5, &(grid.n_boxes as u32));
             encoder.set_threadgroup_memory_length(
                 0,
-                (ROWS_PER_GROUP * NODES_PER_BOX * NODES_PER_BOX * 4 * size_of::<f32>()) as NSUInteger,
+                (ROWS_PER_GROUP * NODES_PER_BOX * NODES_PER_BOX * 4 * size_of::<f32>())
+                    as NSUInteger,
             );
             encoder.dispatch_thread_groups(
                 MTLSize::new(n_bins as u64, 1, 1),

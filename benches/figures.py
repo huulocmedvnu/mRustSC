@@ -16,7 +16,6 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -359,7 +358,8 @@ def f3_streaming():
             "Scaling parameters",
         ),
         (
-            "Pass 3", "15.3 s",
+            "Pass 3",
+            "15.3 s",
             "Scaling of each block.<br>Scatter matrix accumulated<br>on the GPU",
             "50 principal axes<br>(subspace iteration)",
         ),
@@ -751,6 +751,7 @@ def f5_scaling():
 
 
 def f10_umap_1m():
+    """Every embryo cell through Metalcyte's own renderer, labelled on the data."""
     path = RESULTS / "embryo1m_metalcyte_metal.h5ad"
     if not path.exists():
         print(
@@ -758,39 +759,34 @@ def f10_umap_1m():
         )
         return
     import anndata
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import metalcyte as mc
 
     a = anndata.read_h5ad(path)
-    xy = a.obsm["X_umap"]
     types = a.obs["cell_type"].astype(str) if "cell_type" in a.obs else a.obs["leiden"].astype(str)
     counts = types.value_counts()
-    keep = counts.index[:20]
-    label = types.where(types.isin(keep), "other")
-    rng = np.random.default_rng(0)
-    order = rng.permutation(len(a))[:300_000]  # a 300k subsample draws at a sane size
-    fig = go.Figure()
-    for i, t in enumerate([*list(keep), "other"]):
-        m = label.to_numpy()[order] == t
-        if not m.any():
-            continue
-        fig.add_scattergl(
-            x=xy[order][m, 0],
-            y=xy[order][m, 1],
-            mode="markers",
-            name=f"{t} ({int((label == t).sum()):,})",
-            marker=dict(
-                size=2,
-                opacity=0.6,
-                line_width=0,
-                color=COLORS[i % len(COLORS)] if t != "other" else "#cccccc",
-            ),
-        )
-    fig.update_xaxes(visible=False)
-    fig.update_yaxes(visible=False, scaleanchor="x")
-    fig.update_layout(
-        title=f"F10. {len(a):,} embryo cells, UMAP by author cell type (top 20 types; 300k points drawn)",  # noqa: E501
-        legend=dict(itemsizing="constant", font=dict(size=10)),
+    keep = list(counts.index[:20])
+    a.obs["cell type"] = types.where(types.isin(keep), "other").astype("category")
+    levels = list(a.obs["cell type"].cat.categories)
+    a.uns["cell type_colors"] = [
+        "#cccccc" if level == "other" else COLORS[keep.index(level) % len(COLORS)]
+        for level in levels
+    ]
+    out = OUT / "paper" if PAPER else OUT
+    out.mkdir(parents=True, exist_ok=True)
+    mc.pl.umap(
+        a,
+        color="cell type",
+        title="" if PAPER else f"F10. {len(a):,} embryo cells, UMAP by author cell type",
+        legend_loc="right margin",
+        legend_fontsize=8,
+        figsize=(7.5, 6.5),
+        show=False,
+        save=out / "F10_umap_1m.png",
     )
-    save(fig, "F10_umap_1m", 1300, 1000)
+    print(f"wrote {out.relative_to(ROOT)}/F10_umap_1m.png")
 
 
 # ----------------------------------------------------------------------------- F11

@@ -1,0 +1,6 @@
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/functools.py:907: ImplicitModificationWarning: Transforming to str index.
+  return dispatch(args[0].__class__)(*args, **kw)
+metalcyte render 953k: 0.217 s
+metalcyte pl.umap 953k saved: 0.57 s
+scanpy pl.umap 953k saved at 300 dpi: 4.09 s
+PLOT_DONE

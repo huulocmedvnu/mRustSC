@@ -145,6 +145,7 @@ Single runs on the 953 436-cell embryo embedding (50 principal components) on th
 | step | Metalcyte | note |
 |---|---:|---|
 | t-SNE, FFT-accelerated (1 000 iterations) | 54 s | exact up to 20 000 cells, FFT above, the whole iteration on the GPU; 13 s on the 117 308-cell atlas |
+| UMAP scatter of all cells, `pl.umap` (render, legend, PNG at 300 dpi) | 0.6 s | the Metal rasteriser draws the 953 436 points in 0.2 s; scanpy's matplotlib scatter of the same cells takes 4.1 s to save and holds a million path objects |
 | Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
 
 `regress_out` and `combat` read the sparse matrix in gene blocks and hold only their dense

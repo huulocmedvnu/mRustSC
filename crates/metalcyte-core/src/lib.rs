@@ -26,6 +26,7 @@ pub mod paga;
 pub mod pca;
 pub mod preprocess;
 pub mod qc;
+pub mod raster;
 pub mod sampling;
 pub mod scoring;
 pub mod sparse;
