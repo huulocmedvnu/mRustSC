@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "metalcyte"
 version = "0.3.0"
-description = "Fast single-cell RNA-seq analysis on Apple silicon Macs, with scanpy-style functions, GPU support and datasets larger than memory"
+description = "Fast single-cell RNA-seq analysis on Apple silicon Macs, with GPU support and datasets larger than memory"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Tran Thai Huu Loc" }]

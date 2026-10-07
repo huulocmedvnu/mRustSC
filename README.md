@@ -9,8 +9,8 @@
 **Single-cell RNA-seq analysis of atlas-sized datasets on an Apple silicon laptop.**
 
 Metalcyte runs the standard single-cell RNA-seq analysis, from raw counts to clusters and marker
-genes, on a Mac with an Apple M-series chip. You call it from Python with the same function names
-as scanpy, and it writes its results where scanpy expects them. The calculations run in Rust, a
+genes, on a Mac with an Apple M-series chip. You call it from Python, and it stores its results in
+an AnnData object, the standard data format for single-cell data in Python. The calculations run in Rust, a
 compiled programming language, and use all parts of the chip:
 
 - all CPU cores at once,
@@ -29,15 +29,14 @@ took it from raw counts to clusters in 9 minutes on a laptop with 18 GB of memor
 
 ## Main results
 
-- **Fast.** A bone-marrow atlas of 117 308 cells goes from counts to marker genes in 12 s. scanpy
-  with its default settings takes 213 s.
+- **Fast.** A bone-marrow atlas of 117 308 cells goes from counts to marker genes in 12 s.
 - **Low memory use.** A million cells fit within 18 GB of memory. The 4 million cells above used
   about 9 GB at most.
-- **Low energy use.** The same analysis uses one seventh of the energy that scanpy uses.
-- **Checked against scanpy.** Each algorithm has a test that compares its output with scanpy's
-  output and states how close the two must be.
-- **Works with scanpy.** Metalcyte stores its results in the standard places of the AnnData
-  object. scanpy's plotting and analysis functions read them without changes.
+- **Low energy use.** The analysis of those 117 308 cells uses 168 J of energy.
+- **Tested.** Each algorithm has a test that checks its numerical output against a reference
+  result and states the tolerance.
+- **Standard data format.** Results are stored in the usual places of the AnnData object, so other
+  Python tools for single-cell data can read them.
 
 ## Features
 
@@ -89,11 +88,10 @@ The package comes ready to run, so you do not need Rust or Xcode. To build it yo
 ## Quick start
 
 ```python
+import anndata as ad
 import metalcyte as mc
-import scanpy as sc  # example data only
 
-adata = sc.datasets.pbmc3k()
-adata.var_names_make_unique()
+adata = ad.read_h5ad("counts.h5ad")  # raw counts, cells by genes
 
 mc.pp.filter_cells(adata, min_genes=200)
 mc.pp.filter_genes(adata, min_cells=3)
@@ -124,34 +122,29 @@ A step-by-step tutorial is in [docs/tutorials/pbmc3k_clustering.ipynb](https://g
 
 ## Benchmarks
 
-All timings come from an Apple M3 Pro laptop with 18 GB of memory and scanpy 1.12.4. The methods
-are described in [docs/PERFORMANCE.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/PERFORMANCE.md).
+All timings come from an Apple M3 Pro laptop with 18 GB of memory. The methods are described in
+[docs/PERFORMANCE.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/PERFORMANCE.md).
 
-| Dataset | Cells | scanpy | Metalcyte | Metalcyte memory |
-|---|---:|---:|---:|---:|
-| Bone marrow, counts to markers | 117 308 | 213 s | **12 s** | |
-| Human embryo, counts to clusters | 1 001 288 | did not finish¹ | **103 s** | under 1.5 GB per step |
-| Human embryo, full survey | 4 062 980 | not run | **538 s** | about 9 GB at peak |
+| Dataset | Cells | Time | Memory |
+|---|---:|---:|---:|
+| Bone marrow, counts to marker genes | 117 308 | **12 s** | |
+| Human embryo, counts to clusters | 1 001 288 | **103 s** | under 1.5 GB per step |
+| Human embryo, full survey, counts to clusters | 4 062 980 | **538 s** | about 9 GB at peak |
 
-¹ scanpy's scaling step needed 21.9 GB on the 18 GB machine. The computer then moved memory to disk
-(swapping), and we stopped the run after 15 minutes.
+| Energy | Cells | Time | Energy |
+|---|---:|---:|---:|
+| Bone marrow, counts to marker genes | 117 308 | 13 s | **168 J** |
+| Human embryo, full survey, counts to clusters | 4 062 980 | 557 s | **6.2 kJ** |
 
-| Energy, 117 308 cells | Time | Energy |
-|---|---:|---:|
-| scanpy | 237 s | 1 228 J |
-| Metalcyte | 13 s | **168 J** |
-
-On the bone-marrow atlas, Metalcyte and scanpy select the same highly variable genes, and their
-principal components span the same space. Their Leiden clusterings agree with an adjusted Rand index of 0.95 (1.0
-means identical clusters, 0 means chance agreement). They report the same marker genes. Details are
-in [docs/VALIDATION.md](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/VALIDATION.md).
+Energy is the extra power drawn by the chip during the run, measured every 100 ms with the power
+monitor of macOS, with the idle power subtracted.
 
 ## Documentation
 
 - [Installation](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/INSTALL.md)
 - [API reference](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/API.md)
 - [Performance and methodology](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/PERFORMANCE.md)
-- [Validation against scanpy](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/VALIDATION.md)
+- [Validation](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/VALIDATION.md)
 - [How it works](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/HOW_IT_WORKS.md) and [architecture](https://github.com/huulocmedvnu/metalcyte/blob/main/docs/ARCHITECTURE.md)
 - [Changelog](https://github.com/huulocmedvnu/metalcyte/blob/main/CHANGELOG.md)
 
