@@ -96,7 +96,7 @@ mean of three runs (`benches/pipeline.py`):
 | | scanpy (defaults) | scanpy (tuned) | Metalcyte, CPU | Metalcyte, Metal |
 |---|---:|---:|---:|---:|
 | whole pipeline | 213 s | 79 s | 16 s | **12 s** |
-| energy (powermetrics, idle subtracted; measured before the marker-test rewrite, when the run took 20 s) | 974 J | | | **195 J** |
+| energy (powermetrics, idle subtracted) | 1 228 J | | 273 J | **168 J** |
 | PCA / neighbours / UMAP / Leiden / markers | 9.4 / 17.1 / 43.9 / 128.1 / 7.9 s | 3.5 / 16.7 / 42.7 / 2.2 / 7.2 s | 2.0 / 4.6 / 4.8 / 0.7 / 0.5 s | 0.8 / 2.0 / 4.8 / 0.7 / 0.5 s |
 
 "Tuned" is scanpy with the `covariance_eigh` PCA solver, `igraph` Leiden and an unseeded UMAP, the

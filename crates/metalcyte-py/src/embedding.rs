@@ -231,7 +231,21 @@ fn tsne<'py>(
     };
     let device = device_from_py(device)?;
     let layout = py
-        .allow_threads(|| core_tsne::tsne(&embedding, &params, &device))
+        .allow_threads(|| {
+            if device.is_metal() && !core_tsne::uses_exact(embedding.nrows(), &params) {
+                // The FFT path's attractive term on the GPU when one is usable; the
+                // cores otherwise, through the same entry point.
+                if let Ok(attraction) = metalcyte_gpu::kernels::tsne_attraction::metal_attraction()
+                {
+                    return metalcyte_core::tsne_fft::tsne_fft_with(
+                        &embedding,
+                        &params,
+                        Box::new(attraction),
+                    );
+                }
+            }
+            core_tsne::tsne(&embedding, &params, &device)
+        })
         .map_err(to_py_error)?;
     Ok(layout.into_pyarray(py))
 }

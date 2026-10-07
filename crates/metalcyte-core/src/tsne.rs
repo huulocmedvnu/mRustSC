@@ -87,13 +87,18 @@ pub(crate) const MACHINE_EPSILON: f64 = f64::EPSILON;
 const INIT_STANDARD_DEVIATION: f32 = 1e-4;
 
 /// t-SNE embedding of a cells-by-features matrix, usually PCA coordinates.
-pub fn tsne(embedding: &Array2<f32>, params: &TsneParams, device: &Device) -> Result<Array2<f32>> {
-    let (n_cells, n_features) = embedding.dim();
-    let exact = match params.method {
+/// Whether `params` select the exact formulation for `n_cells`.
+pub fn uses_exact(n_cells: usize, params: &TsneParams) -> bool {
+    match params.method {
         TsneMethod::Exact => true,
         TsneMethod::Fft => false,
         TsneMethod::Auto => n_cells <= MAX_CELLS,
-    };
+    }
+}
+
+pub fn tsne(embedding: &Array2<f32>, params: &TsneParams, device: &Device) -> Result<Array2<f32>> {
+    let (n_cells, n_features) = embedding.dim();
+    let exact = uses_exact(n_cells, params);
     validate(n_cells, n_features, params, exact)?;
     if !exact {
         return crate::tsne_fft::tsne_fft(embedding, params, device);
