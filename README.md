@@ -7,7 +7,8 @@ hand-written Metal kernels, all in the chip's unified memory. An out-of-core hea
 through quality control, feature selection and PCA without holding the matrix. On an M3 Pro laptop
 with 18 GB, a 117 308-cell atlas goes from counts to marker
 genes in 12 s and a 1 001 288-cell atlas
-from counts to Leiden clusters in 103 s.
+from counts to Leiden clusters in 103 s, and the full 4 062 980-cell survey it comes from in
+9 minutes at a peak of about 9 GB.
 
 Results are written to the standard AnnData slots, so an analysis script written for scanpy runs on
 Metalcyte after changing its import, and scanpy's plotting still reads the results.

@@ -138,20 +138,28 @@ the exact graph, which matches scanpy's cell for cell, stops being cheap.
 PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
 ```
 
-## Two million cells
+## Four million cells
 
-The embryo atlas stacked with a binomially thinned copy of itself (`benches/double_counts.py`),
-2 002 576 cells, a synthetic point beyond the largest public file at hand, on the same laptop.
-Seconds per step, single runs, with the default neighbour search.
+The full survey of human embryonic development from CZ CELLxGENE (dataset
+f7c1c579-2dc0-47e2-ba19-8165c5a0e353): 4 062 980 cells by 45 676 genes, 2.38 billion stored
+counts, a 28.9 GB counts file. The same laptop, 18 GB of memory, single runs, the default
+neighbour search. Nothing was tuned for this file.
 
-| step | Metalcyte, Metal | Metalcyte, CPU only | memory added, Metal |
-|---|---:|---:|---:|
-| out-of-core head, four passes | 62 | 74 | 1.2 GB |
-| neighbour graph (approximate) | 38 | 37 | 1.9 GB |
-| UMAP (parallel) | 83 | 88 | 2.2 GB |
-| Leiden | 20 | 22 | 3.0 GB |
-| whole run | **202** | 222 | |
-| Wilcoxon markers over the file, 2 000 genes, 51 clusters | 8.4 | | 0 GB |
+| step | seconds | memory added |
+|---|---:|---:|
+| out-of-core head, four passes (QC, normalise, variable genes, scale, PCA) | 155 | 1.8 GB |
+| neighbour graph (approximate) | 85 | 4.1 GB |
+| UMAP (parallel) | 237 | 4.9 GB |
+| Leiden | 61 | 7.3 GB |
+| **from counts to clusters** | **538** (9 minutes, 71 clusters) | peak about 9 GB |
+| Wilcoxon markers on the 2 000 variable genes kept by the head (0.63 GB) | 1.3 | |
+| UMAP scatter of all 4 062 980 cells, `pl.umap`, saved | 1.5 | |
+| t-SNE, FFT-accelerated, on the GPU | 497 | |
+
+Converting the CELLxGENE file to counts (`benches/prepare_counts.py`, streamed) took 118 s at
+2.9 GB resident. For a 2 002 576-cell point in between, the 1M atlas stacked with a thinned copy
+of itself (`benches/double_counts.py`) ran in 202 s on Metal (head 62, neighbours 38, UMAP 83,
+Leiden 20) and 222 s on the cores, with streamed markers on 2 000 genes in 8.4 s.
 
 ## Beyond the standard pipeline at a million cells
 
