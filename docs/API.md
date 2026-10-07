@@ -611,16 +611,17 @@ products and per-group medians, not core algorithms.
 `metalcyte.pl` draws figures from the AnnData slots Metalcyte writes, with matplotlib
 and (when installed) seaborn for palettes. It never imports scanpy. It is loaded on
 first access, so `import metalcyte` stays free of matplotlib. Install the `plot`
-extra (`matplotlib>=3.7`, `seaborn>=0.13`) to use it. Every function takes `show`
-(display the figure, default `True`) and `save` (a path to write it to), and the two
-can be combined.
+extra (`matplotlib>=3.7`, `seaborn>=0.13`) to use it. Every function takes `save` (a path to
+write the figure to) and `show` (display it). `show` defaults to `None`, which displays the
+figure only when nothing is saved, so a script that saves never blocks on a window;
+`show=True` with `save` does both.
 
-#### `pl.pca_variance_ratio(adata, n_pcs=30, *, show=True, save=None)`
+#### `pl.pca_variance_ratio(adata, n_pcs=30, *, show=None, save=None)`
 
 Elbow plot of the PCA spectrum from `uns["pca"]["variance_ratio"]`: per-component bars
 and a cumulative trend line.
 
-#### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="plotly", cmap="plasma", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=True, save=None)`
+#### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="plotly", cmap="plasma", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=None, save=None)`
 
 Scatter of `obsm[basis]` rendered on the GPU. The points are rasterised by Metal into one
 RGBA image of `figsize * dpi` pixels (the cores when no GPU is usable), and matplotlib
@@ -646,7 +647,7 @@ description of the colouring (`kind`, `levels` and `colours`, or `vmin`/`vmax` a
 plus the `xlim`/`ylim` drawn), for callers that want the pixels themselves, for a web
 viewer or an image file without matplotlib.
 
-#### `pl.rank_genes_groups(adata, n_genes=10, n_cols=4, *, show=True, save=None)`
+#### `pl.rank_genes_groups(adata, n_genes=10, n_cols=4, *, show=None, save=None)`
 
 Multi-panel bar chart of the top `n_genes` marker genes per group by score, from
 `uns["rank_genes_groups"]`.

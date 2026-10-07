@@ -11,8 +11,8 @@ imports scanpy.
 
 Every function shares the house style: clean spines, a subtle grid, a modern sans-serif,
 categorical clusters in plotly's qualitative palettes and gene expression in a
-perceptual continuous colormap (``plasma``, plotly's default). `show` displays the figure
-and `save` writes it; both can be combined.
+perceptual continuous colormap (``plasma``, plotly's default). `save` writes the figure
+and `show` displays it; by default a figure is shown only when it is not saved.
 """
 
 from __future__ import annotations
@@ -147,16 +147,21 @@ def _auto_point_size(n: int) -> float:
 def _finish(
     fig: Figure,
     result: Any,
-    show: bool,
+    show: bool | None,
     save: str | Path | None,
     extra_artists: Any = None,
 ) -> Any:
-    """Save and/or show a finished figure, mirroring scanpy's `show`/`save` contract.
+    """Save and/or show a finished figure.
 
-    Saves with explicit `dpi=300` and `bbox_inches="tight"` because this runs after the
-    `rc_context` has closed, so the style's savefig settings no longer apply. `extra_artists`
-    (an outside legend) is folded into the tight bounding box so it is never clipped.
+    `show=None` (the default) displays the figure when nothing is saved and otherwise
+    only writes the file, so a script that passes `save` never blocks on an interactive
+    window. Saves with explicit `dpi=300` and `bbox_inches="tight"` because this runs
+    after the `rc_context` has closed, so the style's savefig settings no longer apply.
+    `extra_artists` (an outside legend) is folded into the tight bounding box so it is
+    never clipped. A saved figure that is not shown is closed to release its memory.
     """
+    if show is None:
+        show = save is None
     if save is not None:
         path = Path(save)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -164,6 +169,8 @@ def _finish(
     if show:
         plt.show()
         return None
+    if save is not None:
+        plt.close(fig)
     return result
 
 
@@ -201,7 +208,7 @@ def pca_variance_ratio(
     adata: AnnData,
     n_pcs: int = 30,
     *,
-    show: bool = True,
+    show: bool | None = None,
     save: str | Path | None = None,
 ) -> Axes | None:
     """Elbow plot of the PCA spectrum: per-component bars and a cumulative trend line.
@@ -232,7 +239,7 @@ def pca_variance_ratio(
         trend.spines["right"].set_visible(True)
         trend.spines["right"].set_color(_ACCENT_2)
 
-        ax.set_title(f"PCA variance explained — first {n} components")
+        ax.set_title(f"PCA variance explained by the first {n} components")
         result = fig.axes
     return _finish(fig, result, show, save)
 
@@ -380,7 +387,7 @@ def embedding(
     xlim: tuple[float, float] | None = None,
     ylim: tuple[float, float] | None = None,
     device: str | None = None,
-    show: bool = True,
+    show: bool | None = None,
     save: str | Path | None = None,
 ) -> Axes | list[Axes] | None:
     """Scatter of `obsm[basis]`, rendered on the GPU, coloured by `obs` columns or genes.
@@ -402,12 +409,15 @@ def embedding(
     label = basis.removeprefix("X_").upper()
 
     with plt.rc_context(_style()):
+        # One panel keeps its full size and lets a long legend extend the saved figure;
+        # several panels share the space under a constrained layout so no legend
+        # overlaps the next panel.
         fig, axes = plt.subplots(
             rows,
             cols,
             figsize=(figsize[0] * cols, figsize[1] * rows),
             squeeze=False,
-            layout="constrained",
+            layout="constrained" if n_panels > 1 else None,
         )
         extra: list[Any] = []
         flat_axes = list(axes.ravel())
@@ -471,19 +481,20 @@ def embedding(
                         Line2D([0], [0], marker="o", color="none", markerfacecolor=c, markersize=6)
                         for c in colours
                     ]
-                    ncol_legend = 1 if len(levels) <= 14 else 2
+                    # Up to 24 entries per column, so seventy cell types read as three
+                    # columns; the axis title already names the column, so the legend
+                    # carries no title of its own.
+                    ncol_legend = max(1, int(np.ceil(len(levels) / 24)))
                     legend = ax.legend(
                         handles,
                         [str(level) for level in levels],
                         loc="upper left",
                         bbox_to_anchor=(1.02, 1.0),
-                        title=key,
                         fontsize=legend_fontsize,
                         ncol=ncol_legend,
                         handletextpad=0.3,
                         borderaxespad=0.0,
                     )
-                    legend.get_title().set_fontweight("bold")
                     extra.append(legend)
             elif info["kind"] == "continuous":
                 from matplotlib.cm import ScalarMappable
@@ -526,7 +537,7 @@ def rank_genes_groups(
     n_genes: int = 10,
     n_cols: int = 4,
     *,
-    show: bool = True,
+    show: bool | None = None,
     save: str | Path | None = None,
 ) -> np.ndarray | None:
     """Multi-panel bar chart of the top `n_genes` marker genes per group by score.
