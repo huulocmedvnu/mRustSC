@@ -76,7 +76,7 @@ Metalcyte is built and tested on macOS on Apple silicon; other platforms are unt
 | `mc.tl` | `umap`, `tsne`, `leiden`, `louvain`, `paga`, `diffmap`, `dpt`, `draw_graph`, `embedding_density`, `dendrogram`, `rank_genes_groups` (Wilcoxon, t-test, t-test with overestimated variance, logistic regression), `filter_rank_genes_groups`, `marker_gene_overlap`, `score_genes`, `score_genes_cell_cycle` |
 | `mc.metrics` | `morans_i`, `gearys_c`, `confusion_matrix`, `modularity` |
 | `mc.get` | `obs_df`, `var_df`, `rank_genes_groups_df`, `aggregate` |
-| `mc.pl` | `umap`, `pca_variance_ratio`, `rank_genes_groups` (the rest of plotting is scanpy's, on the same AnnData) |
+| `mc.pl` | `embedding`, `umap`, `tsne`, `pca` (rendered on the GPU), `render_embedding`, `pca_variance_ratio`, `rank_genes_groups` (the rest of plotting is scanpy's, on the same AnnData) |
 
 Every function is held to scanpy's output by a test in `tests/`, with the tolerance stated in the
 test; [docs/VALIDATION.md](docs/VALIDATION.md) lists them and the few places where the two differ on
@@ -138,7 +138,8 @@ a different order. For results that must match across machines bit for bit, run 
 - `tl.tsne` is exact up to 20 000 cells and FFT-accelerated (FIt-SNE) above, in two dimensions only.
 - `regress_out` and `combat` return a dense matrix, which must fit within 60% of the machine's
   memory; the input is read in gene blocks and is never densified as a whole.
-- `mc.pl` has three functions; plot with scanpy on the same AnnData for the rest.
+- `mc.pl` draws embeddings on the GPU and the PCA spectrum and marker rankings with matplotlib;
+  plot with scanpy on the same AnnData for the rest.
 - Metalcyte is built and tested on macOS on Apple silicon only. Continuous integration runs the
   whole suite on the CPU; the GPU tests run locally.
 

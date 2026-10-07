@@ -181,3 +181,9 @@ which second.
 from the sparse input (`batch::ColumnBlocks`), `combat` runs its empirical Bayes step on per-batch
 sufficient statistics between two passes, and the only dense array is the result, budgeted at 60%
 of physical memory instead of a fixed 8 GiB.
+
+### 2.6 Embedding plots on the GPU
+**Done (2026-10-07):** `pl.embedding`/`umap`/`tsne`/`pca` rasterise the points through a Metal
+render pass into one RGBA image (`raster.rs` in both crates, the cores as fallback and
+reference), matplotlib draws the legend and colour bar around it. 953 436 cells render in
+0.2 s and save in 0.6 s; scanpy's matplotlib scatter takes 4.1 s and holds a path per cell.

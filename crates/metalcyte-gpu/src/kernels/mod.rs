@@ -2,6 +2,7 @@
 //! function that dispatches it.
 
 pub mod knn;
+pub mod raster;
 pub mod spmm;
 pub mod tsne_fft_gpu;
 pub mod tsne_gradient;

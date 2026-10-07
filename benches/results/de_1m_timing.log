@@ -1,0 +1,17 @@
+read 1.9 s (1001288, 45676)
+cells 953436 genes 2000 clusters 42
+metalcyte wilcoxon 2000 genes: 0.3 s
+metalcyte t-test 2000 genes: 0.2 s
+metalcyte wilcoxon all 45676 genes: 12.7 s
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:609: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "scores"] = scores[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:612: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "pvals"] = pvals[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:622: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "pvals_adj"] = pvals_adj[global_indices]
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:633: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "logfoldchanges"] = np.log2(
+/Users/mac/Downloads/mRustSC_work/mRustSC/.venv/lib/python3.12/site-packages/scanpy/tools/_rank_genes_groups.py:607: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  self.stats[group_name, "names"] = self.var_names[global_indices]
+scanpy wilcoxon 2000 genes: 65.1 s
+DE_DONE

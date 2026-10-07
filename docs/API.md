@@ -597,12 +597,31 @@ can be combined.
 Elbow plot of the PCA spectrum from `uns["pca"]["variance_ratio"]`: per-component bars
 and a cumulative trend line.
 
-#### `pl.umap(adata, color=None, *, title=None, palette="husl", frameon=False, alpha=0.7, size=None, figsize=(7, 6), show=True, save=None)`
+#### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="husl", cmap="viridis", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=True, save=None)`
 
-Scatter of `obsm["X_umap"]`. A string or categorical `obs` column (for example
-`"leiden"`) draws one colour per level with a legend. A numeric column or a gene name
-draws a `viridis` colour bar. `color=None` is a single-colour scatter. `size=None`
-picks a point size from the cell count.
+Scatter of `obsm[basis]` rendered on the GPU. The points are rasterised by Metal into one
+RGBA image of `figsize * dpi` pixels (the cores when no GPU is usable), and matplotlib
+draws the axes, legend and colour bar around it, so a million cells take a few
+milliseconds to draw and the figure holds one bitmap, not a million paths. `color` is an
+`obs` column or a gene, or a list of them for one panel each (`ncols` across). A
+categorical column draws one colour per level, from `uns[f"{color}_colors"]` when present
+and the palette otherwise, with a legend in the right margin or, with
+`legend_loc="on data"`, labels at each level's median. A numeric column or a gene draws a
+colour bar over `cmap` between `vmin` and `vmax`. `size` is the point diameter in pixels
+(chosen from the cell count by default); `xlim`/`ylim` zoom into a window. The two
+rasterisers agree to the rounding of the blend (`tests/test_plotting_gpu.py`).
+
+#### `pl.umap(adata, color=None, **kwargs)`, `pl.tsne(...)`, `pl.pca(...)`
+
+`pl.embedding` on `obsm["X_umap"]`, `obsm["X_tsne"]` and the first two columns of
+`obsm["X_pca"]`.
+
+#### `pl.render_embedding(adata, basis="X_umap", color=None, *, width=2100, height=1800, size=None, alpha=1.0, palette="husl", cmap="viridis", vmin=None, vmax=None, xlim=None, ylim=None, background="white", device=None)`
+
+The primitive behind the plots: returns the `(height, width, 4)` `uint8` image and a
+description of the colouring (`kind`, `levels` and `colours`, or `vmin`/`vmax` and `cmap`,
+plus the `xlim`/`ylim` drawn), for callers that want the pixels themselves, for a web
+viewer or an image file without matplotlib.
 
 #### `pl.rank_genes_groups(adata, n_genes=10, n_cols=4, *, show=True, save=None)`
 
