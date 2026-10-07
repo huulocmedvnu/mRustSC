@@ -10,8 +10,8 @@ bar. It depends only on matplotlib (and seaborn for palettes when present); it n
 imports scanpy.
 
 Every function shares the house style: clean spines, a subtle grid, a modern sans-serif,
-categorical clusters in a perceptually even palette (seaborn ``husl``) and gene
-expression in a perceptual continuous colormap (``viridis``). `show` displays the figure
+categorical clusters in plotly's qualitative palettes and gene expression in a
+perceptual continuous colormap (``plasma``, plotly's default). `show` displays the figure
 and `save` writes it; both can be combined.
 """
 
@@ -82,12 +82,61 @@ def _style() -> dict[str, Any]:
     }
 
 
-def _categorical_palette(n: int, name: str = "husl") -> list:
-    """`n` perceptually even colours; seaborn when available, else a matplotlib cycle."""
+# Plotly's qualitative palettes: the 10-colour default, then its mid-saturation Vivid
+# and Safe sets for more levels, so a legend of thirty cell types still reads without
+# the dark or neon colours of the larger sets. Hex values as plotly ships them.
+_PLOTLY_10 = [
+    "#636EFA",
+    "#EF553B",
+    "#00CC96",
+    "#AB63FA",
+    "#FFA15A",
+    "#19D3F3",
+    "#FF6692",
+    "#B6E880",
+    "#FF97FF",
+    "#FECB52",
+]
+_PLOTLY_VIVID = [
+    "#E58606",
+    "#5D69B1",
+    "#52BCA3",
+    "#99C945",
+    "#CC61B0",
+    "#24796C",
+    "#DAA51B",
+    "#2F8AC4",
+    "#764E9F",
+    "#ED645A",
+    "#CC3A8E",
+]
+_PLOTLY_SAFE = [
+    "#88CCEE",
+    "#CC6677",
+    "#DDCC77",
+    "#117733",
+    "#332288",
+    "#AA4499",
+    "#44AA99",
+    "#999933",
+    "#882255",
+    "#661100",
+    "#6699CC",
+]
+
+
+def _categorical_palette(n: int, name: str = "plotly") -> list:
+    """`n` colours as RGB tuples: plotly's qualitative sets by default, a seaborn
+    palette by name when seaborn is present, else a matplotlib cycle."""
+    from matplotlib.colors import to_rgb
+
+    if name == "plotly":
+        hexes = _PLOTLY_10 if n <= len(_PLOTLY_10) else _PLOTLY_10 + _PLOTLY_VIVID + _PLOTLY_SAFE
+        return [to_rgb(hexes[i % len(hexes)]) for i in range(n)]
     if _HAS_SEABORN:
-        return _sns.color_palette(name, n)
+        return [tuple(c[:3]) for c in _sns.color_palette(name, n)]
     cmap = plt.get_cmap("tab10" if n <= 10 else "tab20")
-    return [cmap(i % cmap.N) for i in range(n)]
+    return [cmap(i % cmap.N)[:3] for i in range(n)]
 
 
 def _auto_point_size(n: int) -> float:
@@ -227,8 +276,8 @@ def render_embedding(
     height: int = 1800,
     size: float | None = None,
     alpha: float = 1.0,
-    palette: str = "husl",
-    cmap: str = "viridis",
+    palette: str = "plotly",
+    cmap: str = "plasma",
     vmin: float | None = None,
     vmax: float | None = None,
     xlim: tuple[float, float] | None = None,
@@ -316,8 +365,8 @@ def embedding(
     color: str | Sequence[str] | None = None,
     *,
     title: str | Sequence[str] | None = None,
-    palette: str = "husl",
-    cmap: str = "viridis",
+    palette: str = "plotly",
+    cmap: str = "plasma",
     vmin: float | None = None,
     vmax: float | None = None,
     frameon: bool = False,
@@ -354,7 +403,11 @@ def embedding(
 
     with plt.rc_context(_style()):
         fig, axes = plt.subplots(
-            rows, cols, figsize=(figsize[0] * cols, figsize[1] * rows), squeeze=False
+            rows,
+            cols,
+            figsize=(figsize[0] * cols, figsize[1] * rows),
+            squeeze=False,
+            layout="constrained",
         )
         extra: list[Any] = []
         flat_axes = list(axes.ravel())

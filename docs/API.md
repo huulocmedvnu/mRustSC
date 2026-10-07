@@ -597,7 +597,7 @@ can be combined.
 Elbow plot of the PCA spectrum from `uns["pca"]["variance_ratio"]`: per-component bars
 and a cumulative trend line.
 
-#### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="husl", cmap="viridis", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=True, save=None)`
+#### `pl.embedding(adata, basis="X_umap", color=None, *, title=None, palette="plotly", cmap="plasma", vmin=None, vmax=None, frameon=False, alpha=1.0, size=None, legend_loc="right margin", legend_fontsize=8, figsize=(7, 6), dpi=300, ncols=3, xlim=None, ylim=None, device=None, show=True, save=None)`
 
 Scatter of `obsm[basis]` rendered on the GPU. The points are rasterised by Metal into one
 RGBA image of `figsize * dpi` pixels (the cores when no GPU is usable), and matplotlib
@@ -616,7 +616,7 @@ rasterisers agree to the rounding of the blend (`tests/test_plotting_gpu.py`).
 `pl.embedding` on `obsm["X_umap"]`, `obsm["X_tsne"]` and the first two columns of
 `obsm["X_pca"]`.
 
-#### `pl.render_embedding(adata, basis="X_umap", color=None, *, width=2100, height=1800, size=None, alpha=1.0, palette="husl", cmap="viridis", vmin=None, vmax=None, xlim=None, ylim=None, background="white", device=None)`
+#### `pl.render_embedding(adata, basis="X_umap", color=None, *, width=2100, height=1800, size=None, alpha=1.0, palette="plotly", cmap="plasma", vmin=None, vmax=None, xlim=None, ylim=None, background="white", device=None)`
 
 The primitive behind the plots: returns the `(height, width, 4)` `uint8` image and a
 description of the colouring (`kind`, `levels` and `colours`, or `vmin`/`vmax` and `cmap`,
