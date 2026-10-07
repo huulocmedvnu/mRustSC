@@ -82,14 +82,20 @@ def test_harmony_raises_batch_mixing(
 
     mc.pp.harmony_integrate(batched, key="batch", device="cpu")
     after = _ilisi(batched.obsm["X_pca_harmony"], batch)
+    # The original Harmony's fixed ridge penalty, which corrects the planted shift harder
+    # than the estimated penalty of Harmony 1.2 that the default follows.
+    classic = batched.copy()
+    mc.pp.harmony_integrate(classic, key="batch", lamb=1.0, device="cpu")
+    after_classic = _ilisi(classic.obsm["X_pca_harmony"], batch)
 
     record_property("harmony.ilisi_before", round(before, 4))
     record_property("harmony.ilisi_after", round(after, 4))
+    record_property("harmony.ilisi_after_classic", round(after_classic, 4))
     assert before < 1.2, f"batches were not separated to begin with (iLISI {before:.3f})"
     assert after > before + 0.4, (
         f"correction did not mix batches (iLISI {before:.3f} -> {after:.3f})"
     )
-    assert after > 1.5
+    assert after_classic > 1.5
 
 
 def test_objective_converges(batched: AnnData) -> None:

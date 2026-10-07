@@ -419,3 +419,19 @@ head 32 / 39 s, neighbours 17 / 19 s, UMAP 44 / 45 s, Leiden 10 / 9 s, whole run
 Metal and 112 s on the CPU (43 and 44 Leiden clusters). The CPU-only laptop is now within 10% of
 the GPU run, because the one quadratic step is gone; the GPU's remaining advantage is PCA in the
 head.
+
+## 12. Addendum, 2026-10-07: t-SNE, batch correction and Harmony at scale
+
+- `tl.tsne(method="fft")` (FIt-SNE, `tsne_fft.rs`): 94 s at 117 308 cells, 189 s at 953 436
+  (1 000 iterations). Interpolated repulsive forces within 2% RMS of brute force at the default
+  grid; the exact objective of the FFT layout within 7% of the exact path's on 3 000 cells.
+- `regress_out` and `combat` by gene blocks from a column-major copy of the sparse input
+  (`batch::ColumnBlocks`); ComBat's empirical Bayes step on per-batch `n`, `sum x`, `sum x^2`.
+  Only the dense result is held; budget 60% of physical memory (`hw.memsize`).
+- Harmony: the E-step, objective and k-means ran on one core with `R` stored clusters by cells
+  (strided per-cell access); at 953 436 cells it had not finished after 15 minutes. Rewritten
+  with cells as rows and every per-cell step across the cores: 32 s on the cores, 76 s when the
+  two matmuls went through Metal (the copy to and from the device cost more than the product),
+  so the matmuls stay on the cores. Agreement with harmonypy on 20 000 bone-marrow cells by
+  donor: median cosine 0.98, iLISI 3.64 against 3.70 (2.22 before correction), cLISI 1.29 both.
+  
