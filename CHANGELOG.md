@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 (2026-10-07)
+
+Documentation release. The code is unchanged from 0.3.0.
+
+- Shorter, more precise user-facing text in the README, the documentation, the tutorial and the
+  docstrings.
+- The software is archived on Zenodo (DOI 10.5281/zenodo.23210563), and CITATION.cff records the
+  DOIs.
+- The raw power samples of the two 4 062 980-cell energy runs are in `benches/results`.
+
 ## 0.3.0 (2026-10-07)
 
 First release on PyPI. Prebuilt wheels are available for macOS on Apple silicon,
