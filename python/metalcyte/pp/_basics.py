@@ -2,7 +2,7 @@
 
 This module only moves data and sets defaults. It takes the matrix out of an `AnnData`,
 passes it to the Rust core as plain typed arrays, and writes the result back into the
-slot scanpy uses. It also holds private helpers that `metalcyte.tl` reuses, so these
+`AnnData`. It also holds private helpers that `metalcyte.tl` reuses, so these
 conventions are defined in one place.
 """
 
@@ -33,8 +33,7 @@ if TYPE_CHECKING:
 #: NN-descent. Measured on an M3 Pro (benches/knn_methods.py): the exact search is
 #: faster on the GPU up to about 100 000 cells and on the CPU up to about 50 000; at
 #: 250 000 cells NN-descent is 2.4 times faster than the GPU and 6 times faster than the
-#: CPU search. The threshold sits where the exact graph, which matches scanpy's search
-#: cell for cell, stops being cheap.
+#: CPU search. The threshold sits where the exact search stops being cheap.
 APPROXIMATE_FROM = 200_000
 
 __all__ = [
@@ -169,7 +168,7 @@ def log1p(adata: AnnData, *, inplace: bool = True) -> sp.csr_matrix | None:
     if not inplace:
         return logged
     adata.X = logged
-    # scanpy records the base so downstream tools know the data is logarithmised.
+    # The base is recorded so downstream tools know the data is logarithmised.
     adata.uns["log1p"] = {"base": None}
     return None
 
@@ -256,7 +255,7 @@ def pca(
     else:
         result = ext.pca(*_csr_args(x), n_comps, zero_center, random_state, device)
     adata.obsm["X_pca"] = np.asarray(result["embedding"], dtype=_VALUE_DTYPE)
-    # The core returns components as (n_components, n_genes); scanpy stores the transpose.
+    # The core returns components as (n_components, n_genes). `varm` stores the transpose.
     adata.varm["PCs"] = np.asarray(result["components"], dtype=_VALUE_DTYPE).T.copy()
     adata.uns["pca"] = {
         "variance_ratio": np.asarray(result["explained_variance_ratio"], dtype=_VALUE_DTYPE),
@@ -292,7 +291,7 @@ def neighbors(
     representation = _representation(adata, use_rep)
     if method == "auto":
         method = "approximate" if adata.n_obs > APPROXIMATE_FROM else "exact"
-    # scanpy counts the cell itself among its n_neighbors; the core does not.
+    # `n_neighbors` counts the cell itself. The core does not, so it is asked for one fewer.
     if method == "exact":
         indices, distances = extension.knn(representation, n_neighbors - 1, device)
     else:

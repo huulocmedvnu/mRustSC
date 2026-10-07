@@ -1,21 +1,17 @@
-"""Find branches in a trajectory with diffusion pseudotime (DPT), as scanpy does.
+"""Find branches in a trajectory with diffusion pseudotime (DPT).
 
-This is a Python port of scanpy's version of the Haghverdi 2016 algorithm. Finding
+This implements the branch detection of Haghverdi et al. 2016 in Python. Finding
 branches is mostly graph and label logic, so it lives in the Python layer and not in the
 Rust core. It reads the diffusion map that metalcyte already computed
 (`obsm["X_diffmap"]`, `uns["diffmap_evals"]`) and the pseudotime. It builds the DPT
 distance matrix between cells. It then splits segments of the trajectory again and
 again, using the Kendall-tau correlation of each cell's distances to the segment's end
-cells (tips). The result is the grouping that scanpy writes to `obs["dpt_groups"]`.
-The group numbers are arbitrary, so agreement with scanpy is measured with the adjusted
-Rand index.
+cells (tips). The result is the grouping written to `obs["dpt_groups"]`. The group
+numbers are arbitrary.
 
-Ported from `scanpy/tools/_dpt.py` (`detect_branchings`, `select_segment`,
-`detect_branching`, `_detect_branching`, `__detect_branching_haghverdi16`,
-`kendall_tau_split`) and `scanpy/neighbors` (`_get_dpt_row`). Only the grouping is
-built. scanpy also computes a tree of how segments connect, which is not part of
-`dpt_groups`. The code calls `scipy.stats.kendalltau` for the first tau of each split,
-as scanpy does. Using the same function keeps the split points identical.
+Only the grouping is built. The tree of how segments connect is not part of
+`dpt_groups`, so it is not computed. The code calls `scipy.stats.kendalltau` for the
+first tau of each split.
 """
 
 from __future__ import annotations
@@ -23,8 +19,11 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import kendalltau
 
-# scanpy/metalcyte treat an eigenvalue at or above this as the stationary state, weighted 1
-# in the DPT distance rather than lambda / (1 - lambda). Matches diffusion.rs.
+# Provenance: ported from scanpy (BSD-3-Clause), `scanpy/tools/_dpt.py` and
+# `scanpy/neighbors` (`_get_dpt_row`).
+
+# An eigenvalue at or above this is treated as the stationary state, weighted 1
+# in the DPT distance. Other eigenvalues get lambda / (1 - lambda). Matches diffusion.rs.
 _STATIONARY_EIGENVALUE = 0.9994
 _MIN_KENDALL_LENGTH = 5
 
@@ -37,7 +36,7 @@ def dpt_groups(
     allow_kendall_tau_shift: bool = True,
     n_dcs: int = 10,
 ) -> np.ndarray:
-    """A branch number for each cell, as scanpy's `dpt(n_branchings>0)` writes to obs."""
+    """A branch number for each cell, which `tl.dpt` writes to `obs["dpt_groups"]`."""
     eigen_basis = np.asarray(adata.obsm["X_diffmap"], dtype=np.float64)[:, :n_dcs]
     eigen_values = np.asarray(adata.uns["diffmap_evals"], dtype=np.float64)[:n_dcs]
     pseudotime = np.asarray(adata.obs["dpt_pseudotime"], dtype=np.float64)
@@ -58,7 +57,7 @@ def dpt_groups(
 
 
 def _dpt_distances(eigen_basis: np.ndarray, eigen_values: np.ndarray) -> np.ndarray:
-    """The Haghverdi DPT distance matrix, from `scanpy.neighbors._get_dpt_row`.
+    """The DPT distance matrix between all cells (Haghverdi et al. 2016).
 
     `distance[i, j]^2 = sum_k w_k (psi[i, k] - psi[j, k])^2`, with `w_k = (l_k/(1-l_k))^2`
     for a non-stationary eigenvalue and `1` for the stationary one. Building the scaled
@@ -76,7 +75,7 @@ def _dpt_distances(eigen_basis: np.ndarray, eigen_values: np.ndarray) -> np.ndar
 
 
 class _Brancher:
-    """scanpy's `DPT` branch detection, reduced to the segment partition it produces."""
+    """DPT branch detection, reduced to the segment partition it produces."""
 
     def __init__(
         self,

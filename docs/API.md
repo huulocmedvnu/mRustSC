@@ -1,18 +1,18 @@
 # API reference
 
-Every function takes an `AnnData` object and stores its result in the same place
-scanpy would. So scanpy's plotting functions can read the result unchanged.
-The signatures below are the ones the installed package exposes. Where scanpy has an
-option that Metalcyte lacks, this page says so and describes what the call does today.
+Every function takes an `AnnData` object and stores its result in a fixed slot of it.
+Each section below names the slots a function reads and writes. The signatures are the
+ones the installed package exposes.
 
-Functions are grouped the way scanpy groups them: `pp` (preprocessing), `tl` (tools),
-`metrics` and `get`. Metalcyte also has its own `pl` module for plotting.
+Functions are grouped in five modules: `pp` (preprocessing), `tl` (tools), `metrics`,
+`get` (tables) and `pl` (plots).
 
 All 42 public functions are implemented: 19 in `pp`, 15 in `tl`, and 4 each in
 `metrics` and `get`. No function raises `NotImplementedError`.
 
-Where Metalcyte gives a different result from scanpy, the difference is described under
-the function concerned. A test in `tests/test_*_audit.py` checks each of these differences.
+Edge cases and design choices are described under the function concerned. A test in
+`tests/test_*_audit.py` checks each of them. [VALIDATION.md](VALIDATION.md) reports the
+tests against a reference implementation, scanpy.
 
 Contents: [pp](#pp-preprocessing) · [tl](#tl-tools) · [metrics](#metrics) ·
 [get](#get-accessors) · [pl](#pl-plotting) · [settings](#settings) ·
@@ -30,18 +30,16 @@ raises a `ValueError`. With `inplace=True` the function removes the cells from t
 AnnData itself and returns `None`. With `inplace=False` it leaves the object unchanged
 and returns a boolean mask of the cells to keep.
 
-scanpy also adds `obs["n_genes"]` or `obs["n_counts"]`. Metalcyte does not add these
-columns. It returns only the mask.
+The function does not add `obs["n_genes"]` or `obs["n_counts"]` columns.
 
 `min_genes` counts stored entries that are **greater than zero**.
 `pp.calculate_qc_metrics` counts stored entries that are **not equal to zero**. On raw
 counts the two numbers are the same. On centred data, or other data with negative
-values, they differ. Both functions follow scanpy, which makes the same distinction.
+values, they differ.
 
 #### `pp.filter_genes(adata, *, min_cells=None, min_counts=None, inplace=True)`
 
-The same filter, applied to genes. It does not write the `var["n_cells"]` column that
-scanpy adds.
+The same filter, applied to genes. It does not write a `var["n_cells"]` column.
 
 #### `pp.normalize_total(adata, *, target_sum=None, inplace=True)`
 
@@ -50,19 +48,18 @@ is `None`, the target is the median total count over cells. The result goes to
 `adata.X` as a sparse CSR matrix of `float32` values. With `inplace=False` the function
 returns the new matrix instead.
 
-The scanpy arguments `exclude_highly_expressed`, `max_fraction`, `key_added` and
-`layer` are not accepted.
+There are no `exclude_highly_expressed`, `max_fraction`, `key_added` or `layer`
+arguments.
 
-With `target_sum=None`, scanpy computes the median in one of two ways, depending on how
-`X` is stored. For a CSR matrix it takes `np.median` over every cell. For other formats
-it uses only the cells with a non-zero count (`_normalization.py:93-117`). Metalcyte
-always works on a CSR matrix, so it always uses the first rule. The two give the same
-answer unless some cell has no counts at all.
+With `target_sum=None`, the median is taken over every cell, including cells with no
+counts. This differs from the median over cells with counts only when some cell has no
+counts at all.
 
 #### `pp.log1p(adata, *, inplace=True)`
 
 Computes `log(1 + x)` on the stored entries. It writes `adata.X` and sets
-`adata.uns["log1p"] = {"base": None}`, which later scanpy tools look for. There is no
+`adata.uns["log1p"] = {"base": None}`, which marks the data as log-transformed for
+later steps. There is no
 `base` argument. The function uses the natural logarithm only.
 
 #### `pp.highly_variable_genes(adata, *, n_top_genes=2000, flavor="seurat", inplace=True)`
@@ -77,23 +74,24 @@ writes three `var` columns:
 | `means` | per-gene mean |
 | `dispersions_norm` | dispersion normalised within its mean bin |
 
-scanpy also writes `dispersions`, `variances` and `highly_variable_rank`. Metalcyte
-does not. The core computes raw `dispersions`, but the Python layer discards them. Code
-that reads `var["dispersions"]` will raise a `KeyError`.
+The function does not write `dispersions`, `variances` or `highly_variable_rank`. The
+core computes raw `dispersions`, but the Python layer discards them. Code that reads
+`var["dispersions"]` will raise a `KeyError`.
 
-`flavor="cell_ranger"` groups genes into bins by percentiles of their mean expression.
-When many genes share the same mean, two bin edges can coincide. In that case the
-function raises a `ValueError`. `pandas.cut` refuses repeated edges, and silently
-binning the genes differently from scanpy would give a wrong answer without warning.
+`flavor="seurat"` follows Satija et al. 2015. It bins genes by mean expression and
+normalises each gene's dispersion within its bin. `flavor="cell_ranger"` follows Zheng
+et al. 2017. It bins genes by percentiles of their mean expression. When many genes
+share the same mean, two bin edges can coincide. In that case the function raises a
+`ValueError`. `pandas.cut` refuses repeated edges, and binning the genes some other way
+would give a wrong answer without warning.
 
-When a bin holds exactly **two genes**, `cell_ranger` cannot separate them, and the
-selection can differ from scanpy's. This flavour centres each bin on its median and
-divides by its median absolute deviation (MAD). With two genes in a bin, the median is
-their midpoint and both genes get the value `±0.6744897501960817`. Every gene in such
-bins then has the same score. Metalcyte computes this constant exactly. scanpy's values
-land a few ulps (units in the last decimal place of a floating-point number) on either
-side of it. That is enough for scanpy's `>= cutoff` rule to stop at a different gene.
-With three or more genes per bin the two libraries agree exactly.
+When a bin holds exactly **two genes**, `cell_ranger` cannot separate them. This
+flavour centres each bin on its median and divides by its median absolute deviation
+(MAD). With two genes in a bin, the median is their midpoint and both genes get the
+value `±0.6744897501960817`. Every gene in such bins then has the same score, and the
+`>= cutoff` rule decides between tied genes. Metalcyte computes this constant exactly.
+A value a few ulps (units in the last decimal place) off would make the rule stop at a
+different gene. With three or more genes per bin there are no such ties.
 
 #### `pp.scale(adata, *, zero_center=True, max_value=None, inplace=True)`
 
@@ -104,19 +102,20 @@ off by one ulp. The whole column would then become the constant `-sqrt((n-1)/n)`
 instead of 0. Without zero-centering, the error would be of order `1e7`.
 
 **The result is dense.** `adata.X` becomes a `float32` numpy array of shape
-`(n_cells, n_genes)`. At 50 000 cells by 2 000 genes this takes 400 MB. scanpy does the
-same with `zero_center=True`. Keep only the highly variable genes before you call it.
+`(n_cells, n_genes)`. At 50 000 cells by 2 000 genes this takes 400 MB. Keep only the
+highly variable genes before you call it.
 
 #### `pp.pca(adata, *, n_comps=50, zero_center=True, random_state=0, device=None)`
 
 Principal component analysis computed with a randomised SVD (singular value
-decomposition). scanpy's default solver, `arpack`, is deterministic. So the two
-agree only as far as a randomised SVD gives the same answer each time.
-[VALIDATION.md](VALIDATION.md) measures where that stops. The function writes:
+decomposition). `random_state` fixes the random start, so the same seed gives the same
+components. The leading components are stable. The trailing ones, with small and close
+singular values, can change with the seed. [VALIDATION.md](VALIDATION.md) measures
+where that starts. The function writes:
 
 - `obsm["X_pca"]`, `(n_cells, n_comps)`
 - `varm["PCs"]`, `(n_genes, n_comps)` (the core returns the transpose and the Python
-  layer flips it to scanpy's orientation)
+  layer flips it)
 - `uns["pca"]` with `variance`, `variance_ratio` and `params`
 
 There is no `svd_solver`, `use_highly_variable` or `mask_var` argument.
@@ -124,7 +123,7 @@ There is no `svd_solver`, `use_highly_variable` or `mask_var` argument.
 #### `pp.neighbors(adata, *, n_neighbors=15, use_rep="X_pca", method="auto", random_state=0, device=None)`
 
 Finds the k nearest neighbours of each cell and turns them into a weighted cell graph.
-The weights follow UMAP's method (the "fuzzy simplicial set"). As in scanpy,
+The weights follow UMAP's method (the "fuzzy simplicial set", McInnes et al. 2018).
 `n_neighbors` counts the cell itself, so Metalcyte searches for `n_neighbors - 1` other
 cells. A value below 2 raises a `ValueError`. The function writes `obsp["distances"]`,
 `obsp["connectivities"]` and `uns["neighbors"]`. The `params` entry records the search
@@ -132,14 +131,14 @@ method used, under `knn_method`.
 
 `method` chooses how neighbours are found.
 
-- `"exact"` compares every pair of cells. On data without duplicate cells, its
-  neighbour lists match scanpy's for every cell. Its run time grows with the square of
+- `"exact"` compares every pair of cells. On data without duplicate cells, it finds
+  the true k nearest neighbours of every cell. Its run time grows with the square of
   the number of cells: 2 s at 117 000 cells and 120 s at a million on the GPU. On a
   Metal GPU it runs the hand-written `knn` kernel (a small GPU program). On the CPU it
   uses every core.
 - `"approximate"` uses NN-descent, an algorithm that improves a rough neighbour list by
   checking the neighbours of each cell's neighbours. A random-projection forest provides
-  the starting list. This is the same method pynndescent uses inside scanpy. It runs on
+  the starting list (Dong et al. 2011). It runs on
   every core, and its run time grows roughly in proportion to the number of cells: 0.8 s
   at 117 000 cells and 16 s at 953 000. Recall is the fraction of the true k nearest
   neighbours that the search finds. On PCA embeddings at k = 15, recall is 0.98 at
@@ -154,10 +153,10 @@ down. See [Devices](#devices).
 
 #### `pp.calculate_qc_metrics(adata, *, qc_vars=(), percent_top=(50, 100, 200, 500), log1p=True, inplace=True)`
 
-Computes quality-control (QC) measures per cell and per gene, with scanpy's column
-names. `qc_vars` names boolean `var` columns, such as `"mt"` for mitochondrial genes.
-Each one adds `total_counts_<name>` and `pct_counts_<name>` to `obs`. `percent_top` is
-sorted before use, as scanpy does, and the columns follow that order. With
+Computes quality-control (QC) measures per cell and per gene. `qc_vars` names boolean
+`var` columns, such as `"mt"` for mitochondrial genes. Each one adds
+`total_counts_<name>` and `pct_counts_<name>` to `obs`. `percent_top` is sorted before
+use, and the columns follow that order. With
 `log1p=True`, a `log1p_<column>` column is placed directly after each count column.
 
 | frame | columns |
@@ -172,12 +171,12 @@ returned as `NaN`. Metalcyte does not replace it with a misleading 0.
 
 #### `pp.normalize_per_cell(adata, *, counts_per_cell_after=None, inplace=True)`
 
-scanpy's older per-cell normalisation. It works like `normalize_total` with two extra
-behaviours, and Metalcyte keeps both. It writes each cell's total count before
-normalisation to `obs["n_counts"]`. It also removes cells with no counts at all instead
-of leaving them unscaled. Both happen whatever the value of `inplace`. `inplace=False`
-only changes whether the matrix is returned or stored. Because empty cells are removed
-first, the default target is the median over the remaining cells, as in scanpy.
+An older form of per-cell normalisation, kept for existing pipelines. It works like
+`normalize_total` with two extra steps. It writes each cell's total count before
+normalisation to `obs["n_counts"]`. It also removes cells with no counts at all. Both
+happen whatever the value of `inplace`. `inplace=False` only changes whether the matrix
+is returned or stored. Because empty cells are removed first, the default target is the
+median over the remaining cells.
 
 #### `pp.sqrt(adata, *, inplace=True)`
 
@@ -185,15 +184,14 @@ Computes `sqrt(x)` on the stored entries.
 
 #### `pp.filter_genes_dispersion(adata, *, flavor="seurat", n_top_genes=None, inplace=True)`
 
-The older gene-selection function that came before `highly_variable_genes`. scanpy
-still includes it. It uses the same dispersions, so the two functions agree by design.
-Without `n_top_genes`, it applies scanpy's fixed thresholds instead of a fixed number of
-genes: `0.0125 < mean < 3.0` and `dispersions_norm > 0.5`. A dispersion that cannot be
+An older gene-selection function, kept for existing pipelines. It uses the same
+dispersions as `highly_variable_genes`, so the two functions agree by design. Without
+`n_top_genes`, it keeps every gene that passes fixed thresholds:
+`0.0125 < mean < 3.0` and `dispersions_norm > 0.5`. A dispersion that cannot be
 computed counts as zero dispersion.
 
-scanpy's version can remove the unselected genes from `adata`. Metalcyte's never does.
-It writes the selection to `var["highly_variable"]`, which matches scanpy with
-`subset=False`.
+The function never removes genes from `adata`. It writes the selection to
+`var["highly_variable"]`.
 
 #### `pp.regress_out(adata, keys, *, device=None, inplace=True)`
 
@@ -206,7 +204,7 @@ computer's memory. Metalcyte checks this before it allocates anything and raises
 
 #### `pp.combat(adata, key="batch", *, covariates=None, device=None, inplace=True)`
 
-Removes batch effects with ComBat, an empirical-Bayes method. The batches are the
+Removes batch effects with ComBat (Johnson et al. 2007), an empirical-Bayes method. The batches are the
 categories of `obs[key]`. You can add other `obs` columns as `covariates`. The batch key
 cannot also be a covariate, and each covariate may appear only once. Breaking either
 rule raises a `ValueError`. The result is dense, with the same memory rule as
@@ -217,8 +215,8 @@ memory as a whole.
 
 #### `pp.harmony_integrate(adata, key="batch", *, basis="X_pca", adjusted_basis="X_pca_harmony", theta=2.0, sigma=0.1, lamb=None, alpha=0.2, batch_prop_cutoff=1e-5, n_clusters=None, max_iter_harmony=10, max_iter_kmeans=20, random_state=0, device=None)`
 
-Removes batch effects from a low-dimensional embedding with Harmony. It works like
-`sc.external.pp.harmony_integrate`. `key` names the `obs` column that holds the batch
+Removes batch effects from a low-dimensional embedding with Harmony (Korsunsky et al.
+2019). `key` names the `obs` column that holds the batch
 labels. Metalcyte converts that column to categorical. Cells without a label raise a
 `ValueError`. A missing `basis` or `key` raises a `KeyError`. The function corrects the
 coordinates in `obsm[basis]` and writes them to `obsm[adjusted_basis]` as `float32`. It
@@ -252,8 +250,7 @@ make up for the cost of copying the data.
 
 Keep a random subset of cells. `subsample` is `sample` with `replace=False`. Give
 exactly one of `fraction` and `n`. Giving both or neither raises a `TypeError`. A
-fraction that cannot be met raises a `ValueError`. scanpy raises the same two exception
-types. `copy=False` changes `adata` itself and returns `None`.
+fraction that cannot be met raises a `ValueError`. `copy=False` changes `adata` itself and returns `None`.
 
 #### `pp.downsample_counts(adata, *, counts_per_cell=None, total_counts=None, random_state=0, replace=False, copy=False)`
 
@@ -281,14 +278,13 @@ fit in memory, use `tl.rank_genes_groups_backed`.
 
 #### `tl.umap(adata, *, n_components=2, min_dist=0.5, spread=1.0, n_epochs=None, random_state=0, device=None, parallel=False)`
 
-Computes a UMAP layout of the neighbour graph in `obsp["connectivities"]` and writes it
+Computes a UMAP layout (McInnes et al. 2018) of the neighbour graph in `obsp["connectivities"]` and writes it
 to `obsm["X_umap"]`. `n_epochs` defaults to 200. umap-learn uses 500 for small data and
 200 for large data. Metalcyte does not copy that rule. `min_dist` must lie in
 `[0, 3 * spread]`.
 
-UMAP gives a different layout for each random seed, even within one library. So
-agreement with scanpy is a range of values, and the layouts are never equal. The
-measured numbers are in [VALIDATION.md](VALIDATION.md).
+UMAP gives a different layout for each random seed. Two layouts are compared by how
+well they keep the same neighbours, and they are never equal point by point.
 
 `parallel=True` runs the layout optimisation on all cores at once. The threads update
 the shared coordinates without waiting for each other (lock-free "Hogwild" stochastic
@@ -325,40 +321,33 @@ to `obsm["X_tsne"]`. `method` chooses how the layout is computed.
 
 One limit applies to both:
 
-- **The perplexity must be lower than the number of cells.** scikit-learn has the same
-  requirement. A t-SNE becomes hard to read once the perplexity nears a third of the
-  number of cells. That is advice about the plot, and Metalcyte does not enforce it.
-  scanpy does not enforce it either.
+- **The perplexity must be lower than the number of cells.** A t-SNE becomes hard to
+  read once the perplexity nears a third of the number of cells. That is advice about
+  the plot, and Metalcyte does not enforce it.
 
-`learning_rate=None` uses scikit-learn's current `auto` rule,
-`max(n / early_exaggeration / 4, 50)`. scanpy still passes its older value of 1000. So
-the two libraries, called with their defaults, do not do the same amount of work. Pass
-`learning_rate` yourself to compare them.
+`learning_rate=None` uses the automatic rule `max(n / early_exaggeration / 4, 50)`.
+A fixed rate of 1000 is far too large for small datasets.
 
 > **Limitation: the exact method does not scale.** Its cost grows with the square of
-> the number of cells, `O(n^2)`, and it becomes slower than scanpy once the data is not
-> small. Measured against scanpy it is 1.42x faster at 499 cells, 0.25x at 2 638, and
-> **0.06x at 10 000 cells, 271.7 s against scanpy's 15.4 s**. Above 20 000 cells it
-> refuses to run. Use `sc.tl.tsne` for anything above a couple of thousand cells. It
-> writes the same `obsm["X_tsne"]`, so the rest of a Metalcyte pipeline still works. For
-> a large dataset prefer `tl.umap`, which is 4.84x faster than scanpy at 10 000 cells.
-> See [PERFORMANCE.md](PERFORMANCE.md#limits).
+> the number of cells, `O(n^2)`. Above 20 000 cells it refuses to run. With
+> `method="auto"` any dataset above that size uses the FFT method. For a fast overview
+> of a large dataset, `tl.umap` is the better choice. See
+> [PERFORMANCE.md](PERFORMANCE.md#limits).
 
 #### `tl.rank_genes_groups(adata, groupby, *, groups="all", reference="rest", method="wilcoxon", device=None)`
 
 Finds the genes that differ between groups of cells (differential expression). p-values
-are corrected for multiple testing with the Benjamini-Hochberg method. All four of
-scanpy's current methods work: `"wilcoxon"` (the default), `"t-test"`,
-`"t-test_overestim_var"` and `"logreg"`. Any other value raises a `ValueError`.
+are corrected for multiple testing with the Benjamini-Hochberg method. Four methods
+are available: `"wilcoxon"` (the default), `"t-test"`, `"t-test_overestim_var"` and
+`"logreg"`. Any other value raises a `ValueError`.
 
 - The two t-tests differ only in the sample size used for the reference group. That
   number enters the result twice, through the standard error and through the degrees of
   freedom.
-- `logreg` fits one multinomial logistic regression over every labelled cell, with
-  sklearn's `max_iter=100`. scanpy does not change that setting. A named `reference`
-  group enters the fit as one more class. It is not used as a comparison group.
-- The Wilcoxon test does **not** correct for ties, as with scanpy's default
-  `tie_correct=False`.
+- `logreg` fits one multinomial logistic regression over every labelled cell, with at
+  most 100 iterations. A named `reference` group enters the fit as one more class. It
+  is not used as a comparison group.
+- The Wilcoxon test does **not** correct for ties.
 
 The function writes `uns["rank_genes_groups"]` with `params` and one record array per
 field (`names`, `scores`, `logfoldchanges`, `pvals`, `pvals_adj`). Each array has one
@@ -366,33 +355,31 @@ column per group, sorted by score. p-values are `float64`. Everything else is
 `float32`.
 
 **`logreg` writes only `names` and `scores`.** A regression coefficient is not a test
-statistic, so scanpy reports neither p-values nor fold changes for it. The core returns
+statistic, so the function reports neither p-values nor fold changes for it. The core returns
 `NaN` for these fields, and the Python layer removes them. A column of `NaN` is then
 never mistaken for a result. Code that always reads `uns["rank_genes_groups"]["pvals"]`
 will raise a `KeyError` after a `logreg` run.
 
 `scores` is stored as `float32`. The p-values are computed from the full `float64`
 score. So `2 * scipy.stats.norm.sf(abs(reported score))` does not give back the reported
-p-value. scanpy behaves the same way for the same reason.
+p-value.
 
 Cells outside the selected groups are removed before the test. They are not treated as
-a separate label. **For a group with one cell, scanpy raises an error and Metalcyte
-returns a result.** The rank test is well defined with one cell (`n_active = 1`).
-scanpy's check protects its own per-group variance, which Metalcyte does not need. So
-when filtering leaves a group with a single cell, Metalcyte gives a number where scanpy
-gives an error.
+a separate label. **A group with one cell gets a result.** The rank test is well
+defined with one cell (`n_active = 1`). So when filtering leaves a group with a single
+cell, the function still returns its statistics and does not raise an error.
 
 `pts` and `pts_rest` are not written. So `tl.filter_rank_genes_groups` always
 recomputes the fraction of expressing cells from `X`.
 
 `logfoldchanges` always assumes the data was log-transformed with the **natural** log.
-When `uns["log1p"]["base"]` is set, scanpy uses `expm1(x * log(base))`. The Rust
-function receives a matrix and not an AnnData, so it never sees that key. `sc.pp.log1p`
-and `pp.log1p` both leave the base unset. This only matters if you set the base by hand.
+The Rust function receives a matrix and not an AnnData, so it never sees
+`uns["log1p"]["base"]`. `pp.log1p` leaves the base unset. This only matters if you set
+the base by hand.
 
 #### `tl.paga(adata, groups=None, *, model="v1.2", device=None)`
 
-PAGA summarises the cell graph in `obsp["distances"]` as a graph of cell groups. The
+PAGA (partition-based graph abstraction, Wolf et al. 2019) summarises the cell graph in `obsp["distances"]` as a graph of cell groups. The
 groups come from a categorical `obs` column. With `groups=None` it looks for
 `obs["leiden"]`, then `obs["louvain"]`, which `tl.leiden` and `tl.louvain` write.
 `model` accepts only `"v1.2"`.
@@ -402,17 +389,14 @@ The function writes `uns["paga"]` with `connectivities`, `connectivities_tree` (
 key already stored there, such as a saved layout position.
 
 Every **stored** entry of `obsp["distances"]` counts as an edge, including one stored
-as 0.0. scanpy sets every stored entry to one before it counts
-(`ones.data = np.ones(len(ones.data))`, `_paga.py:182-183`), so a stored zero counts
-too. Take 120 cells of which 60 are duplicates. There, `sc.pp.neighbors(n_neighbors=10)`
-stores 540 zeros out of 1080 entries. Skipping them would overstate the connectivities
-by up to 0.096. Metalcyte agrees with scanpy to about 2e-8.
+as 0.0. Two identical cells have a distance of 0.0, and they are still neighbours. Take
+120 cells of which 60 are duplicates. There, `pp.neighbors(n_neighbors=10)` stores 540
+zeros out of 1080 entries. Skipping them would overstate the connectivities by up to
+0.096.
 
-Two differences remain. First, Metalcyte does **not** write `uns["<groups>_sizes"]`.
-`sc.tl.paga` writes it, and `sc.pl.paga` reads it to size the nodes. Second, the
-spanning tree can differ from scanpy's where two connectivities are equal. The
-`min(..., 1)` cap makes such ties common. Both trees are valid maximum spanning trees,
-and their total weights agree to 1e-6.
+The function does **not** write `uns["<groups>_sizes"]`. Where two connectivities are
+equal, more than one maximum spanning tree exists, and the function returns one of
+them. The `min(..., 1)` cap makes such ties common.
 
 `device` is accepted and ignored on purpose. The work is one pass over the stored edges
 into a small group-by-group matrix. Its speed depends on memory access, and a GPU would
@@ -440,14 +424,17 @@ block. The statistics equal those of `rank_genes_groups` on the same values
 
 #### `tl.filter_rank_genes_groups(adata, *, key="rank_genes_groups", groupby=None, key_added="rank_genes_groups_filtered", min_in_group_fraction=0.25, max_out_group_fraction=0.5, min_fold_change=2.0)`
 
-Hides the marker genes that fail the filters on the fraction of expressing cells. The
-table in `uns[key]` keeps its shape. The names of failing genes are replaced by `NaN`,
-which scanpy's plotting expects. `tl.rank_genes_groups` writes no `pts`/`pts_rest`, so
+Hides the marker genes that fail the filters on the fraction of expressing cells and
+the fold change. A gene passes when it is expressed in more than
+`min_in_group_fraction` of the group, in less than `max_out_group_fraction` of the
+other cells, and has a fold change above `min_fold_change`. The table in `uns[key]`
+keeps its shape. The names of failing genes are replaced by `NaN`, and the result goes
+to `uns[key_added]`. `tl.rank_genes_groups` writes no `pts`/`pts_rest`, so
 the fractions are always recomputed from `X`. The stored `logfoldchanges` are reused
 only when they describe the same comparison (same `groupby`, `reference="rest"`).
 
 When this function computes the fold change itself, it does use
-`uns["log1p"]["base"]`, as scanpy does. The `logfoldchanges` written by
+`uns["log1p"]["base"]`. The `logfoldchanges` written by
 `tl.rank_genes_groups` always use the natural log. The two are the same unless you set
 the base by hand.
 
@@ -455,15 +442,15 @@ the base by hand.
 
 #### `tl.louvain(adata, resolution=1.0, *, key_added="louvain", neighbors_key="neighbors", random_state=0, device=None)`
 
-Finds clusters (communities) of cells in the graph `obsp["connectivities"]`. The
-quality measure is RBConfiguration at the given `resolution`, the same one
-`scanpy.tl.leiden` passes to `leidenalg`. The function writes `obs[key_added]` as a
-`Categorical`, and `uns[key_added]` with `params` and the `modularity` reached.
-Clusters are numbered `0..n-1` from largest to smallest. So sorting the categories as
-numbers already gives scanpy's natural order.
+Finds clusters (communities) of cells in the graph `obsp["connectivities"]`, with the
+Leiden algorithm (Traag et al. 2019) or the Louvain algorithm (Blondel et al. 2008).
+The quality measure is the Reichardt-Bornholdt configuration model (RBConfiguration) at
+the given `resolution`. The function writes `obs[key_added]` as a `Categorical`, and
+`uns[key_added]` with `params` and the `modularity` reached. Clusters are numbered
+`0..n-1` from largest to smallest, so cluster 0 is the largest.
 
-Leiden is a randomised search. Even with the same seed, Metalcyte's labels cannot be
-compared one by one with scanpy's. What you can compare is the modularity.
+Leiden is a randomised search. Cluster numbers are arbitrary, so two clusterings are
+compared by their agreement (for example the adjusted Rand index) or their modularity.
 `metrics.modularity` scores a clustering on the graph it was found on.
 
 `device` is accepted and ignored. Each row of the graph has about fifteen neighbours.
@@ -473,13 +460,12 @@ Starting a GPU job for each step would cost more than the step itself.
 
 Builds a hierarchical clustering tree of the groups. It uses the mean of each group over
 the first `n_pcs` columns of `use_rep`, and the correlation distance between groups. It
-writes `uns["dendrogram_<groupby>"]` with the keys that `pl.dendrogram`,
-`pl.matrixplot`, `pl.dotplot` and `pl.correlation_matrix` read: `linkage`,
-`categories_ordered`, `categories_idx_ordered`, `dendrogram_info`,
-`correlation_matrix`, `cor_method`, `linkage_method`, `groupby`, `use_rep`.
+writes `uns["dendrogram_<groupby>"]` with the keys `linkage`, `categories_ordered`,
+`categories_idx_ordered`, `dendrogram_info`, `correlation_matrix`, `cor_method`,
+`linkage_method`, `groupby` and `use_rep`.
 
-**The linkage is `complete`**, which is also `sc.tl.dendrogram`'s default.
-`uns["linkage_method"]` records it. `complete` and `average` linkage give the same tree
+**The linkage is `complete`**, and the correlation is Pearson's.
+`uns["linkage_method"]` records the linkage. `complete` and `average` linkage give the same tree
 on PBMC 3k. On other group means they can differ. On the six group means in
 `tests/test_layout_audit.py` the leaf orders are `[4, 1, 3, 2, 0, 5]` and
 `[4, 0, 5, 2, 1, 3]`, and merge heights differ by up to 0.52. **An AnnData saved by an
@@ -493,10 +479,9 @@ smaller than the cost of starting a GPU job.
 
 #### `tl.draw_graph(adata, *, layout="fa", neighbors_key="neighbors", n_iterations=500, random_state=0, device=None)`
 
-Draws the neighbour graph with ForceAtlas2, a force-directed layout. It writes
-`obsm["X_draw_graph_fa"]` and `uns["draw_graph"]["params"]`. `layout` accepts only
-`"fa"`. The other layouts scanpy offers come from the igraph package, which Metalcyte
-does not include.
+Draws the neighbour graph with ForceAtlas2 (Jacomy et al. 2014), a force-directed
+layout. It writes `obsm["X_draw_graph_fa"]` and `uns["draw_graph"]["params"]`. `layout`
+accepts only `"fa"`.
 
 The graph is treated as undirected, both for the pull between connected cells and for
 the masses that scale the push between all cells. If only the upper triangle of the
@@ -509,60 +494,55 @@ depends only on the graph and not on the order of its stored entries.
 Estimates how densely cells are packed in the first two components of
 `obsm["X_<basis>"]`, using a Gaussian kernel. The result goes to
 `obs["<basis>_density_<groupby>"]` and its parameters to `uns["<covariate>_params"]`.
-For a ForceAtlas2 layout, write `basis="draw_graph_fa"`, as in scanpy.
+For a ForceAtlas2 layout, write `basis="draw_graph_fa"` (or `"fa"`).
 
 Densities are scaled to `[0, 1]` **within** each group. So they compare cells inside one
-group, and not across groups. This is scanpy's convention, and the reason `groupby` is
-stored next to the values. The function has no `device` argument and uses
+group, and not across groups. For this reason `groupby` is stored next to the values. The function has no `device` argument and uses
 `settings.device`.
 
 #### `tl.diffmap(adata, n_comps=15, *, neighbors_key="neighbors", device=None)`
 
-Computes a diffusion map of the neighbour graph. It writes `obsm["X_diffmap"]` and
-`uns["diffmap_evals"]`. The trivial first component (eigenvalue 1) is **kept**,
-as in scanpy. Only `sc.pl.diffmap` drops it, and `tl.dpt` reads it back and uses it.
+Computes a diffusion map (Coifman and Lafon 2006, Haghverdi et al. 2015) of the
+neighbour graph. It writes `obsm["X_diffmap"]` and `uns["diffmap_evals"]`. The trivial
+first component (eigenvalue 1) is **kept**, because `tl.dpt` reads it back and uses it.
+Drop it before you plot the map.
 Metalcyte never builds the full `(n_cells, n_cells)` transition matrix. For PBMC 3k at
 `n_comps=15`, the operator takes 0.7 MB and the dense blocks about 4 MB.
 
-There are two differences from scanpy. `n_comps >= n_cells` raises a `ValueError`,
-where scanpy lowers it to `n_cells - 1`. And `n_comps <= 2` is accepted, where scanpy
-refuses it.
+`n_comps >= n_cells` raises a `ValueError`. `n_comps <= 2` is accepted.
 
 A graph made of **disconnected** parts also raises an error. Each part contributes its
 own eigenvalue of 1. The leading components are then not uniquely defined, and the
 pseudotime between parts is infinite. Both problems would give wrong answers without any
 warning. The check counts only edges with a non-zero weight, so a stored zero cannot
-join two separate parts. scipy and scanpy look only at which entries are stored, so
-this check is stricter on purpose. The reasoning is in `diffusion.rs`.
+join two separate parts. A check on stored entries alone would miss that case. The
+reasoning is in `diffusion.rs`.
 
 #### `tl.dpt(adata, *, n_dcs=10, n_branchings=0, min_group_size=0.01, device=None)`
 
-Computes diffusion pseudotime, an ordering of cells along a developmental path, starting
-from the root cell in `uns["iroot"]`. The result goes to `obs["dpt_pseudotime"]`. If no
-`X_diffmap` is stored, the function computes one with 15 components. That is
-`tl.diffmap`'s own default, and it does not depend on `n_dcs`. scanpy does the same, so
-a later `dpt` call with a larger `n_dcs` fails there too. `n_branchings > 0` also
-detects branches and writes `obs["dpt_groups"]`. This is a port of scanpy's version of
-the Haghverdi 2016 algorithm. [VALIDATION.md](VALIDATION.md) shows that its branches
-match scanpy's exactly (adjusted Rand index, ARI, of 1.0).
+Computes diffusion pseudotime (DPT, Haghverdi et al. 2016), an ordering of cells along
+a developmental path, starting from the root cell in `uns["iroot"]`. The result goes to
+`obs["dpt_pseudotime"]`. If no `X_diffmap` is stored, the function computes one with 15
+components. That is `tl.diffmap`'s own default, and it does not depend on `n_dcs`. So a
+later `dpt` call with a larger `n_dcs` fails. `n_branchings > 0` also detects branches
+with the Haghverdi et al. 2016 algorithm and writes `obs["dpt_groups"]`.
 
-There are two differences from scanpy, and tests check both. A cell that is not
-connected to the root gets a large **finite** pseudotime, where scanpy writes `inf`.
-You cannot find such a cell with `isinf`. And when every cell is at the same position as
-the root, Metalcyte returns 0 for all of them, where scanpy returns `NaN`.
+Two edge cases are tested. A cell that is not connected to the root gets a large
+**finite** pseudotime, not `inf`. You cannot find such a cell with `isinf`. And when
+every cell is at the same position as the root, the function returns 0 for all of
+them.
 
 #### `tl.score_genes(adata, gene_list, *, ctrl_size=50, n_bins=25, score_name="score", random_state=0, device=None)`
 
 Scores each cell for a gene set. The score is the mean expression of the set minus the
 mean of a control set. The control genes are drawn from genes with similar expression
 levels (the same expression bins). The score goes to `obs[score_name]` as `float64`,
-the type scanpy uses, although both libraries compute in `float32`. Metalcyte
-re-implements scanpy's random number generator (the legacy Mersenne Twister) and its
-Fisher-Yates shuffle in Rust. So it draws exactly the same control genes as scanpy, and
-not only genes from the same distribution. Genes missing from `var_names` are dropped
+although the computation runs in `float32`. The control genes are drawn with the numpy
+legacy Mersenne Twister and a Fisher-Yates shuffle, both written in Rust. So a given
+`random_state` always draws the same control genes. Genes missing from `var_names` are dropped
 with a `UserWarning`. If no genes remain, the function raises a `ValueError`.
 
-**`random_state` has no effect below about 1200 genes**, in both libraries. Each bin
+**`random_state` has no effect below about 1200 genes**. Each bin
 holds about `n_genes / (n_bins - 1)` genes. Control genes are drawn only
 `if ctrl_size < len(bin)`. Otherwise the whole bin is taken and nothing is drawn at
 random. With the defaults `ctrl_size=50` and `n_bins=25`, the threshold is around 1200
@@ -580,7 +560,7 @@ above its control.
 
 Compares the marker genes found in `uns[key]` with a reference list of markers. It
 returns a table with one row per reference set and one column per group. `method` is
-`overlap_count`, `overlap_coef` or `jaccard`. `top_n_markers` defaults to scanpy's 100.
+`overlap_count`, `overlap_coef` or `jaccard`. `top_n_markers` defaults to 100.
 A value below 1 is treated as 1, with a `UserWarning`.
 
 ---
@@ -595,7 +575,7 @@ All four are implemented.
 
 Measure how similar a value is between neighbouring cells in the graph (autocorrelation).
 `vals=None` scores every gene in `adata.X`. Otherwise `vals` names one gene or one `obs`
-column, names several, or is an array. As in scanpy, a 2-D array has shape
+column, names several, or is an array. A 2-D array has shape
 `(n_features, n_cells)`, the transpose of `X`. A single feature returns a number and not
 an array of length 1. A sparse `vals` stays sparse. Making it dense would create the
 full `(n_cells, n_genes)` array that Metalcyte avoids.
@@ -615,8 +595,8 @@ divides each row by its own total.
 #### `metrics.modularity(adata, keys, *, neighbors_key="neighbors")`
 
 Computes the Newman modularity of the clustering in `obs[keys]`. Modularity measures how
-many more edges fall inside clusters than chance would give. The resolution is 1.0,
-scanpy's default when it passes a graph to igraph. The graph is the one that
+many more edges fall inside clusters than chance would give. The resolution is 1.0.
+The graph is the one that
 `neighbors_key` points to, so a clustering is always scored on the graph it came from.
 There is no `device` argument.
 
@@ -643,7 +623,7 @@ The same for genes: one row per gene, with columns from `var` or from named cell
 
 Turns the marker-gene results in `uns[key]` into one flat table. `group=None` returns
 every group, with a `group` column. With a single group name the `group` column is
-dropped, as in scanpy. The cutoffs remove rows. A `logreg` result has only `names` and
+dropped. The cutoffs remove rows. A `logreg` result has only `names` and
 `scores`. The function recognises it from `params["method"]`. Metalcyte can produce such
 results as well as read them. The three cutoffs have nothing to filter there, so they
 are skipped without an error.
@@ -651,11 +631,11 @@ are skipped without an error.
 #### `get.aggregate(adata, by, func, *, axis=0, layer=None, device=None)`
 
 Groups cells (or genes, with `axis=1`) and summarises each group. `func` is one or more
-of `count_nonzero`, `mean`, `median`, `sum`, `var`. `var` divides by n - 1 (ddof 1), as
-scanpy does. The function returns a new AnnData with one layer per function and an
+of `count_nonzero`, `mean`, `median`, `sum`, `var`. `var` divides by n - 1 (ddof 1).
+The function returns a new AnnData with one layer per function and an
 `obs["n_obs_aggregated"]` column.
 
-`device` is accepted so that the signature matches scanpy, and it is ignored. The work
+`device` is accepted so that all functions share one signature, and it is ignored. The work
 is done by scipy sparse products and per-group medians, outside the core.
 
 ---
@@ -663,8 +643,7 @@ is done by scipy sparse products and per-group medians, outside the core.
 ## `pl`: plotting
 
 `metalcyte.pl` draws figures from the AnnData entries that Metalcyte writes. It uses
-matplotlib, and seaborn for colour palettes when seaborn is installed. It never imports
-scanpy. The module loads only when you first use it, so `import metalcyte` does not load
+matplotlib, and seaborn for colour palettes when seaborn is installed. The module loads only when you first use it, so `import metalcyte` does not load
 matplotlib. Install the `plot` extra (`matplotlib>=3.7`, `seaborn>=0.13`) to use it.
 Every function takes `save` (a file path for the figure) and `show` (display the
 figure). `show` defaults to `None`. The figure is then displayed only when it is not
@@ -837,12 +816,12 @@ The function reads the blocks of `X` from disk four times:
    genes.
 3. The third pass scales each block with those values into a dense array. It adds up
    the `(genes, genes)` scatter matrix on the device. The top eigenvectors of that
-   matrix are the principal axes. This is the same method as scanpy's
-   `svd_solver="covariance_eigh"`.
+   matrix are the principal axes. This is PCA by eigendecomposition of the gene by
+   gene covariance matrix.
 4. The fourth pass projects each block onto those axes.
 
 Peak memory is one block plus the embedding. `tests/test_streaming.py` checks the
-result against scanpy's exact solver. [PERFORMANCE.md](PERFORMANCE.md#a-million-cells-on-18-gb)
+result against an exact in-memory PCA. [PERFORMANCE.md](PERFORMANCE.md#a-million-cells-on-18-gb)
 describes the million-cell run.
 
 `normalize_total` and `log1p` also accept an AnnData opened from disk in backed mode

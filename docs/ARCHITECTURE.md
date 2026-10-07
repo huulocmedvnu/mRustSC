@@ -81,11 +81,10 @@ sizes. A separate graphics card would spend more time copying data than calculat
 ## Conventions
 
 - Matrices are cells by genes, as in AnnData.
-- Expression data and all tensors use `f32` (32-bit floating point). The Apple GPU has no `f64`,
-  and scanpy's own results are `f32` after normalisation. There are two exceptions, both where
-  `f32` would lose the answer completely. CPU sums are computed in `f64` and rounded once at the end
-  (per-gene moments in `scale`, the rank sums in `wilcoxon`). p-values stay `f64` everywhere,
-  because a rank-sum p-value is often too small for `f32` and would become exactly zero.
+- Expression data and all tensors use `f32` (32-bit floating point), because the Apple GPU has no
+  `f64`. There are two exceptions, both where `f32` would lose the answer completely. CPU sums
+  are computed in `f64` and rounded once at the end (per-gene moments in `scale`, the rank sums
+  in `wilcoxon`). p-values stay `f64` everywhere, because a rank-sum p-value is often too small for `f32` and would become exactly zero.
 - Every random step takes an explicit seed. The same seed gives the same bytes. The exception is a
   kernel whose threads race on purpose, and its module documentation must say so.
 - Functions and modules use `snake_case`, types use `PascalCase`, and names are long enough to
@@ -94,7 +93,8 @@ sizes. A separate graphics card would spend more time copying data than calculat
 
 ## Correctness
 
-scanpy defines the correct answer. The kind of agreement depends on the algorithm. Calculations with
+Each function is tested against a reference implementation of the same method. The kind of
+agreement depends on the algorithm. Calculations with
 one correct answer are compared value by value. Selections are compared by the overlap of the
 selected sets. Embeddings that depend on random numbers are compared by how well they keep each
 cell's neighbours. These rules are fixed in

@@ -36,7 +36,7 @@ Python 3.11 to 3.13.
 
 ### Performance (Apple M3 Pro, 18 GB)
 
-- 117 308 cells, counts to clusters: 12 s on the GPU, using one seventh of scanpy's energy.
+- 117 308 cells, counts to clusters: 12 s on the GPU, for 168 J of energy.
 - 953 436 cells: 103 s on the GPU with the approximate neighbour search.
 - 4 062 980 cells from a 28.9 GB counts file: 538 s, with peak memory of about 9 GB and about
   6 kJ of energy.
@@ -50,4 +50,3 @@ Python 3.11 to 3.13.
 
 Preprocessing and PCA for datasets larger than memory (`pp.preprocess_backed`), reading the counts
 from disk in blocks. GPU programs (Metal kernels) for the neighbour search and the Wilcoxon test.
-Results that match scanpy on the bone-marrow atlas.

@@ -32,7 +32,10 @@ __all__ = ["combat", "regress_out"]
 def regress_out(
     adata: AnnData, keys: str | Sequence[str], *, device: str | None = None, inplace: bool = True
 ) -> np.ndarray | None:
-    """Remove the effect of the `keys` covariates from each gene, as `scanpy.pp.regress_out`."""
+    """Remove the effect of the `keys` covariates from each gene by linear regression.
+
+    Each gene keeps its residuals, which are written back to `adata.X`.
+    """
     keys = [keys] if isinstance(keys, str) else list(keys)
     if not keys:
         raise ValueError("regress_out needs at least one obs column to regress on")
@@ -56,7 +59,10 @@ def combat(
     device: str | None = None,
     inplace: bool = True,
 ) -> np.ndarray | None:
-    """Correct batch effects with the ComBat empirical Bayes method, as `scanpy.pp.combat`."""
+    """Correct batch effects with ComBat (Johnson et al. 2007), an empirical Bayes method.
+
+    The corrected matrix is written back to `adata.X`.
+    """
     covariates = list(covariates or [])
     if key in covariates:
         raise ValueError(f"the batch key {key!r} cannot also be a covariate")
@@ -102,9 +108,9 @@ def _columns(adata: AnnData, key: str) -> list[np.ndarray]:
     """One column for a numeric annotation, one per level but the first for a
     categorical one.
 
-    Dropping a level is what keeps the design full rank once the core adds its
-    own constant or batch columns; the fit spans the same space either way, so
-    the residuals are scanpy's whatever parameterisation is chosen.
+    Dropping a level keeps the design full rank once the core adds its own
+    constant or batch columns. The fit spans the same space either way, so the
+    residuals do not depend on which level is dropped.
     """
     import pandas as pd
 
@@ -122,7 +128,7 @@ def _columns(adata: AnnData, key: str) -> list[np.ndarray]:
 
 
 def _categories(adata: AnnData, key: str) -> pd.Categorical:
-    """The batch annotation as categories, in the order scanpy groups them."""
+    """The batch annotation as categories, unused levels removed."""
     import pandas as pd
 
     if key not in adata.obs:

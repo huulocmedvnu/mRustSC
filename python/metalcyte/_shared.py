@@ -98,7 +98,7 @@ def _dense(matrix: Any) -> np.ndarray:
 
 
 def _representation(adata: AnnData, use_rep: str) -> np.ndarray:
-    """Resolve scanpy's `use_rep` to a dense embedding."""
+    """Resolve `use_rep` (`"X"` or an `obsm` key) to a dense embedding."""
     if use_rep == "X":
         return _dense(adata.X)
     if use_rep not in adata.obsm:

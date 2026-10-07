@@ -26,20 +26,19 @@ if TYPE_CHECKING:
 __all__ = ["dendrogram", "draw_graph", "embedding_density"]
 
 # What the core computes, recorded in the `uns` slot so a reader of a stored
-# AnnData can see which tree they are looking at. Both are scanpy's own defaults.
+# AnnData can see which tree they are looking at.
 _COR_METHOD = "pearson"
 _LINKAGE_METHOD = "complete"
 
-# `tl.draw_graph` only knows ForceAtlas2; the igraph layouts scanpy also offers
-# are a different package, not a different argument.
+# `tl.draw_graph` computes only the ForceAtlas2 layout.
 _LAYOUT = "fa"
 
-# scanpy's `embedding_density` is fixed at the first two components of a basis.
+# `embedding_density` always uses the first two components of a basis.
 _DENSITY_COMPONENTS = [1, 2]
 
 
 def _categorical(adata: AnnData, key: str):
-    """The `obs` column named `key`, which has to be categorical as scanpy demands."""
+    """The `obs` column named `key`, which has to be categorical."""
     import pandas as pd
 
     if key not in adata.obs:
@@ -58,10 +57,11 @@ def dendrogram(
     use_rep: str = "X_pca",
     key_added: str | None = None,
 ) -> None:
-    """Hierarchical clustering of group means, as `scanpy.tl.dendrogram`.
+    """Hierarchical clustering of group means.
 
-    Writes `uns["dendrogram_<groupby>"]` with the keys scanpy's `pl.dendrogram`,
-    `pl.matrixplot`, `pl.dotplot` and `pl.correlation_matrix` read.
+    It averages `use_rep` within each group, correlates the means (Pearson) and joins
+    them by complete linkage. Writes `uns["dendrogram_<groupby>"]` with the linkage,
+    the leaf order, the correlation matrix and the drawing coordinates.
     """
     import pandas as pd
 
@@ -75,8 +75,7 @@ def dendrogram(
         raise ValueError(f"adata.obs[{groupby!r}] has unlabelled cells")
 
     # The group means: arithmetic, but the core's entry point takes centroids, so
-    # somebody upstream of it has to average. pandas does it exactly as scanpy's
-    # `tl.dendrogram` does, over the same representation. Grouping by the codes
+    # somebody upstream of it has to average. pandas does it here. Grouping by the codes
     # keeps the rows in category order, which is the order the leaf ids index.
     representation = pd.DataFrame(_representation(adata, use_rep)[:, :n_pcs])
     means = representation.groupby(codes, observed=True).mean()
@@ -88,9 +87,9 @@ def dendrogram(
     leaf_order = [int(leaf) for leaf in leaves]
 
     # Correlations for `pl.correlation_matrix`, and the drawing coordinates for
-    # `pl.dendrogram`. Neither is the clustering — that is `linkage` and
-    # `leaf_order` above — but both are slots scanpy's plotting reads, and the
-    # geometry of a plotted tree is scipy's convention, not ours to re-derive.
+    # `pl.dendrogram`. Neither is the clustering, which is `linkage` and
+    # `leaf_order` above. Plotting reads both, and the drawing coordinates follow
+    # scipy's convention.
     correlation = np.clip(np.corrcoef(centroids.astype(np.float64)), -1.0, 1.0)
     import scipy.cluster.hierarchy as sch
 
@@ -118,10 +117,10 @@ def draw_graph(
     random_state: int = 0,
     device: str | None = None,
 ) -> None:
-    """Force-directed layout of the neighbour graph, as `scanpy.tl.draw_graph`.
+    """Force-directed layout of the neighbour graph with ForceAtlas2 (Jacomy et al. 2014).
 
-    Writes `obsm["X_draw_graph_fa"]` and the `uns["draw_graph"]` parameters that
-    `scanpy.pl.draw_graph` reads.
+    Writes the positions to `obsm["X_draw_graph_fa"]` and the parameters to
+    `uns["draw_graph"]`.
     """
     device = _resolve_device(device)
     if layout != _LAYOUT:
@@ -139,12 +138,11 @@ def draw_graph(
 def embedding_density(
     adata: AnnData, *, basis: str = "umap", groupby: str | None = None, key_added: str | None = None
 ) -> None:
-    """Estimate how densely cells are packed in an embedding, as `scanpy.tl.embedding_density`.
+    """Estimate the density of cells in an embedding with a Gaussian kernel.
 
     Writes `obs["<basis>_density_<groupby>"]` and its `uns` parameters. Densities
-    are scaled to `[0, 1]` *within* each group, so they compare cells inside a
-    group and not across groups — scanpy's convention, and the reason the
-    `groupby` a density was computed for is stored beside it.
+    are scaled to `[0, 1]` *within* each group. They compare cells inside a group
+    and not across groups, so the `groupby` used is stored beside them.
     """
     basis = "draw_graph_fa" if basis.lower() == "fa" else basis.lower()
     if f"X_{basis}" not in adata.obsm:

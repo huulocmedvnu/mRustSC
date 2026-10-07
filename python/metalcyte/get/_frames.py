@@ -16,13 +16,13 @@ if TYPE_CHECKING:
 
 __all__ = ["aggregate", "obs_df", "rank_genes_groups_df", "var_df"]
 
-# The fields `tl.rank_genes_groups` writes, in the column order scanpy's frame has.
+# The fields `tl.rank_genes_groups` writes, in the column order of the frame.
 _DE_COLUMNS = ("names", "scores", "logfoldchanges", "pvals", "pvals_adj")
 # logreg reports a coefficient and nothing else, so its frame is narrower.
 _LOGREG_COLUMNS = ("names", "scores")
 
 _AGGREGATIONS = ("count_nonzero", "mean", "median", "sum", "var")
-# scanpy's default degrees of freedom for `var`: the sample, not population, variance.
+# Degrees of freedom for `var`: the sample variance, with n - 1 in the denominator.
 _DOF = 1
 
 
@@ -33,7 +33,7 @@ def obs_df(
     obsm_keys: Sequence[tuple[str, int]] = (),
     layer: str | None = None,
 ) -> pd.DataFrame:
-    """Per-cell frame of genes, `obs` columns and `obsm` slices, as `scanpy.get.obs_df`."""
+    """A table with one row per cell, holding genes, `obs` columns and `obsm` slices."""
     keys = _as_key_list(keys)
     obs_columns, gene_keys = _split_keys(adata.obs, adata.var_names, dim="obs", keys=keys)
 
@@ -58,7 +58,7 @@ def obs_df(
 def var_df(
     adata: AnnData, keys: Sequence[str] = (), *, varm_keys: Sequence[tuple[str, int]] = ()
 ) -> pd.DataFrame:
-    """Per-gene frame, as `scanpy.get.var_df`."""
+    """A table with one row per gene, holding cells, `var` columns and `varm` slices."""
     keys = _as_key_list(keys)
     var_columns, cell_keys = _split_keys(adata.var, adata.obs_names, dim="var", keys=keys)
 
@@ -88,8 +88,8 @@ def rank_genes_groups_df(
     log2fc_min: float | None = None,
     log2fc_max: float | None = None,
 ) -> pd.DataFrame:
-    """The differential expression result as a tidy frame, as `scanpy.get.rank_genes_groups_df`."""
-    result = adata.uns[key]  # a missing key raises KeyError naming it, as scanpy does
+    """The differential expression result as a tidy table, one row per group and gene."""
+    result = adata.uns[key]  # a missing key raises KeyError naming it
     if group is None:
         groups = list(result["names"].dtype.names)
     else:
@@ -119,7 +119,7 @@ def rank_genes_groups_df(
             frame = frame[frame["logfoldchanges"] < log2fc_max]
 
     if len(groups) == 1:
-        # scanpy drops the constant column for a single group and callers rely on it.
+        # A single group needs no `group` column, and callers rely on its absence.
         frame = frame.drop(columns="group")
     return frame.reset_index(drop=True)
 
@@ -133,11 +133,11 @@ def aggregate(
     layer: str | None = None,
     device: str | None = None,
 ) -> AnnData:
-    """Group cells and reduce, as `scanpy.get.aggregate`.
+    """Group cells (or genes, with `axis=1`) by `by` and reduce each group with `func`.
 
-    `device` is accepted for signature parity only: the reductions here are
-    scipy sparse products and per-group medians, not core algorithms, so there is
-    no Rust or Metal path behind them yet.
+    Returns a new `AnnData` with one row per group and one layer per function.
+    `device` is accepted so all tools share one signature. The reductions are scipy
+    sparse products and per-group medians, so no Rust or Metal path runs them yet.
     """
     functions = _as_key_list(func)
     if unknown := sorted(set(functions) - set(_AGGREGATIONS)):
@@ -162,7 +162,7 @@ def aggregate(
 
 
 def _as_key_list(keys: str | Sequence[str]) -> list[str]:
-    """Accept a lone key as well as a sequence of them, as every scanpy accessor does."""
+    """Accept a lone key as well as a sequence of them."""
     return [keys] if isinstance(keys, str) else list(keys)
 
 
@@ -242,7 +242,7 @@ def _slice_along(
 def _append_slices(
     frame: pd.DataFrame, mapping: Mapping[str, Any], entries: Sequence[tuple[str, int]]
 ) -> None:
-    """Add one `key-index` column per `(key, index)` pair, as scanpy names them."""
+    """Add one `key-index` column per `(key, index)` pair."""
     for key, index in entries:
         value = mapping[key]
         if isinstance(value, pd.DataFrame):
@@ -260,8 +260,7 @@ def _combine_categories(
     """Return the grouping as one categorical, plus a frame labelling each group.
 
     Several `by` columns combine into the product of their categories, joined by
-    `_` and ordered as `itertools.product` yields them, which is the group order
-    scanpy produces.
+    `_` and ordered as `itertools.product` yields them.
     """
     columns = _as_key_list(by)
     if missing := [column for column in columns if column not in annotation]:

@@ -1,4 +1,4 @@
-"""Harmony batch-effect correction, like `scanpy.external.pp.harmony_integrate`.
+"""Harmony batch-effect correction of the PCA embedding.
 
 This is a Rust reimplementation of Harmony (Korsunsky et al. 2019). Harmony repeats two
 steps until the result stops changing. First it clusters the cells in PCA space with a

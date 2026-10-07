@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 
 __all__ = ["confusion_matrix", "modularity"]
 
-# scanpy's default when it hands a graph to igraph: plain Newman modularity.
+# Resolution 1 gives the plain Newman modularity.
 _RESOLUTION = 1.0
 
 
 def confusion_matrix(
     orig: Any, new: Any, data: Any = None, *, normalize: bool = True
 ) -> pd.DataFrame:
-    """Contingency table of two labellings, as `scanpy.metrics.confusion_matrix`.
+    """Contingency table of two labellings of the same cells.
 
     `orig` and `new` are either label arrays or, when `data` is given, column
     names in it. Rows are the original labels and columns the new ones, in
@@ -84,7 +84,7 @@ def modularity(adata: AnnData, keys: str, *, neighbors_key: str = "neighbors") -
 
 
 def _connectivities_key(adata: AnnData, neighbors_key: str) -> str:
-    """Where `pp.neighbors` recorded its connectivities, as scanpy resolves it."""
+    """The `obsp` key where `pp.neighbors` stored its connectivities."""
     if neighbors_key not in adata.uns:
         raise KeyError(f"adata.uns has no {neighbors_key!r}; run metalcyte.pp.neighbors first")
     return adata.uns[neighbors_key].get("connectivities_key", "connectivities")

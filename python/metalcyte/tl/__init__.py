@@ -1,4 +1,4 @@
-"""Analysis tools, like `scanpy.tl`.
+"""Analysis tools: embeddings, clustering, trajectories, marker genes and gene scores.
 
 Each area of work has its own module. This file only re-exports their functions.
 """
