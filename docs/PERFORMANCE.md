@@ -138,6 +138,18 @@ the exact graph, which matches scanpy's cell for cell, stops being cheap.
 PYTHONPATH=$PWD/python .venv/bin/python benches/knn_methods.py benches/results/embryo1m_metalcyte_metal.h5ad --json benches/results/knn_methods_embryo.json
 ```
 
+## Beyond the standard pipeline at a million cells
+
+Single runs on the 953 436-cell embryo embedding (50 principal components) on the M3 Pro.
+
+| step | Metalcyte | note |
+|---|---:|---|
+| t-SNE, FFT-accelerated (1 000 iterations) | 189 s | exact up to 20 000 cells, FFT above; 94 s on the 117 308-cell atlas |
+| Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
+
+`regress_out` and `combat` read the sparse matrix in gene blocks and hold only their dense
+result, so their limit is the result's size against 60% of the machine's memory.
+
 ## Energy
 
 The package's own power counters, sampled every 100 ms while the 117 308-cell pipeline ran, with

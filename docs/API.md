@@ -199,7 +199,7 @@ must be unique. Both are `ValueError`. Dense result, with the same memory rule a
 `regress_out`: two passes over gene blocks of the sparse input, the empirical Bayes
 step on per-batch sufficient statistics between them, and only the result held whole.
 
-#### `pp.harmony_integrate(adata, key="batch", *, basis="X_pca", adjusted_basis="X_pca_harmony", theta=2.0, sigma=0.1, lamb=1.0, n_clusters=None, max_iter_harmony=10, max_iter_kmeans=20, random_state=0, device=None)`
+#### `pp.harmony_integrate(adata, key="batch", *, basis="X_pca", adjusted_basis="X_pca_harmony", theta=2.0, sigma=0.1, lamb=None, alpha=0.2, batch_prop_cutoff=1e-5, n_clusters=None, max_iter_harmony=10, max_iter_kmeans=20, random_state=0, device=None)`
 
 Harmony batch integration, mirroring `sc.external.pp.harmony_integrate`. `key` names
 the `obs` column of batch labels, which is cast to categorical. Unlabelled cells are a
@@ -208,8 +208,23 @@ the `obs` column of batch labels, which is cast to categorical. Unlabelled cells
 plus `uns["harmony"]` with `objective` (the harmony objective at each iteration), `key`,
 `basis` and `adjusted_basis`.
 
+`lamb=None` estimates the ridge penalty of each cluster and batch as `alpha` times the
+batch's soft count in the cluster, as Harmony 1.2 and harmonypy 2 do by default; a number
+fixes one penalty for every batch, the original Harmony. A batch whose share of a cluster
+is below `batch_prop_cutoff` is not corrected in that cluster.
+
 It is iterative and k-means seeded, so it does not reproduce `harmonypy` to the bit.
-[VALIDATION.md](VALIDATION.md) measures batch mixing and convergence instead.
+[VALIDATION.md](VALIDATION.md) measures batch mixing and convergence instead. On the
+953 436-cell embryo embedding with seven experiment batches the two agree at a median
+per-cell cosine of 0.999.
+
+Every per-cell step (the soft assignments, the block-wise update with the diversity
+penalty, the objective, the k-means seeding) runs across all cores with cells as rows,
+and the M-step solves each cluster's ridge system from soft batch counts and sums
+gathered in one pass, so nothing of size cells by clusters by components is formed.
+The 953 436-cell embedding integrates in 9 s on the M3 Pro (harmonypy 2.1, a compiled
+implementation of the same algorithm, takes 3 s on the same input). `device` is accepted
+and ignored: the products are too small for the GPU to repay the copy.
 
 #### `pp.subsample(adata, fraction=None, *, n_obs=None, random_state=0, copy=False)`
 

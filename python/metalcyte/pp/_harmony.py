@@ -33,7 +33,9 @@ def harmony_integrate(
     adjusted_basis: str = "X_pca_harmony",
     theta: float = 2.0,
     sigma: float = 0.1,
-    lamb: float = 1.0,
+    lamb: float | None = None,
+    alpha: float = 0.2,
+    batch_prop_cutoff: float = 1e-5,
     n_clusters: int | None = None,
     max_iter_harmony: int = 10,
     max_iter_kmeans: int = 20,
@@ -43,7 +45,11 @@ def harmony_integrate(
     """Integrate batches in `obsm[basis]`, writing corrected coordinates to `obsm[adjusted_basis]`.
 
     `key` names the `obs` column of batch labels. The harmony objective at each iteration
-    (the convergence curve) is stored in `uns["harmony"]["objective"]`.
+    (the convergence curve) is stored in `uns["harmony"]["objective"]`. `lamb=None` estimates
+    the ridge penalty per cluster and batch as `alpha` times the batch's soft count in the
+    cluster, as Harmony 1.2 and harmonypy 2 do; a number fixes it for every batch, the
+    original Harmony. A batch whose share of a cluster is below `batch_prop_cutoff` is not
+    corrected in that cluster.
     """
     if basis not in adata.obsm:
         raise KeyError(f"adata.obsm has no {basis!r}; run metalcyte.pp.pca first")
@@ -65,12 +71,14 @@ def harmony_integrate(
         n_batches,
         float(theta),
         float(sigma),
-        float(lamb),
+        None if lamb is None else float(lamb),
         0 if n_clusters is None else int(n_clusters),
         int(max_iter_harmony),
         int(max_iter_kmeans),
         int(random_state),
         device if device is not None else _default_device(),
+        float(alpha),
+        float(batch_prop_cutoff),
     )
     adata.obsm[adjusted_basis] = np.asarray(corrected, dtype=np.float32)
     adata.uns["harmony"] = {

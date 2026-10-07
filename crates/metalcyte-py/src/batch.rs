@@ -63,7 +63,8 @@ fn combat<'py>(
 /// embedding and the harmony objective at each outer iteration (the convergence curve).
 #[pyfunction]
 #[pyo3(signature = (embedding, batch, n_batches, theta, sigma, lambda, n_clusters,
-                    max_iter_harmony, max_iter_kmeans, seed, device))]
+                    max_iter_harmony, max_iter_kmeans, seed, device, alpha = 0.2,
+                    batch_prop_cutoff = 1e-5))]
 fn harmony_integrate<'py>(
     py: Python<'py>,
     embedding: &Bound<'py, PyAny>,
@@ -71,12 +72,14 @@ fn harmony_integrate<'py>(
     n_batches: usize,
     theta: f32,
     sigma: f32,
-    lambda: f32,
+    lambda: Option<f32>,
     n_clusters: usize,
     max_iter_harmony: usize,
     max_iter_kmeans: usize,
     seed: u64,
     device: &str,
+    alpha: f32,
+    batch_prop_cutoff: f32,
 ) -> PyResult<(Bound<'py, PyArray2<f32>>, Vec<f32>)> {
     let embedding = array2_from_py::<f32>(embedding, "embedding")?;
     let batch = vec_from_py::<u32>(batch, "batch")?;
@@ -86,6 +89,8 @@ fn harmony_integrate<'py>(
         theta,
         sigma,
         lambda,
+        alpha,
+        batch_prop_cutoff,
         n_clusters: if n_clusters == 0 {
             defaults.n_clusters
         } else {
