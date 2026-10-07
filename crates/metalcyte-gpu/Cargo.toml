@@ -8,6 +8,7 @@ metalcyte-core.workspace = true
 candle-core.workspace = true
 metal.workspace = true
 ndarray.workspace = true
+rayon.workspace = true
 blas-src = { workspace = true, optional = true }
 
 [features]

@@ -434,8 +434,17 @@ head.
   striding its affinities, run with `rayon::join` at the same time as the grid work (the
   first thread-per-cell kernel was slower than the cores, 50 s, for want of coalesced reads);
   the four charge grids interleaved per node. **16 s** at 117 308 cells (19 s on the cores) and
-  **65 s** at 953 436, where the grid side now bounds the iteration: charge FFTs 14 s, spreading
-  9 s, placement 5 s. Interpolated repulsive forces within 2% RMS of brute force at the default
+  65 s at 953 436, where the grid side bounded the iteration: charge FFTs 14 s, spreading 9 s,
+  placement 5 s. Then the whole iteration as a GPU engine (`metalcyte-gpu`, `tsne_fft_gpu.rs`):
+  placement, a threadgroup per box spreading charges in a fixed reduction (no atomics), a radix-2
+  FFT of every row in threadgroup memory with tiled transposes, gather, and the update; the
+  attractive term on its own command queue so it overlaps; the host sorts cells by box (a
+  parallel, stable counting sort) between kernels. Held to the host: the device convolution
+  within 1e-4 relative RMS of Accelerate's, the repulsive forces within 1e-3 of their RMS,
+  the objective step by step within 1e-3 and after 500 iterations within 0.5%, and the same
+  bytes for the same seed. **13 s** at 117 308 cells and **54 s** at 953 436; the GPU is now
+  busy through the iteration (attraction about 20 ms, grid kernels about 20 ms at 953 436
+  cells), and the 90-neighbour search (20 s) is the largest remaining host step. Interpolated repulsive forces within 2% RMS of brute force at the default
   grid; the exact objective of the FFT layout within 7% of the exact path's on 3 000 cells.
 - `regress_out` and `combat` by gene blocks from a column-major copy of the sparse input
   (`batch::ColumnBlocks`); ComBat's empirical Bayes step on per-batch `n`, `sum x`, `sum x^2`.

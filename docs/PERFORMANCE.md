@@ -144,7 +144,7 @@ Single runs on the 953 436-cell embryo embedding (50 principal components) on th
 
 | step | Metalcyte | note |
 |---|---:|---|
-| t-SNE, FFT-accelerated (1 000 iterations) | 65 s | exact up to 20 000 cells, FFT above: Accelerate's FFT on the cores, the attractive term on the GPU; 16 s on the 117 308-cell atlas |
+| t-SNE, FFT-accelerated (1 000 iterations) | 54 s | exact up to 20 000 cells, FFT above, the whole iteration on the GPU; 13 s on the 117 308-cell atlas |
 | Harmony, 7 experiment batches | 9 s | 4 outer iterations; harmonypy 2.1 (compiled) on the same input: 3 s; per-cell cosine between the two results 0.999 |
 
 `regress_out` and `combat` read the sparse matrix in gene blocks and hold only their dense
@@ -202,8 +202,8 @@ Seconds for the whole pipeline and for the steps that move; the run-to-run noise
   200 000 cells pays the quadratic cost.
 - The Metal neighbour kernel runs at about 15% of the chip's arithmetic peak. A version on the
   GPU's matrix units is in the tree, opt-in, and is not yet faster.
-- t-SNE is exact up to 20 000 cells and FFT-accelerated above: 16 s for the 117 308-cell atlas and
-  65 s for the 953 436 embryo cells (1 000 iterations, from the 50 principal components).
+- t-SNE is exact up to 20 000 cells and FFT-accelerated above: 13 s for the 117 308-cell atlas and
+  54 s for the 953 436 embryo cells (1 000 iterations, from the 50 principal components).
 - `regress_out` and `combat` produce a dense result that must fit within 60% of the machine's
   memory; the input is read in gene blocks.
 - Metalcyte is built and tested on macOS on Apple silicon only. The continuous-integration runners

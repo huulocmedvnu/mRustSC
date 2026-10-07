@@ -755,6 +755,7 @@ dependencies = [
  "metalcyte-core",
  "ndarray",
  "rand 0.8.7",
+ "rayon",
 ]
 
 [[package]]

@@ -235,12 +235,11 @@ fn tsne<'py>(
             if device.is_metal() && !core_tsne::uses_exact(embedding.nrows(), &params) {
                 // The FFT path's attractive term on the GPU when one is usable; the
                 // cores otherwise, through the same entry point.
-                if let Ok(attraction) = metalcyte_gpu::kernels::tsne_attraction::metal_attraction()
-                {
+                if metalcyte_gpu::MetalContext::new().is_ok() {
                     return metalcyte_core::tsne_fft::tsne_fft_with(
                         &embedding,
                         &params,
-                        Box::new(attraction),
+                        metalcyte_gpu::kernels::tsne_fft_gpu::gpu_engine,
                     );
                 }
             }
