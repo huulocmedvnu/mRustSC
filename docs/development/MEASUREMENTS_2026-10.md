@@ -427,8 +427,15 @@ head.
   kernel's limit (33 s of the 94), the charge spreading zeroed a grid per rayon split (12 s), and
   the radix-2 f64 FFTs took 40 s. Now NN-descent for the affinities (3 s), spreading by bands of
   box rows (0.6 s), the kernel transform cached while the grid is unchanged, and the FFTs through
-  Accelerate's vDSP in f32 (12 s): **21 s** at 117 308 cells and **127 s** at 953 436, where the
-  attractive term over 180 affinities per cell (46 s) and the 90-neighbour search (44 s) remain. Interpolated repulsive forces within 2% RMS of brute force at the default
+  Accelerate's vDSP in f32 (12 s): 21 s at 117 308 cells and 127 s at 953 436, where the
+  attractive term over 180 affinities per cell (46 s) and the 90-neighbour search (44 s) remained.
+  Then: the 90 neighbours from a 15-neighbour NN-descent widened through the neighbours of
+  neighbours (44 s to 17 s); the attractive term as a Metal kernel, one SIMD group per cell
+  striding its affinities, run with `rayon::join` at the same time as the grid work (the
+  first thread-per-cell kernel was slower than the cores, 50 s, for want of coalesced reads);
+  the four charge grids interleaved per node. **16 s** at 117 308 cells (19 s on the cores) and
+  **65 s** at 953 436, where the grid side now bounds the iteration: charge FFTs 14 s, spreading
+  9 s, placement 5 s. Interpolated repulsive forces within 2% RMS of brute force at the default
   grid; the exact objective of the FFT layout within 7% of the exact path's on 3 000 cells.
 - `regress_out` and `combat` by gene blocks from a column-major copy of the sparse input
   (`batch::ColumnBlocks`); ComBat's empirical Bayes step on per-batch `n`, `sum x`, `sum x^2`.
@@ -440,3 +447,11 @@ head.
   so the matmuls stay on the cores. Agreement with harmonypy on 20 000 bone-marrow cells by
   donor: median cosine 0.98, iLISI 3.64 against 3.70 (2.22 before correction), cLISI 1.29 both.
   
+
+## 13. Addendum, 2026-10-07: energy re-measured on the current build
+
+`sudo sh benches/run_energy.sh`, 117 308-cell atlas, idle subtracted: scanpy (defaults) 236.6 s,
+1 228 J net (CPU 1 200, GPU 57), 6.1 W mean; Metalcyte Metal with the parallel optimiser 12.6 s,
+168 J (CPU 129, GPU 79), 11.8 W; Metalcyte CPU-only 15.7 s, 273 J (CPU 274), 15.8 W. Ratio scanpy
+to Metalcyte Metal 7.3 in energy and 18.8 in time. The earlier figures (974 J against 195 J on a
+20 s build) are superseded; the scanpy run itself varies by about 25% between the two sessions.

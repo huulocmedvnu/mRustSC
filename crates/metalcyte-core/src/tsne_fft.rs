@@ -30,6 +30,8 @@ use crate::tsne::{
     MACHINE_EPSILON, MIN_GAIN, MIN_GRADIENT_NORM, PERPLEXITY_SEARCH_STEPS, PERPLEXITY_TOLERANCE,
 };
 
+/// Neighbours found by NN-descent before the list is widened by expansion.
+const SEED_NEIGHBOURS: usize = 15;
 /// Interpolation nodes per box and side, as FIt-SNE's `n_interpolation_points`.
 const NODES_PER_BOX: usize = 3;
 /// Fewest boxes per side, as FIt-SNE's `min_num_intervals`.
@@ -77,10 +79,69 @@ fn tick(slot: usize, since: std::time::Instant) {
 }
 
 /// Symmetric affinities in compressed sparse row form, summing to one.
-struct SparseAffinities {
-    indptr: Vec<usize>,
-    indices: Vec<u32>,
-    values: Vec<f32>,
+pub struct SparseAffinities {
+    pub indptr: Vec<usize>,
+    pub indices: Vec<u32>,
+    pub values: Vec<f32>,
+}
+
+/// The attractive term of the gradient, `sum_j P_ij W_ij (y_i - y_j)` per cell, with
+/// the exaggerated affinities, and the objective's `sum P log(P / Q)` when asked.
+///
+/// The CPU implementation is [`CpuAttraction`]; `metalcyte-gpu` provides one on Metal.
+pub trait Attraction: Send {
+    /// `layout` is `(n_cells, 2)` flat. Returns the `(n_cells, 2)` flat attraction and
+    /// the objective (`None` unless `compute_error`); `normaliser` is `Z`.
+    fn compute(
+        &mut self,
+        layout: &[f32],
+        affinities: &SparseAffinities,
+        exaggeration: f32,
+        normaliser: f64,
+        compute_error: bool,
+    ) -> (Vec<f32>, Option<f64>);
+}
+
+/// The attractive term on every core, one row of affinities per task.
+pub struct CpuAttraction;
+
+impl Attraction for CpuAttraction {
+    fn compute(
+        &mut self,
+        layout: &[f32],
+        affinities: &SparseAffinities,
+        exaggeration: f32,
+        normaliser: f64,
+        compute_error: bool,
+    ) -> (Vec<f32>, Option<f64>) {
+        let n_cells = layout.len() / 2;
+        let mut attraction = vec![0.0f32; 2 * n_cells];
+        let error: f64 = attraction
+            .par_chunks_mut(2)
+            .enumerate()
+            .map(|(i, out)| {
+                let (yi0, yi1) = (layout[2 * i], layout[2 * i + 1]);
+                let (mut a0, mut a1) = (0.0f32, 0.0f32);
+                let mut kl = 0.0f64;
+                for at in affinities.indptr[i]..affinities.indptr[i + 1] {
+                    let j = affinities.indices[at] as usize;
+                    let p = affinities.values[at] * exaggeration;
+                    let (d0, d1) = (yi0 - layout[2 * j], yi1 - layout[2 * j + 1]);
+                    let w = 1.0 / (1.0 + d0 * d0 + d1 * d1);
+                    a0 += p * w * d0;
+                    a1 += p * w * d1;
+                    if compute_error && p > 0.0 {
+                        let q = ((w as f64) / normaliser).max(MACHINE_EPSILON);
+                        kl += (p as f64) * ((p as f64).max(MACHINE_EPSILON) / q).ln();
+                    }
+                }
+                out[0] = a0;
+                out[1] = a1;
+                kl
+            })
+            .sum();
+        (attraction, compute_error.then_some(error))
+    }
 }
 
 /// t-SNE by FFT-accelerated interpolation.
@@ -92,7 +153,17 @@ pub fn tsne_fft(
     params: &TsneParams,
     _device: &Device,
 ) -> Result<Array2<f32>> {
+    tsne_fft_with(embedding, params, Box::new(CpuAttraction))
+}
+
+/// [`tsne_fft`] with the attractive term computed by `attraction`.
+pub fn tsne_fft_with(
+    embedding: &Array2<f32>,
+    params: &TsneParams,
+    mut attraction: Box<dyn Attraction>,
+) -> Result<Array2<f32>> {
     let (n_cells, _) = embedding.dim();
+    *PROFILE.lock().unwrap() = [0.0; 9];
     if params.n_components != 2 {
         return Err(Error::parameter(
             "n_components",
@@ -130,21 +201,25 @@ pub fn tsne_fft(
         .collect();
 
     let t0 = std::time::Instant::now();
-    // NN-descent for the 3 * perplexity neighbours, as FIt-SNE uses an approximate
-    // index: the exact search with k near 90 falls outside the tiled kernel's limit and
-    // costs more than the whole optimisation.
-    // The affinities tolerate a recall a little below the graph step's, so the search
-    // stops earlier and joins fewer candidates per round than `pp.neighbors` does.
-    let graph: KnnGraph = knn_approximate(
-        &embedding,
-        k,
-        &NnDescentParams {
-            seed: params.seed,
-            max_candidates: 30,
-            delta: 0.01,
-            ..NnDescentParams::default()
-        },
-    )?;
+    // FIt-SNE uses an approximate index for the 3 * perplexity neighbours. NN-descent
+    // is run for a short list and the list is widened to k from the neighbours of those
+    // neighbours, which costs one exact distance per candidate and no further search.
+    let graph: KnnGraph = {
+        let base = k.min(SEED_NEIGHBOURS);
+        let seed_graph = knn_approximate(
+            &embedding,
+            base,
+            &NnDescentParams {
+                seed: params.seed,
+                ..NnDescentParams::default()
+            },
+        )?;
+        if base == k {
+            seed_graph
+        } else {
+            expand_neighbours(&embedding, &seed_graph, k)
+        }
+    };
     if profile {
         eprintln!(
             "tsne profile: neighbours {:.2} s",
@@ -162,7 +237,7 @@ pub fn tsne_fft(
     }
 
     let t0 = std::time::Instant::now();
-    let layout = optimise(initial, n_cells, &affinities, params);
+    let layout = optimise(initial, n_cells, &affinities, params, attraction.as_mut());
     if profile {
         eprintln!(
             "tsne profile: optimisation {:.2} s",
@@ -183,6 +258,59 @@ pub fn tsne_fft(
     let layout = out;
     Array2::from_shape_vec((n_cells, 2), layout)
         .map_err(|_| Error::shape(format!("{n_cells} by 2"), "a mismatch"))
+}
+
+/// Widen a neighbour list to `k` entries from the neighbours of each cell's neighbours:
+/// the candidates are the union of the second-order neighbourhood, scored by exact
+/// distance, and the `k` nearest are kept, nearest first.
+fn expand_neighbours(embedding: &Array2<f32>, seed: &KnnGraph, k: usize) -> KnnGraph {
+    let (n_cells, base) = seed.indices.dim();
+    let d = embedding.ncols();
+    let data = embedding.as_slice().expect("contiguous");
+    let row = |i: usize| &data[i * d..(i + 1) * d];
+    let rows: Vec<(Vec<u32>, Vec<f32>)> = (0..n_cells)
+        .into_par_iter()
+        .map(|i| {
+            let mut candidates: Vec<u32> = Vec::with_capacity(base * base + base);
+            for &j in seed.indices.row(i) {
+                candidates.push(j);
+                candidates.extend(seed.indices.row(j as usize).iter().copied());
+            }
+            candidates.sort_unstable();
+            candidates.dedup();
+            let pi = row(i);
+            let mut scored: Vec<(f32, u32)> = candidates
+                .into_iter()
+                .filter(|&j| j as usize != i)
+                .map(|j| {
+                    let s: f32 = pi
+                        .iter()
+                        .zip(row(j as usize))
+                        .map(|(a, b)| (a - b) * (a - b))
+                        .sum();
+                    (s, j)
+                })
+                .collect();
+            scored.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            scored.truncate(k);
+            // A cell whose second-order neighbourhood is too small keeps what it has,
+            // padded with its own last neighbour so the rows stay rectangular.
+            while scored.len() < k {
+                let last = *scored.last().expect("at least the seed neighbours");
+                scored.push(last);
+            }
+            scored.iter().map(|&(s, j)| (j, s.max(0.0).sqrt())).unzip()
+        })
+        .collect();
+    let mut indices = Array2::<u32>::zeros((n_cells, k));
+    let mut distances = Array2::<f32>::zeros((n_cells, k));
+    for (i, (cols, dists)) in rows.into_iter().enumerate() {
+        for (j, (c, dd)) in cols.into_iter().zip(dists).enumerate() {
+            indices[(i, j)] = c;
+            distances[(i, j)] = dd;
+        }
+    }
+    KnnGraph { indices, distances }
 }
 
 /// Conditional affinities over each cell's neighbours at the requested perplexity,
@@ -320,6 +448,7 @@ fn optimise(
     n_cells: usize,
     affinities: &SparseAffinities,
     params: &TsneParams,
+    attraction: &mut dyn Attraction,
 ) -> Vec<f32> {
     let mut layout = initial;
     let mut update = vec![0.0f32; 2 * n_cells];
@@ -343,7 +472,14 @@ fn optimise(
             best_iteration = iteration;
         }
         let checking = (iteration + 1).is_multiple_of(CONVERGENCE_CHECK_INTERVAL);
-        let (gradient, error) = gradient(&layout, n_cells, affinities, exaggeration, checking);
+        let (gradient, error) = gradient(
+            &layout,
+            n_cells,
+            affinities,
+            exaggeration,
+            checking,
+            attraction,
+        );
 
         let t_upd = std::time::Instant::now();
         let norm_square: f64 = layout
@@ -395,42 +531,38 @@ fn optimise(
 
 /// The gradient of the (exaggerated) objective, `4 (F_attr - F_rep)`, and the
 /// objective itself when asked for.
+///
+/// The repulsive term needs the grid and the FFTs, the attractive one the affinities;
+/// they share nothing but the layout, so they run at the same time. The objective
+/// needs `Z` from the repulsion, so the attraction evaluates it once that is known.
 fn gradient(
     layout: &[f32],
     n_cells: usize,
     affinities: &SparseAffinities,
     exaggeration: f32,
     compute_error: bool,
+    attraction: &mut dyn Attraction,
 ) -> (Vec<f32>, Option<f64>) {
-    let (repulsion, normaliser) = repulsive_forces(layout, n_cells);
     let t_attr = std::time::Instant::now();
-    let mut gradient = vec![0.0f32; 2 * n_cells];
-    let error: f64 = gradient
-        .par_chunks_mut(2)
-        .enumerate()
-        .map(|(i, out)| {
-            let (yi0, yi1) = (layout[2 * i], layout[2 * i + 1]);
-            let (mut a0, mut a1) = (0.0f32, 0.0f32);
-            let mut kl = 0.0f64;
-            for at in affinities.indptr[i]..affinities.indptr[i + 1] {
-                let j = affinities.indices[at] as usize;
-                let p = affinities.values[at] * exaggeration;
-                let (d0, d1) = (yi0 - layout[2 * j], yi1 - layout[2 * j + 1]);
-                let w = 1.0 / (1.0 + d0 * d0 + d1 * d1);
-                a0 += p * w * d0;
-                a1 += p * w * d1;
-                if compute_error && p > 0.0 {
-                    let q = ((w as f64) / normaliser).max(MACHINE_EPSILON);
-                    kl += (p as f64) * ((p as f64).max(MACHINE_EPSILON) / q).ln();
-                }
-            }
-            out[0] = 4.0 * (a0 - repulsion[2 * i] as f32);
-            out[1] = 4.0 * (a1 - repulsion[2 * i + 1] as f32);
-            kl
-        })
-        .sum();
+    let ((repulsion, normaliser), (mut attractive, _)) = rayon::join(
+        || repulsive_forces(layout, n_cells),
+        || attraction.compute(layout, affinities, exaggeration, 1.0, false),
+    );
+    let error = if compute_error {
+        let (again, error) = attraction.compute(layout, affinities, exaggeration, normaliser, true);
+        attractive = again;
+        error
+    } else {
+        None
+    };
     tick(5, t_attr);
-    (gradient, compute_error.then_some(error))
+    let mut gradient = vec![0.0f32; 2 * n_cells];
+    gradient
+        .par_iter_mut()
+        .zip(attractive.par_iter())
+        .zip(repulsion.par_iter())
+        .for_each(|((g, &a), &r)| *g = 4.0 * (a - r as f32));
+    (gradient, error)
 }
 
 /// `sum_j W_ij^2 (y_i - y_j) / Z` for every cell, and `Z = sum_{i != j} W_ij`, with
@@ -542,9 +674,9 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
                 for b in 0..NODES_PER_BOX {
                     let col = boxes[1] * NODES_PER_BOX + b;
                     let w = weights[0][a] * weights[1][b];
-                    let at = row * n_nodes + col;
-                    for (charge, &value) in q.iter().enumerate() {
-                        grid[charge * grid_len + at] += w * value;
+                    let at = (row * n_nodes + col) * 4;
+                    for (slot, &value) in grid[at..at + 4].iter_mut().zip(&q) {
+                        *slot += w * value;
                     }
                 }
             }
@@ -570,12 +702,11 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
             for r in 0..n_nodes {
                 let src = r * n_nodes;
                 let dst = r * size;
-                re[dst..dst + n_nodes].copy_from_slice(
-                    &charges[c_re * grid_len + src..c_re * grid_len + src + n_nodes],
-                );
-                im[dst..dst + n_nodes].copy_from_slice(
-                    &charges[c_im * grid_len + src..c_im * grid_len + src + n_nodes],
-                );
+                for col in 0..n_nodes {
+                    re[dst + col] = charges[(src + col) * 4 + c_re];
+                    im[dst + col] = charges[(src + col) * 4 + c_im];
+                }
+
             }
             fft.forward(&mut re, &mut im);
             for ((a, b), k) in re.iter_mut().zip(im.iter_mut()).zip(kernel_re.iter()) {
