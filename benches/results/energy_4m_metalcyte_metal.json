@@ -1,0 +1,76 @@
+{
+  "library": "metalcyte",
+  "device": "metal",
+  "pipeline_seconds": 556.776959417155,
+  "sampled_seconds": 559.854199999994,
+  "gross_joules": {
+    "CPU": 6776.439706850001,
+    "GPU": 624.4264681099946,
+    "ANE": 0.0,
+    "Combined": 7088.667361310016
+  },
+  "idle_watts": {
+    "CPU": 1.4372187344878935,
+    "GPU": 0.1449390260957948,
+    "ANE": 0.0,
+    "Combined": 1.5095925742808292
+  },
+  "net_joules": {
+    "CPU": 5971.806762028278,
+    "GPU": 543.2817456063552,
+    "ANE": 0.0,
+    "Combined": 6243.515618310091
+  },
+  "mean_watts": {
+    "CPU": 12.103936537137837,
+    "GPU": 1.115337650606178,
+    "ANE": 0.0,
+    "Combined": 12.661631119870302
+  },
+  "pipeline": {
+    "library": "metalcyte",
+    "device": "metal",
+    "shape": [
+      3867533,
+      2000
+    ],
+    "streaming": {
+      "block_size": 22920,
+      "device": "auto",
+      "n_passes": 4,
+      "timings": {
+        "pass1_moments": 22.107749124988914,
+        "hvg": 0.0025712919887155294,
+        "pass2_hv_moments": 28.754881958011538,
+        "pass3_scatter_eigh": 58.22564874985255,
+        "pass4_project": 38.45342379203066
+      },
+      "cells_dropped": 195447,
+      "genes_dropped": 4952
+    },
+    "steps": [
+      {
+        "step": "pp.preprocess_backed",
+        "seconds": 151.16543929185718,
+        "added_mb": 1972.0033416748047
+      },
+      {
+        "step": "pp.neighbors",
+        "seconds": 98.01936412509531,
+        "added_mb": 4192.486145019531
+      },
+      {
+        "step": "tl.umap",
+        "seconds": 242.23240287508816,
+        "added_mb": 4920.050445556641
+      },
+      {
+        "step": "tl.leiden",
+        "seconds": 65.35975312511437,
+        "added_mb": 7274.114364624023
+      }
+    ],
+    "total_seconds": 556.776959417155,
+    "n_clusters": 65
+  }
+}

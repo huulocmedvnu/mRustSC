@@ -8,7 +8,7 @@ through quality control, feature selection and PCA without holding the matrix. O
 with 18 GB, a 117 308-cell atlas goes from counts to marker
 genes in 12 s and a 1 001 288-cell atlas
 from counts to Leiden clusters in 103 s, and the full 4 062 980-cell survey it comes from in
-9 minutes at a peak of about 9 GB.
+9 minutes at a peak of about 9 GB, for about 6 kJ of package energy.
 
 Results are written to the standard AnnData slots, so an analysis script written for scanpy runs on
 Metalcyte after changing its import, and scanpy's plotting still reads the results.
@@ -53,21 +53,21 @@ function and argument.
 
 ## Installation
 
-Metalcyte builds from source on Apple silicon (macOS 13 or later, a Rust toolchain, Python 3.11 or
-later). The Metal shaders are compiled at run time by the system Metal framework, so Xcode's Metal
-toolchain is not needed.
+On a Mac with Apple silicon (macOS 13 or later) and Python 3.11 to 3.13:
 
 ```bash
-git clone https://github.com/huulocmedvnu/metalcyte
-cd metalcyte
-python3 -m venv .venv
-.venv/bin/pip install maturin
-VIRTUAL_ENV=.venv .venv/bin/maturin develop --release
-.venv/bin/python -c "import metalcyte as mc; print(mc.__version__, mc.gpu_available())"
+pip install metalcyte
+pip install "metalcyte[plot]"   # adds matplotlib for metalcyte.pl
 ```
 
-Metalcyte is built and tested on macOS on Apple silicon; other platforms are untested.
-[docs/INSTALL.md](docs/INSTALL.md) has the details and the optional extras.
+```bash
+python -c "import metalcyte as mc; print(mc.__version__, mc.gpu_available())"
+```
+
+The wheel carries the compiled extension. The Metal shaders are compiled at run time by the
+system Metal framework, so neither Rust nor Xcode is needed. Metalcyte is built and tested on
+macOS on Apple silicon; other platforms are untested. To build from source, see
+[docs/INSTALL.md](docs/INSTALL.md).
 
 ## What it does
 

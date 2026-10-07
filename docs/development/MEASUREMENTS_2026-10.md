@@ -492,3 +492,16 @@ no swap. Head with `keep_hvg=True` 144 s, kept matrix 0.63 GB (78 M entries); Wi
 on it, 71 clusters, 1.3 s. `pl.umap` of every cell 1.5 s. FFT t-SNE on the GPU 497 s, peak
 7.1 GB. Steps scale close to linearly from 1M: head 4.8x, neighbours 5.0x, UMAP 5.3x, Leiden
 6.3x for 4.26x the cells.
+
+## 16. Addendum, 2026-10-07: energy on the 4 062 980-cell survey
+
+`benches/run_energy_4m.sh`, powermetrics every 100 ms, 10 s idle baseline before each run.
+Metal: 557 s, gross 7 089 J, idle 1.51 W, net 6 244 J (CPU rail 5 972, GPU rail 543), mean
+12.7 W, 65 clusters. CPU only: 568 s, gross 7 028 J, idle 3.90 W, net 4 796 J, 59 clusters. The
+CPU run's idle baseline was taken right after the Metal run, so its net figure is biased low;
+compare gross. Steps under powermetrics (Metal / CPU): head 151 / 181, neighbours 98 / 89,
+UMAP 242 / 236, Leiden 65 / 62 s.
+
+Cluster count across the three 4M runs: 71, 65, 59. Two `knn_approximate` calls with seed 0 on
+300 000 embryo cells gave identical sorted lists for 99.998% of rows (5 rows differed): the
+NN-descent row heaps are updated from parallel threads in a scheduling-dependent order.

@@ -5,7 +5,7 @@ members = ["crates/metalcyte-core", "crates/metalcyte-gpu", "crates/metalcyte-py
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT"
 
 [workspace.dependencies]

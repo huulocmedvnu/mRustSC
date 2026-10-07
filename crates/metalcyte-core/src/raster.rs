@@ -26,7 +26,7 @@ impl Viewport {
             f32::INFINITY,
             f32::NEG_INFINITY,
         );
-        for p in xy.chunks_exact(2) {
+        for p in xy.as_chunks::<2>().0 {
             x_min = x_min.min(p[0]);
             x_max = x_max.max(p[0]);
             y_min = y_min.min(p[1]);
@@ -100,7 +100,7 @@ pub fn render_points(xy: &[f32], rgba: &[u32], spec: &RenderSpec) -> Result<Vec<
     let bg = unpack(spec.background);
     let mut image: Vec<[f32; 4]> = vec![bg; w * h];
     let reach = r.ceil() as i64 + 1;
-    for (p, &colour) in xy.chunks_exact(2).zip(rgba) {
+    for (p, &colour) in xy.as_chunks::<2>().0.iter().zip(rgba) {
         let c = unpack(colour);
         if c[3] <= 0.0 {
             continue;
