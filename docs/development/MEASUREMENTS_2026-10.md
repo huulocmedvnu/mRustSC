@@ -480,3 +480,15 @@ to Metalcyte Metal 7.3 in energy and 18.8 in time. The earlier figures (974 J ag
   as a sparse `(n_cells, n_vars)` matrix: 21 M stored entries, 0.17 GB, at 953 436 cells, with the
   head's time unchanged (31 s). The in-memory marker test on those columns: 0.29 s. So the fast
   route costs 0.17 GB and the streamed test is kept for the case beyond it.
+
+## 15. Addendum, 2026-10-07: the full 4 062 980-cell survey
+
+Real data: the complete CELLxGENE dataset the 1M subset was drawn from (f7c1c579), 20.0 GB
+h5ad, converted to a 28.9 GB counts file in 118 s (streamed, 2.9 GB resident). Pipeline on Metal
+with the default neighbour search: head 155 s (passes 25 / 27 / 56 / 41 s; the file no longer
+sits in the page cache, so the passes are I/O-heavier than at 1M), approximate neighbours 85 s,
+parallel UMAP 237 s, Leiden 61 s (71 clusters): **538 s**, peak resident about 9 GB on 18 GB,
+no swap. Head with `keep_hvg=True` 144 s, kept matrix 0.63 GB (78 M entries); Wilcoxon markers
+on it, 71 clusters, 1.3 s. `pl.umap` of every cell 1.5 s. FFT t-SNE on the GPU 497 s, peak
+7.1 GB. Steps scale close to linearly from 1M: head 4.8x, neighbours 5.0x, UMAP 5.3x, Leiden
+6.3x for 4.26x the cells.

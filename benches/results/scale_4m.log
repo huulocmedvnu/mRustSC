@@ -1,0 +1,24 @@
+== prepare
+wrote /Users/mac/Downloads/mRustSC_work/data/embryo_4m_counts.h5ad (4,062,980 x 45,676, 2,375,982,785 stored values)
+      118.22 real        59.82 user        12.47 sys
+          2891792384  maximum resident set size
+counts file 28.9 GB
+== pipeline 4M metal
+metalcyte on embryo_4m_counts.h5ad
+      pass1_moments           25.47 s
+      hvg                      0.00 s
+      pass2_hv_moments        27.13 s
+      pass3_scatter_eigh      55.65 s
+      pass4_project           41.20 s
+  pp.preprocess_backed            154.93 s  +    1837 MB
+  pp.neighbors                     85.03 s  +    4114 MB
+  tl.umap                         237.06 s  +    4920 MB
+  tl.leiden                        60.84 s  +    7255 MB
+  total                           537.87 s   (71 Leiden clusters)
+== markers, tsne, plot
+head with keep_hvg: 144 s, X nnz 78 M (0.63 GB), peak RSS 4.1 GB
+markers in memory on kept HVG, 71 clusters: 1.33 s
+  return dispatch(args[0].__class__)(*args, **kw)
+pl.umap all cells saved: 1.51 s, peak RSS 4.8 GB
+fft t-SNE on the GPU: 497.0 s, peak RSS 7.1 GB
+ALL4M_DONE
