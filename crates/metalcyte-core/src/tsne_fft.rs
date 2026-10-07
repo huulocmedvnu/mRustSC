@@ -33,7 +33,7 @@ use crate::tsne::{
 /// Neighbours found by NN-descent before the list is widened by expansion.
 const SEED_NEIGHBOURS: usize = 15;
 /// Interpolation nodes per box and side, as FIt-SNE's `n_interpolation_points`.
-const NODES_PER_BOX: usize = 3;
+pub const NODES_PER_BOX: usize = 3;
 /// Fewest boxes per side, as FIt-SNE's `min_num_intervals`.
 const MIN_BOXES: usize = 50;
 /// Boxes per unit of layout extent, as FIt-SNE's `intervals_per_integer`.
@@ -72,6 +72,154 @@ fn z_order(layout: &[f32], n_cells: usize) -> Vec<usize> {
     keys.into_iter().map(|(_, i)| i).collect()
 }
 
+/// The interpolation grid of one iteration: square boxes over the layout's extent, each
+/// with `NODES_PER_BOX` equispaced nodes per side.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grid {
+    /// Lower corner on both axes.
+    pub lo: f32,
+    /// Boxes per side.
+    pub n_boxes: usize,
+    pub box_width: f32,
+    /// Nodes per side, `n_boxes * NODES_PER_BOX`.
+    pub n_nodes: usize,
+    pub node_spacing: f32,
+}
+
+impl Grid {
+    /// The grid for a layout spanning `lo..hi` on its wider axis.
+    pub fn for_extent(lo: f32, hi: f32) -> Self {
+        let extent = (hi - lo).max(1e-6);
+        let n_boxes = ((extent * BOXES_PER_UNIT).ceil() as usize).max(MIN_BOXES);
+        // Boxes are exactly 1 / BOXES_PER_UNIT wide once the layout spans MIN_BOXES of
+        // them, so the node spacing, and with it the kernel transform, stays fixed between
+        // iterations; below that the grid stretches to the layout.
+        let box_width = if extent * BOXES_PER_UNIT >= MIN_BOXES as f32 {
+            1.0 / BOXES_PER_UNIT
+        } else {
+            extent / n_boxes as f32
+        };
+        Self {
+            lo,
+            n_boxes,
+            box_width,
+            n_nodes: n_boxes * NODES_PER_BOX,
+            node_spacing: box_width / NODES_PER_BOX as f32,
+        }
+    }
+
+    /// The grid for a flat `(n, 2)` layout.
+    pub fn for_layout(layout: &[f32]) -> Self {
+        let (lo, hi) = layout
+            .par_chunks(4096)
+            .map(|chunk| {
+                chunk
+                    .iter()
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
+                        (lo.min(v), hi.max(v))
+                    })
+            })
+            .reduce(
+                || (f32::INFINITY, f32::NEG_INFINITY),
+                |a, b| (a.0.min(b.0), a.1.max(b.1)),
+            );
+        Self::for_extent(lo, hi)
+    }
+
+    /// Node positions within a box as fractions of its width: `(k + 0.5) / NODES_PER_BOX`.
+    pub fn nodes_within_box() -> [f32; NODES_PER_BOX] {
+        let mut nodes = [0.0f32; NODES_PER_BOX];
+        for (k, node) in nodes.iter_mut().enumerate() {
+            *node = (k as f32 + 0.5) / NODES_PER_BOX as f32;
+        }
+        nodes
+    }
+
+    /// Denominators of the Lagrange basis over [`Grid::nodes_within_box`].
+    pub fn lagrange_denominators() -> [f32; NODES_PER_BOX] {
+        let nodes = Self::nodes_within_box();
+        let mut out = [0.0f32; NODES_PER_BOX];
+        for (k, d) in out.iter_mut().enumerate() {
+            *d = nodes
+                .iter()
+                .enumerate()
+                .filter(|&(m, _)| m != k)
+                .map(|(_, &other)| nodes[k] - other)
+                .product();
+        }
+        out
+    }
+
+    /// Box index and the Lagrange weights of one coordinate.
+    pub fn place(&self, y: f32) -> (usize, [f32; NODES_PER_BOX]) {
+        let nodes = Self::nodes_within_box();
+        let denominators = Self::lagrange_denominators();
+        let b = (((y - self.lo) / self.box_width) as usize).min(self.n_boxes - 1);
+        let fraction = (y - self.lo - b as f32 * self.box_width) / self.box_width;
+        let mut weights = [0.0f32; NODES_PER_BOX];
+        for (k, w) in weights.iter_mut().enumerate() {
+            let mut value = 1.0f32;
+            for (m, &node) in nodes.iter().enumerate() {
+                if m != k {
+                    value *= fraction - node;
+                }
+            }
+            *w = value / denominators[k];
+        }
+        (b, weights)
+    }
+}
+
+/// Node potentials from node charges: the convolution with the squared Cauchy kernel on
+/// the embedded circulant, by FFT. `charges` and the result are `(n_nodes * n_nodes, 4)`
+/// interleaved by node. The kernel's transform is cached while the grid is unchanged.
+pub fn convolve_charges(grid: &Grid, charges: &[f32]) -> Vec<f32> {
+    let n_nodes = grid.n_nodes;
+    let grid_len = n_nodes * n_nodes;
+    debug_assert_eq!(charges.len(), 4 * grid_len);
+    let size = (2 * n_nodes).next_power_of_two();
+    let fft = Fft2d::new(size);
+    let kernel_re = kernel_transform(&fft, size, n_nodes, grid.node_spacing);
+    // The kernel is even in both axes, so its transform is real, and two real charge
+    // grids packed as the real and imaginary parts of one field convolve independently.
+    let halves: Vec<(Vec<f32>, Vec<f32>)> = (0..2)
+        .into_par_iter()
+        .map(|pair| {
+            let (c_re, c_im) = (2 * pair, 2 * pair + 1);
+            let mut re = vec![0f32; size * size];
+            let mut im = vec![0f32; size * size];
+            for r in 0..n_nodes {
+                let (src, dst) = (r * n_nodes, r * size);
+                for col in 0..n_nodes {
+                    re[dst + col] = charges[(src + col) * 4 + c_re];
+                    im[dst + col] = charges[(src + col) * 4 + c_im];
+                }
+            }
+            fft.forward(&mut re, &mut im);
+            for ((a, b), k) in re.iter_mut().zip(im.iter_mut()).zip(kernel_re.iter()) {
+                *a *= k;
+                *b *= k;
+            }
+            fft.inverse(&mut re, &mut im);
+            (re, im)
+        })
+        .collect();
+    let mut potentials = vec![0f32; 4 * grid_len];
+    potentials
+        .par_chunks_mut(4 * n_nodes)
+        .enumerate()
+        .for_each(|(r, row)| {
+            for col in 0..n_nodes {
+                let at = r * size + col;
+                row[col * 4] = halves[0].0[at];
+                row[col * 4 + 1] = halves[0].1[at];
+                row[col * 4 + 2] = halves[1].0[at];
+                row[col * 4 + 3] = halves[1].1[at];
+            }
+        });
+    potentials
+}
+
 static PROFILE: std::sync::Mutex<[f64; 9]> = std::sync::Mutex::new([0.0; 9]);
 
 fn tick(slot: usize, since: std::time::Instant) {
@@ -100,6 +248,95 @@ pub trait Attraction: Send {
         normaliser: f64,
         compute_error: bool,
     ) -> (Vec<f32>, Option<f64>);
+}
+
+/// One optimiser state and its gradient step. The schedule (momentum, exaggeration,
+/// convergence) lives in [`optimise`]; an engine owns the layout and does the arithmetic,
+/// on the cores ([`CpuEngine`]) or on the GPU (`metalcyte-gpu`).
+pub trait Engine: Send {
+    /// One gradient step with the given exaggeration, momentum and learning rate; `reset`
+    /// zeroes the momentum and the gains first. Returns the squared norm of the scaled
+    /// gradient and, when `compute_error`, the objective.
+    fn step(
+        &mut self,
+        exaggeration: f32,
+        momentum: f32,
+        learning_rate: f32,
+        reset: bool,
+        compute_error: bool,
+    ) -> (f64, Option<f64>);
+    /// The layout, `(n_cells, 2)` flat.
+    fn layout(&self) -> Vec<f32>;
+}
+
+/// The engine on the cores: the grid work and the attractive term as in FIt-SNE, the
+/// update as in scikit-learn.
+pub struct CpuEngine {
+    layout: Vec<f32>,
+    update: Vec<f32>,
+    gains: Vec<f32>,
+    affinities: SparseAffinities,
+    attraction: CpuAttraction,
+}
+
+impl CpuEngine {
+    pub fn new(initial: Vec<f32>, affinities: SparseAffinities) -> Self {
+        let n = initial.len();
+        Self {
+            layout: initial,
+            update: vec![0.0; n],
+            gains: vec![1.0; n],
+            affinities,
+            attraction: CpuAttraction,
+        }
+    }
+}
+
+impl Engine for CpuEngine {
+    fn step(
+        &mut self,
+        exaggeration: f32,
+        momentum: f32,
+        learning_rate: f32,
+        reset: bool,
+        compute_error: bool,
+    ) -> (f64, Option<f64>) {
+        if reset {
+            self.update.iter_mut().for_each(|u| *u = 0.0);
+            self.gains.iter_mut().for_each(|g| *g = 1.0);
+        }
+        let n_cells = self.layout.len() / 2;
+        let (gradient, error) = gradient(
+            &self.layout,
+            n_cells,
+            &self.affinities,
+            exaggeration,
+            compute_error,
+            &mut self.attraction,
+        );
+        let t_upd = std::time::Instant::now();
+        let norm_square: f64 = self
+            .layout
+            .par_iter_mut()
+            .zip(self.update.par_iter_mut())
+            .zip(self.gains.par_iter_mut())
+            .zip(gradient.par_iter())
+            .map(|(((y, u), g), &grad)| {
+                let overshooting = *u * grad < 0.0;
+                *g = if overshooting { *g + 0.2 } else { *g * 0.8 }.max(MIN_GAIN);
+                let scaled = grad * *g;
+                *u = momentum * *u - learning_rate * scaled;
+                *y += *u;
+                (scaled as f64) * (scaled as f64)
+            })
+            .sum();
+        tick(6, t_upd);
+        (norm_square, error)
+    }
+
+    fn layout(&self) -> Vec<f32> {
+        self.layout.clone()
+    }
 }
 
 /// The attractive term on every core, one row of affinities per task.
@@ -153,14 +390,17 @@ pub fn tsne_fft(
     params: &TsneParams,
     _device: &Device,
 ) -> Result<Array2<f32>> {
-    tsne_fft_with(embedding, params, Box::new(CpuAttraction))
+    tsne_fft_with(embedding, params, |initial, affinities| {
+        Ok(Box::new(CpuEngine::new(initial, affinities)))
+    })
 }
 
-/// [`tsne_fft`] with the attractive term computed by `attraction`.
+/// [`tsne_fft`] with the optimiser state and arithmetic supplied by `make_engine`, which
+/// receives the initial layout and the affinities.
 pub fn tsne_fft_with(
     embedding: &Array2<f32>,
     params: &TsneParams,
-    mut attraction: Box<dyn Attraction>,
+    make_engine: impl FnOnce(Vec<f32>, SparseAffinities) -> Result<Box<dyn Engine>>,
 ) -> Result<Array2<f32>> {
     let (n_cells, _) = embedding.dim();
     *PROFILE.lock().unwrap() = [0.0; 9];
@@ -237,7 +477,8 @@ pub fn tsne_fft_with(
     }
 
     let t0 = std::time::Instant::now();
-    let layout = optimise(initial, n_cells, &affinities, params, attraction.as_mut());
+    let mut engine = make_engine(initial, affinities)?;
+    let layout = optimise(engine.as_mut(), params);
     if profile {
         eprintln!(
             "tsne profile: optimisation {:.2} s",
@@ -315,7 +556,7 @@ fn expand_neighbours(embedding: &Array2<f32>, seed: &KnnGraph, k: usize) -> KnnG
 
 /// Conditional affinities over each cell's neighbours at the requested perplexity,
 /// symmetrised and normalised to sum to one, as scikit-learn's `_joint_probabilities_nn`.
-fn symmetric_affinities(graph: &KnnGraph, perplexity: f32) -> SparseAffinities {
+pub fn symmetric_affinities(graph: &KnnGraph, perplexity: f32) -> SparseAffinities {
     let (n_cells, k) = graph.indices.dim();
     let target_entropy = (perplexity as f64).ln();
     // Row-wise bandwidth search, in parallel: the binary search of
@@ -443,16 +684,8 @@ fn symmetric_affinities(graph: &KnnGraph, perplexity: f32) -> SparseAffinities {
 }
 
 /// Gradient descent with the schedule of the exact path, on plain vectors.
-fn optimise(
-    initial: Vec<f32>,
-    n_cells: usize,
-    affinities: &SparseAffinities,
-    params: &TsneParams,
-    attraction: &mut dyn Attraction,
-) -> Vec<f32> {
-    let mut layout = initial;
-    let mut update = vec![0.0f32; 2 * n_cells];
-    let mut gains = vec![1.0f32; 2 * n_cells];
+/// Gradient descent with the schedule of the exact path, on any [`Engine`].
+pub fn optimise(engine: &mut dyn Engine, params: &TsneParams) -> Vec<f32> {
     let mut best_error = f64::MAX;
     let mut best_iteration = 0usize;
     let mut exploration_end = EXPLORATION_ITERATIONS;
@@ -465,39 +698,15 @@ fn optimise(
         } else {
             (FINAL_MOMENTUM as f32, 1.0)
         };
-        if iteration == exploration_end {
-            update.iter_mut().for_each(|u| *u = 0.0);
-            gains.iter_mut().for_each(|g| *g = 1.0);
+        let reset = iteration == exploration_end;
+        if reset {
             best_error = f64::MAX;
             best_iteration = iteration;
         }
         let checking = (iteration + 1).is_multiple_of(CONVERGENCE_CHECK_INTERVAL);
-        let (gradient, error) = gradient(
-            &layout,
-            n_cells,
-            affinities,
-            exaggeration,
-            checking,
-            attraction,
-        );
+        let (norm_square, error) =
+            engine.step(exaggeration, momentum, learning_rate, reset, checking);
 
-        let t_upd = std::time::Instant::now();
-        let norm_square: f64 = layout
-            .par_iter_mut()
-            .zip(update.par_iter_mut())
-            .zip(gains.par_iter_mut())
-            .zip(gradient.par_iter())
-            .map(|(((y, u), g), &grad)| {
-                let overshooting = *u * grad < 0.0;
-                *g = if overshooting { *g + 0.2 } else { *g * 0.8 }.max(MIN_GAIN);
-                let scaled = grad * *g;
-                *u = momentum * *u - learning_rate * scaled;
-                *y += *u;
-                (scaled as f64) * (scaled as f64)
-            })
-            .sum();
-
-        tick(6, t_upd);
         let exploring = iteration < exploration_end;
         iteration += 1;
         if !checking {
@@ -526,7 +735,7 @@ fn optimise(
             exploration_end = iteration;
         }
     }
-    layout
+    engine.layout()
 }
 
 /// The gradient of the (exaggerated) objective, `4 (F_attr - F_rep)`, and the
@@ -571,64 +780,19 @@ fn gradient(
 ///
 /// Four charges per cell, `[1, y_0, y_1, |y|^2]`, give the four node potentials from
 /// which both quantities follow, because `(1 + |y_i - y_j|^2) W_ij^2 = W_ij`.
-fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
-    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
-    for &v in layout {
-        lo = lo.min(v);
-        hi = hi.max(v);
-    }
-    let extent = (hi - lo).max(1e-6);
-    let n_boxes = ((extent * BOXES_PER_UNIT).ceil() as usize).max(MIN_BOXES);
-    // Boxes are exactly 1 / BOXES_PER_UNIT wide once the layout spans MIN_BOXES of them,
-    // so the node spacing, and with it the kernel transform, stays fixed between
-    // iterations; below that the grid stretches to the layout.
-    let box_width = if extent * BOXES_PER_UNIT >= MIN_BOXES as f32 {
-        1.0 / BOXES_PER_UNIT
-    } else {
-        extent / n_boxes as f32
-    };
-    let n_nodes = n_boxes * NODES_PER_BOX;
-    let node_spacing = box_width / NODES_PER_BOX as f32;
-    // Node m sits at lo + (m + 0.5) * node_spacing.
-    let nodes_within_box: Vec<f32> = (0..NODES_PER_BOX)
-        .map(|k| (k as f32 + 0.5) / NODES_PER_BOX as f32)
-        .collect();
-    let denominators: Vec<f32> = nodes_within_box
-        .iter()
-        .enumerate()
-        .map(|(k, &node)| {
-            nodes_within_box
-                .iter()
-                .enumerate()
-                .filter(|&(m, _)| m != k)
-                .map(|(_, &other)| node - other)
-                .product()
-        })
-        .collect();
+pub fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
+    let grid = Grid::for_layout(layout);
+    let n_nodes = grid.n_nodes;
+    let n_boxes = grid.n_boxes;
 
     let t_ph = std::time::Instant::now();
     // Each cell's box and Lagrange weights along both axes.
     let placement: Vec<([usize; 2], [[f32; NODES_PER_BOX]; 2])> = (0..n_cells)
         .into_par_iter()
         .map(|i| {
-            let mut boxes = [0usize; 2];
-            let mut weights = [[0.0f32; NODES_PER_BOX]; 2];
-            for axis in 0..2 {
-                let y = layout[2 * i + axis];
-                let b = (((y - lo) / box_width) as usize).min(n_boxes - 1);
-                let fraction = (y - lo - b as f32 * box_width) / box_width;
-                boxes[axis] = b;
-                for (k, denominator) in denominators.iter().enumerate() {
-                    let mut w = 1.0f32;
-                    for (m, &node) in nodes_within_box.iter().enumerate() {
-                        if m != k {
-                            w *= fraction - node;
-                        }
-                    }
-                    weights[axis][k] = w / denominator;
-                }
-            }
-            (boxes, weights)
+            let (b0, w0) = grid.place(layout[2 * i]);
+            let (b1, w1) = grid.place(layout[2 * i + 1]);
+            ([b0, b1], [w0, w1])
         })
         .collect();
     // Cells bucketed by box row, so a band of box rows is one thread's and the grid
@@ -663,7 +827,8 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
             return;
         }
         // Safety: this band writes grid rows r0 * 3 .. r1 * 3 only, and bands are disjoint.
-        let grid = unsafe { std::slice::from_raw_parts_mut(charges_ptr as *mut f32, 4 * grid_len) };
+        let grid_values =
+            unsafe { std::slice::from_raw_parts_mut(charges_ptr as *mut f32, 4 * grid_len) };
         for &i in &order[offsets[r0]..offsets[r1]] {
             let i = i as usize;
             let (y0, y1) = (layout[2 * i], layout[2 * i + 1]);
@@ -675,7 +840,7 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
                     let col = boxes[1] * NODES_PER_BOX + b;
                     let w = weights[0][a] * weights[1][b];
                     let at = (row * n_nodes + col) * 4;
-                    for (slot, &value) in grid[at..at + 4].iter_mut().zip(&q) {
+                    for (slot, &value) in grid_values[at..at + 4].iter_mut().zip(&q) {
                         *slot += w * value;
                     }
                 }
@@ -685,51 +850,12 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
     tick(1, t_ph);
 
     let t_ph = std::time::Instant::now();
-    // Convolve with the squared Cauchy kernel on the embedded circulant. The kernel is
-    // even in both axes, so its transform is real; two real charge grids packed as the
-    // real and imaginary parts of one field convolve independently.
-    let size = (2 * n_nodes).next_power_of_two();
-    let fft = Fft2d::new(size);
-    let kernel_re = kernel_transform(&fft, size, n_nodes, node_spacing);
-    tick(2, t_ph);
-    let t_ph = std::time::Instant::now();
-    let potentials: Vec<Vec<f32>> = (0..2)
-        .into_par_iter()
-        .flat_map_iter(|pair| {
-            let (c_re, c_im) = (2 * pair, 2 * pair + 1);
-            let mut re = vec![0f32; size * size];
-            let mut im = vec![0f32; size * size];
-            for r in 0..n_nodes {
-                let src = r * n_nodes;
-                let dst = r * size;
-                for col in 0..n_nodes {
-                    re[dst + col] = charges[(src + col) * 4 + c_re];
-                    im[dst + col] = charges[(src + col) * 4 + c_im];
-                }
-
-            }
-            fft.forward(&mut re, &mut im);
-            for ((a, b), k) in re.iter_mut().zip(im.iter_mut()).zip(kernel_re.iter()) {
-                *a *= k;
-                *b *= k;
-            }
-            fft.inverse(&mut re, &mut im);
-            let mut out_re = vec![0f32; grid_len];
-            let mut out_im = vec![0f32; grid_len];
-            for r in 0..n_nodes {
-                out_re[r * n_nodes..(r + 1) * n_nodes]
-                    .copy_from_slice(&re[r * size..r * size + n_nodes]);
-                out_im[r * n_nodes..(r + 1) * n_nodes]
-                    .copy_from_slice(&im[r * size..r * size + n_nodes]);
-            }
-            [out_re, out_im]
-        })
-        .collect();
+    let potentials = convolve_charges(&grid, &charges);
     tick(3, t_ph);
     {
         let mut s = PROFILE.lock().unwrap();
         s[7] = n_nodes as f64;
-        s[8] = size as f64;
+        s[8] = (2 * n_nodes).next_power_of_two() as f64;
     }
 
     let t_ph = std::time::Instant::now();
@@ -744,9 +870,9 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
                 for b in 0..NODES_PER_BOX {
                     let col = boxes[1] * NODES_PER_BOX + b;
                     let w = (weights[0][a] * weights[1][b]) as f64;
-                    let at = row * n_nodes + col;
+                    let at = (row * n_nodes + col) * 4;
                     for c in 0..4 {
-                        phi[c] += w * potentials[c][at] as f64;
+                        phi[c] += w * potentials[at + c] as f64;
                     }
                 }
             }
@@ -778,7 +904,7 @@ fn repulsive_forces(layout: &[f32], n_cells: usize) -> (Vec<f64>, f64) {
 /// The transform of the squared Cauchy kernel on the embedded circulant of a grid,
 /// cached: the grid changes only when the layout's extent crosses a box boundary, so
 /// most iterations reuse the previous transform.
-fn kernel_transform(
+pub fn kernel_transform(
     fft: &Fft2d,
     size: usize,
     n_nodes: usize,
@@ -816,14 +942,14 @@ fn kernel_transform(
 
 /// A square power-of-two 2-D FFT on split complex data: Apple's vDSP on macOS, a
 /// radix-2 implementation elsewhere.
-struct Fft2d {
+pub struct Fft2d {
     size: usize,
     #[cfg(target_os = "macos")]
     setup: std::sync::Arc<vdsp::FftSetup>,
 }
 
 impl Fft2d {
-    fn new(size: usize) -> Self {
+    pub fn new(size: usize) -> Self {
         debug_assert!(size.is_power_of_two());
         Self {
             size,
@@ -832,7 +958,7 @@ impl Fft2d {
         }
     }
 
-    fn forward(&self, re: &mut [f32], im: &mut [f32]) {
+    pub fn forward(&self, re: &mut [f32], im: &mut [f32]) {
         #[cfg(target_os = "macos")]
         {
             self.setup.run(re, im, self.size, false);
@@ -844,7 +970,7 @@ impl Fft2d {
     }
 
     /// The unnormalised inverse scaled by `1 / size^2`, so it undoes `forward`.
-    fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
+    pub fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
         #[cfg(target_os = "macos")]
         {
             self.setup.run(re, im, self.size, true);

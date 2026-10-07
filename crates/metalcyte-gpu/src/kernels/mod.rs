@@ -3,6 +3,6 @@
 
 pub mod knn;
 pub mod spmm;
-pub mod tsne_attraction;
+pub mod tsne_fft_gpu;
 pub mod tsne_gradient;
 pub mod umap_sgd;

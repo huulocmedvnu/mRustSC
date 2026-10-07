@@ -79,7 +79,11 @@ tests): the interpolated repulsive forces agree with brute force to 2% of the ro
 force at the default grid, ten planted blobs stay separated, and the exact objective of the FFT
 layout is within 15% of the exact path's (measured: 1.37 against 1.26 on 3 000 cells). On PBMC 3k
 the 15-neighbour sets of the two layouts overlap as two t-SNE runs do
-(`tests/test_reference.py::test_tsne_fft_keeps_cell_types_together`).
+(`tests/test_reference.py::test_tsne_fft_keeps_cell_types_together`). The GPU engine is held to
+the engine on the cores (`crates/metalcyte-gpu/src/kernels/tsne_fft_gpu.rs` tests): the device
+convolution within 1e-4 relative RMS of Accelerate's, the repulsive forces within 1e-3 of their
+RMS, the objective within 1e-3 at every step and within 0.5% after 500 iterations, and the same
+bytes for the same seed.
 
 ## PCA: determined components and spectrum
 
