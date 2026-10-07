@@ -505,3 +505,6 @@ UMAP 242 / 236, Leiden 65 / 62 s.
 Cluster count across the three 4M runs: 71, 65, 59. Two `knn_approximate` calls with seed 0 on
 300 000 embryo cells gave identical sorted lists for 99.998% of rows (5 rows differed): the
 NN-descent row heaps are updated from parallel threads in a scheduling-dependent order.
+
+Raw samples: `benches/results/energy_4m_metalcyte_{metal,cpu}.powermetrics.txt.gz` (gzip, about
+1.2 MB each).
