@@ -135,8 +135,9 @@ a different order. For results that must match across machines bit for bit, run 
   (`pp.neighbors(method=...)` overrides it). The exact search is quadratic in cells; the approximate
   one has a recall of 0.96 against it at a million cells.
 - The in-memory pipeline fits 18 GB up to about 250 000 cells; above that, use `preprocess_backed`.
-- `tl.tsne` is exact and refuses more than 20 000 cells. `regress_out` and `combat` cap their dense
-  working set at 8 GiB.
+- `tl.tsne` is exact up to 20 000 cells and FFT-accelerated (FIt-SNE) above, in two dimensions only.
+- `regress_out` and `combat` return a dense matrix, which must fit within 60% of the machine's
+  memory; the input is read in gene blocks and is never densified as a whole.
 - `mc.pl` has three functions; plot with scanpy on the same AnnData for the rest.
 - Metalcyte is built and tested on macOS on Apple silicon only. Continuous integration runs the
   whole suite on the CPU; the GPU tests run locally.

@@ -148,11 +148,10 @@ Two places where something does densify, both worth planning around:
   it to `adata.X`. That is 400 MB at 50 000 x 2 000 and 4 GB at 50 000 x 20 000.
   scanpy does the same thing, and both are why you subset to highly variable genes
   first.
-- t-SNE materialises an `(n, n)` affinity matrix. That is what makes it exact, and
-  it is why the call refuses more than 20 000 cells with a `ValueError` instead of
-  exhausting memory. It is also why t-SNE is the one operation that gets slower
-  relative to scanpy as your data grows: 17x slower at 10 000 cells. Use
-  `sc.tl.tsne` above a couple of thousand cells.
+- The exact t-SNE materialises an `(n, n)` affinity matrix, which is why it stops at
+  20 000 cells. Above that, `tl.tsne` switches to the FFT-accelerated formulation
+  (FIt-SNE): sparse affinities over the nearest neighbours and the repulsive term by
+  interpolation on a grid, linear in cells per iteration.
 
 For matrices that do not fit at all there is the out-of-core head, which iterates row
 blocks straight out of an `.h5ad` and sizes them against `settings.max_memory_gb`.

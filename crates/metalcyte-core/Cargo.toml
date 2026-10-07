@@ -8,6 +8,7 @@ candle-core.workspace = true
 ndarray.workspace = true
 rand.workspace = true
 rayon.workspace = true
+libc.workspace = true
 thiserror.workspace = true
 blas-src = { workspace = true, optional = true }
 

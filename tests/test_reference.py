@@ -140,6 +140,35 @@ def test_pca(scaled: AnnData, record_property: Callable[[str, object], None]) ->
     )
 
 
+def test_tsne_fft_keeps_cell_types_together(embedded: AnnData) -> None:
+    """The FFT path on PBMC 3k: every cell type's cells sit near their own centroid."""
+    ours = embedded.copy()
+    metalcyte_call("tl.tsne", ours, method="fft")
+    layout = np.asarray(ours.obsm["X_tsne"])
+    assert layout.shape == (ours.n_obs, 2) and np.isfinite(layout).all()
+    exact = embedded.copy()
+    metalcyte_call("tl.tsne", exact, method="exact")
+    reference = np.asarray(exact.obsm["X_tsne"])
+    # Neighbourhoods agree with the exact layout to the degree two t-SNE runs ever do.
+    overlaps = per_row_overlap(
+        neighbor_sets(_knn_graph(layout, 15)), neighbor_sets(_knn_graph(reference, 15))
+    )
+    assert overlaps.mean() >= 0.25, (
+        f"mean 15-NN overlap with the exact layout {overlaps.mean():.3f}"
+    )
+
+
+def _knn_graph(points: np.ndarray, k: int):
+    from scipy.sparse import csr_matrix
+    from scipy.spatial import cKDTree
+
+    distances, indices = cKDTree(points).query(points, k=k + 1)
+    rows = np.repeat(np.arange(len(points)), k)
+    return csr_matrix(
+        (distances[:, 1:].ravel(), (rows, indices[:, 1:].ravel())), shape=(len(points),) * 2
+    )
+
+
 def test_neighbors_approximate(embedded: AnnData) -> None:
     ours = embedded.copy()
     metalcyte_call(

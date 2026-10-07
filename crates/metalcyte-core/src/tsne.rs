@@ -5,9 +5,21 @@ use rayon::prelude::*;
 use crate::error::{Error, Result};
 use crate::sparse::CsrMatrix;
 
+/// Which formulation lays the cells out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TsneMethod {
+    /// The exact formulation up to [`MAX_CELLS`] cells, the FFT-accelerated one above.
+    Auto,
+    /// The exact `(n, n)` formulation; refuses more than [`MAX_CELLS`] cells.
+    Exact,
+    /// Sparse affinities and an FFT-interpolated repulsive term (`crate::tsne_fft`).
+    Fft,
+}
+
 /// Layout parameters, named as in `scanpy.tl.tsne`.
 #[derive(Debug, Clone)]
 pub struct TsneParams {
+    pub method: TsneMethod,
     pub n_components: usize,
     pub perplexity: f32,
     pub early_exaggeration: f32,
@@ -19,6 +31,7 @@ pub struct TsneParams {
 impl Default for TsneParams {
     fn default() -> Self {
         Self {
+            method: TsneMethod::Auto,
             n_components: 2,
             perplexity: 30.0,
             early_exaggeration: 12.0,
@@ -37,37 +50,37 @@ impl Default for TsneParams {
 /// `n^2` f32 is 1.6 GB at 20 000 cells, and the gradient holds three more buffers
 /// of that shape at once, so the peak is roughly 6.5 GB. Above this bound we
 /// refuse the input instead of exhausting unified memory.
-const MAX_CELLS: usize = 20_000;
+pub const MAX_CELLS: usize = 20_000;
 
 /// Iterations with early exaggeration and low momentum, as scikit-learn's
 /// `_EXPLORATION_N_ITER`.
-const EXPLORATION_ITERATIONS: usize = 250;
-const EXPLORATION_MOMENTUM: f64 = 0.5;
-const FINAL_MOMENTUM: f64 = 0.8;
+pub(crate) const EXPLORATION_ITERATIONS: usize = 250;
+pub(crate) const EXPLORATION_MOMENTUM: f64 = 0.5;
+pub(crate) const FINAL_MOMENTUM: f64 = 0.8;
 
 /// scikit-learn's `PERPLEXITY_TOLERANCE` and step cap for the bandwidth search.
-const PERPLEXITY_TOLERANCE: f32 = 1e-5;
-const PERPLEXITY_SEARCH_STEPS: usize = 100;
+pub(crate) const PERPLEXITY_TOLERANCE: f32 = 1e-5;
+pub(crate) const PERPLEXITY_SEARCH_STEPS: usize = 100;
 /// scikit-learn's `EPSILON_DBL`, the floor on a row's unnormalised mass.
 const AFFINITY_EPSILON: f32 = 1e-8;
 
 /// Floor on per-coordinate gains and the gradient norm at which we stop early,
 /// both as in scikit-learn's `_gradient_descent`.
-const MIN_GAIN: f32 = 0.01;
-const MIN_GRADIENT_NORM: f32 = 1e-7;
+pub(crate) const MIN_GAIN: f32 = 0.01;
+pub(crate) const MIN_GRADIENT_NORM: f32 = 1e-7;
 /// scikit-learn's `TSNE._N_ITER_CHECK`: how often the objective and the gradient
 /// norm are evaluated. Checking also forces a device synchronisation.
-const CONVERGENCE_CHECK_INTERVAL: usize = 50;
+pub(crate) const CONVERGENCE_CHECK_INTERVAL: usize = 50;
 /// scikit-learn's `n_iter_without_progress`, applied to the second phase only.
 /// The exploration phase passes `_EXPLORATION_MAX_ITER` instead, which cannot be
 /// exceeded inside 250 iterations, so it never fires there.
-const ITERATIONS_WITHOUT_PROGRESS: usize = 300;
+pub(crate) const ITERATIONS_WITHOUT_PROGRESS: usize = 300;
 
 /// numpy's `finfo(double).eps`, which scikit-learn calls `MACHINE_EPSILON`. It
 /// only ever guards the logarithm in the objective here: as a floor on `P` it is
 /// nine orders of magnitude below what `f32` resolves at the scale `P` lives on,
 /// so applying it to the affinities themselves would be a no-op.
-const MACHINE_EPSILON: f64 = f64::EPSILON;
+pub(crate) const MACHINE_EPSILON: f64 = f64::EPSILON;
 
 /// Scale of the initial layout, as scikit-learn applies to both of its
 /// initialisations.
@@ -76,7 +89,15 @@ const INIT_STANDARD_DEVIATION: f32 = 1e-4;
 /// t-SNE embedding of a cells-by-features matrix, usually PCA coordinates.
 pub fn tsne(embedding: &Array2<f32>, params: &TsneParams, device: &Device) -> Result<Array2<f32>> {
     let (n_cells, n_features) = embedding.dim();
-    validate(n_cells, n_features, params)?;
+    let exact = match params.method {
+        TsneMethod::Exact => true,
+        TsneMethod::Fft => false,
+        TsneMethod::Auto => n_cells <= MAX_CELLS,
+    };
+    validate(n_cells, n_features, params, exact)?;
+    if !exact {
+        return crate::tsne_fft::tsne_fft(embedding, params, device);
+    }
 
     let points = Tensor::from_vec(
         embedding.iter().copied().collect::<Vec<f32>>(),
@@ -109,7 +130,7 @@ pub fn tsne(embedding: &Array2<f32>, params: &TsneParams, device: &Device) -> Re
     })
 }
 
-fn validate(n_cells: usize, n_features: usize, params: &TsneParams) -> Result<()> {
+fn validate(n_cells: usize, n_features: usize, params: &TsneParams, exact: bool) -> Result<()> {
     if params.n_components == 0 {
         return Err(Error::parameter(
             "n_components",
@@ -143,7 +164,7 @@ fn validate(n_cells: usize, n_features: usize, params: &TsneParams) -> Result<()
             params.perplexity,
         ));
     }
-    if n_cells > MAX_CELLS {
+    if exact && n_cells > MAX_CELLS {
         return Err(Error::parameter(
             "n_cells",
             "at most 20000 for the exact O(n^2) formulation",
@@ -178,7 +199,7 @@ fn centred(points: &Tensor) -> Result<Tensor> {
 
 /// Pairwise squared Euclidean distances as `|x|^2 + |y|^2 - 2 x.y`, so the whole
 /// matrix is one matmul.
-fn squared_distances(points: &Tensor) -> Result<Tensor> {
+pub(crate) fn squared_distances(points: &Tensor) -> Result<Tensor> {
     let norms = points.sqr()?.sum_keepdim(1)?;
     let gram = points.matmul(&points.t()?.contiguous()?)?;
     Ok(norms
@@ -193,7 +214,11 @@ fn squared_distances(points: &Tensor) -> Result<Tensor> {
 /// `_binary_search_perplexity`: same tolerance, same step cap, same rule for
 /// widening an unbounded bracket. Rows are independent, so this parallelises
 /// without affecting the result.
-fn conditional_affinities(squared_distances: &[f32], n_cells: usize, perplexity: f32) -> Vec<f32> {
+pub(crate) fn conditional_affinities(
+    squared_distances: &[f32],
+    n_cells: usize,
+    perplexity: f32,
+) -> Vec<f32> {
     let desired_entropy = perplexity.ln();
     let mut affinities = vec![0f32; n_cells * n_cells];
 
@@ -255,7 +280,7 @@ fn conditional_affinities(squared_distances: &[f32], n_cells: usize, perplexity:
 
 /// Symmetrise the conditional affinities into a joint distribution over pairs:
 /// `P = (C + C^T) / 2n`, which sums to one because every row of `C` does.
-fn joint_probabilities(conditional: &[f32], n_cells: usize) -> Vec<f32> {
+pub(crate) fn joint_probabilities(conditional: &[f32], n_cells: usize) -> Vec<f32> {
     let normaliser = 2.0 * n_cells as f32;
     let mut joint = vec![0f32; n_cells * n_cells];
     for row in 0..n_cells {
@@ -352,7 +377,7 @@ fn kl_gradient(
 /// optimum at a low learning rate but is markedly less stable above it: at
 /// scanpy's default learning rate of 1000 the random start settles at roughly
 /// twice the KL divergence of the PCA start.
-fn principal_component_initialisation(
+pub(crate) fn principal_component_initialisation(
     embedding: &Array2<f32>,
     params: &TsneParams,
     device: &Device,
@@ -858,7 +883,11 @@ mod tests {
     fn rejects_more_cells_than_the_exact_method_allows() {
         // One column only: the guard must fire before anything (n, n) is allocated.
         let input = Array2::<f32>::zeros((MAX_CELLS + 1, 1));
-        let error = tsne(&input, &TsneParams::default(), &Device::Cpu).unwrap_err();
+        let params = TsneParams {
+            method: TsneMethod::Exact,
+            ..Default::default()
+        };
+        let error = tsne(&input, &params, &Device::Cpu).unwrap_err();
         assert!(
             matches!(error, Error::InvalidParameter { parameter, .. } if parameter == "n_cells")
         );
