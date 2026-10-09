@@ -62,3 +62,10 @@ described in `docs/development/` and the release workflow (never re-release an e
 
 The submitted papers describe version 0.3.0 and stay as they are. The CMPB version can state the missing parts
 in its limitations (plotting beyond embeddings, doublet detection, direct 10x reading).
+
+## Housekeeping (deferred, 2026-10-09)
+
+- Move the Metal Shading Language source (about 1 100 lines in 7 Rust files under `crates/metalcyte-gpu/src`) into
+  `.metal` files and embed them with `include_str!`. Runtime behaviour, results and packaging stay identical (no
+  shader is built dynamically; the crate has no include list). Rerun the GPU tests and update ARCHITECTURE.md.
+  Ship with 0.4.0.
