@@ -200,6 +200,29 @@ Hogwild, so neither reproduces coordinates run to run. The default `parallel=Fal
 sequential, deterministic and on the CPU. The pipeline timings above predate this change. With
 the GPU optimiser, the UMAP step of the four-million-cell run would fall from 237 s to about 20 s.
 
+## Faster out-of-core head (0.3.4)
+
+From 0.3.4, `pp.preprocess_backed` reads the file twice instead of four times. The second pass
+keeps the variable-gene columns of every cell in memory, and the scatter and projection passes
+run from there. At four million cells these columns take 0.64 GB. For an uncompressed file, the
+Rust core reads each block straight from the file's chunks on all cores. It reads the next block
+while the current one is processed. `benches/prepare_counts.py` now writes gene indices as
+int32, so the four-million-cell counts file takes 19.4 GB instead of 28.9 GB.
+
+| pass, seconds at 4 062 980 cells | 0.3.3 | 0.3.4, int64 indices | 0.3.4, int32 indices |
+|---|---:|---:|---:|
+| 1, QC and gene sums | 23.8 | 11.5 | 10.4 |
+| 2, variable-gene moments | 28.6 | 20.7 | 19.9 |
+| 3, scatter and PCA | 56.0 | 27.6 | 27.7 |
+| 4, projection | 37.8 | 8.8 | 8.6 |
+| **head** | **151.9** | **72.1** | **70.2** |
+
+The outputs of all three runs have the same checksums: cells kept, variable genes, `X_pca`,
+loadings, variances and the kept variable-gene matrix (`benches/results/preprocess_io_4m.json`).
+The remaining time is computation. Pass 3 scales each block and builds the scatter matrix. Pass 2
+normalises each block and selects its variable-gene columns. The pipeline table for four million
+cells above predates this change.
+
 ## Other steps at a million cells
 
 These are single runs on the 953 436-cell embryo embedding (50 principal components) on the

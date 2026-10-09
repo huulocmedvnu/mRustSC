@@ -789,7 +789,8 @@ mc.pp.neighbors(adata, use_rep="X_pca"); mc.tl.umap(adata, parallel=True); mc.tl
 
 Full signature: `pp.preprocess_backed(path, *, n_top_genes=2000, n_comps=50,
 target_sum=1e4, min_genes=200, min_cells=3, max_value=10.0, flavor="seurat",
-block_size=None, random_state=0, device=None, obs_columns=(), progress=None)`.
+block_size=None, random_state=0, device=None, obs_columns=(), keep_hvg=False,
+hvg_in_memory=None, progress=None)`.
 `progress` is an optional function `(stage, seconds)`. Metalcyte calls it when each
 stage finishes, with the time the stage took.
 
@@ -799,19 +800,27 @@ requested `obs_columns`. `var` holds the `highly_variable`, `means` and
 and `uns["pca"]` are written as `pp.pca` writes them. Cells that fail `min_genes` are
 not in `obs`.
 
-The function reads the blocks of `X` from disk four times:
+The function goes over the blocks of `X` four times:
 
 1. The first pass removes cells below `min_genes`. It normalises and log-transforms each
    block and adds up, per gene, the number of cells that express it and the sums needed
    by `highly_variable_genes`. The variable genes are then chosen from those sums.
 2. The second pass collects the mean and variance of the log values of the variable
-   genes.
+   genes. It keeps each block's variable-gene columns in memory when they fit in half of
+   the machine's memory, or always with `hvg_in_memory=True`, or never with `False`.
+   Their size is known exactly after the first pass.
 3. The third pass scales each block with those values into a dense array. It adds up
    the `(genes, genes)` scatter matrix on the device. PCA comes from the
    eigendecomposition of this covariance matrix.
 4. The fourth pass projects each block onto those axes.
 
-Peak memory is one block plus the embedding. `tests/test_streaming.py` checks the
+Passes 3 and 4 run from the kept variable-gene blocks, so the file is read twice. They
+read it again only when the blocks were not kept. The results are identical either way.
+For an uncompressed file, the Rust core reads each block straight from the file's chunks
+on all cores, and it reads the next block while the current one is processed. A
+compressed file is read through anndata.
+
+Peak memory is one block plus the embedding, plus the variable-gene blocks when kept. `tests/test_streaming.py` checks the
 result against an exact in-memory PCA. [PERFORMANCE.md](PERFORMANCE.md#a-million-cells-on-18-gb)
 describes the million-cell run.
 

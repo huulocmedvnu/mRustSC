@@ -13,6 +13,7 @@ import tracemalloc
 
 import anndata
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 from numpy.testing import assert_allclose
@@ -38,6 +39,7 @@ PEAK_ALLOWANCE_BYTES = 32 * 1024**2
 # matrix and nothing else.
 _STREAMING_PASS = """
 import numpy as np
+import pandas as pd
 from metalcyte._backed import open_backed
 
 with open_backed({path!r}) as backed:
@@ -252,3 +254,62 @@ def test_streams_a_matrix_far_larger_than_the_block_budget(tmp_path):
         f"streaming must save more than the noise floor: {streamed_rss} vs {in_memory_rss} MB"
     )
     assert_allclose(totals, expected_totals, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("index_dtype", "chunks", "compression"),
+    [
+        (np.int32, None, None),
+        (np.int64, None, None),
+        (np.int32, 97, None),
+        (np.int64, 97, None),
+        (np.int64, 97, "gzip"),
+    ],
+)
+def test_direct_reader_returns_the_blocks_anndata_returns(
+    tmp_path, monkeypatch, index_dtype, chunks, compression
+):
+    """The Rust chunk reader gives anndata's blocks for either gene index width and for
+    contiguous or chunked storage, and steps aside for a compressed file."""
+    import h5py
+
+    rng = np.random.default_rng(7)
+    matrix = sp.random(533, 61, density=0.2, format="csr", random_state=rng, dtype=np.float32)
+    matrix.data = np.round(matrix.data * 20).astype(np.float32) + 1
+    keep = np.ones(533, dtype=np.float32)
+    keep[17] = 0  # an empty row
+    matrix = sp.csr_matrix(sp.diags(keep) @ matrix)
+    matrix.eliminate_zeros()
+    path = tmp_path / "counts.h5ad"
+    anndata.AnnData(
+        obs=pd.DataFrame(index=[f"c{i}" for i in range(533)]),
+        var=pd.DataFrame(index=[f"g{j}" for j in range(61)]),
+    ).write_h5ad(path)
+    with h5py.File(path, "r+") as f:
+        if "X" in f:
+            del f["X"]
+        g = f.create_group("X")
+        g.attrs["encoding-type"] = "csr_matrix"
+        g.attrs["encoding-version"] = "0.1.0"
+        g.attrs["shape"] = np.array(matrix.shape, dtype=np.int64)
+        g.create_dataset("indptr", data=matrix.indptr.astype(np.int64))
+        opts = dict(chunks=(chunks,) if chunks else None, compression=compression)
+        g.create_dataset("data", data=matrix.data, **opts)
+        g.create_dataset("indices", data=matrix.indices.astype(index_dtype), **opts)
+
+    def read(direct):
+        monkeypatch.setenv("METALCYTE_DIRECT_READ", "1" if direct else "0")
+        with open_backed(path) as backed:
+            used = backed._direct() is not None
+            return used, list(backed.blocks(50))
+
+    used, direct_blocks = read(True)
+    assert used == (compression is None)
+    _, reference = read(False)
+    assert len(direct_blocks) == len(reference) == 11
+    for (s1, a), (s2, b) in zip(direct_blocks, reference, strict=True):
+        assert s1 == s2 and a.shape == b.shape and a.data.dtype == np.float32
+        np.testing.assert_array_equal(a.indptr, b.indptr)
+        np.testing.assert_array_equal(a.indices, b.indices)
+        np.testing.assert_array_equal(a.data, b.data)
+    assert (sp.vstack([b for _, b in direct_blocks]) != matrix).nnz == 0

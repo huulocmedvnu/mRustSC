@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.4 (2026-10-09)
+
+- `pp.preprocess_backed` is about twice as fast at four million cells (70 s against 152 s), with
+  bit-identical results. The second pass keeps the variable-gene blocks in memory when they fit
+  in half of the machine's memory (0.64 GB at four million cells), so the file is read twice.
+  `hvg_in_memory=False` restores four reads.
+- For an uncompressed `.h5ad`, the Rust core reads each block straight from the file's chunks on
+  all cores, and reads the next block while the current one is processed. Compressed files are
+  still read through anndata.
+- `benches/prepare_counts.py` writes gene indices as int32. The four-million-cell counts file
+  shrinks from 28.9 GB to 19.4 GB.
+
 ## 0.3.3 (2026-10-09)
 
 - `tl.umap(parallel=True)` now optimises the layout on the GPU when one is available. It is about

@@ -12,6 +12,7 @@ extern crate blas_src;
 
 pub mod autocorrelation;
 pub mod batch;
+pub mod chunk_read;
 pub mod chunked;
 pub mod cluster;
 pub mod de;

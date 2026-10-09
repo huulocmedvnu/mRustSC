@@ -1,0 +1,72 @@
+{
+  "cells": 4062980,
+  "note": "same machine, preprocess_backed(keep_hvg=True); identical digests mean bit-identical outputs",
+  "runs": [
+    {
+      "code": "0.3.3 (anndata reader, 4 file passes)",
+      "file": "embryo_4m_counts.h5ad",
+      "total": 151.8769112501759,
+      "timings": {
+        "pass1_moments": 23.819843667093664,
+        "hvg": 0.002783041913062334,
+        "pass2_hv_moments": 28.56744712498039,
+        "pass3_scatter_eigh": 56.014272375032306,
+        "pass4_project": 37.830441625090316
+      },
+      "hvg_in_memory": null,
+      "hvg_bytes": null,
+      "digests": {
+        "obs": "dd7de93d4308218b",
+        "var": "b4088dc4f8ed49f7",
+        "pca": "fe6f6adedb66cb75",
+        "pcs": "b3bcfc2204155c21",
+        "variance": "365b0cf606725f69",
+        "X": "8f8984a544641e1f"
+      }
+    },
+    {
+      "code": "branch, int64 indices file",
+      "file": "embryo_4m_counts.h5ad",
+      "total": 72.05182379088365,
+      "timings": {
+        "pass1_moments": 11.467967625008896,
+        "hvg": 0.002041541039943695,
+        "pass2_hv_moments": 20.701454790774733,
+        "pass3_scatter_eigh": 27.55010754079558,
+        "pass4_project": 8.76813374995254
+      },
+      "hvg_in_memory": true,
+      "hvg_bytes": 642432172,
+      "digests": {
+        "obs": "dd7de93d4308218b",
+        "var": "b4088dc4f8ed49f7",
+        "pca": "fe6f6adedb66cb75",
+        "pcs": "b3bcfc2204155c21",
+        "variance": "365b0cf606725f69",
+        "X": "8f8984a544641e1f"
+      }
+    },
+    {
+      "code": "branch, int32 indices file",
+      "file": "embryo_4m_counts_i32.h5ad",
+      "total": 70.18554558302276,
+      "timings": {
+        "pass1_moments": 10.383574333041906,
+        "hvg": 0.0017833751626312733,
+        "pass2_hv_moments": 19.86673983419314,
+        "pass3_scatter_eigh": 27.747263624798506,
+        "pass4_project": 8.619007416069508
+      },
+      "hvg_in_memory": true,
+      "hvg_bytes": 642432172,
+      "digests": {
+        "obs": "dd7de93d4308218b",
+        "var": "b4088dc4f8ed49f7",
+        "pca": "fe6f6adedb66cb75",
+        "pcs": "b3bcfc2204155c21",
+        "variance": "365b0cf606725f69",
+        "X": "8f8984a544641e1f"
+      }
+    }
+  ]
+}

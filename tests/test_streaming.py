@@ -179,3 +179,17 @@ def test_keep_hvg_returns_the_log_normalised_variable_genes(tmp_path):
         rtol=1e-4,
         atol=1e-5,
     )
+
+
+def test_holding_the_variable_genes_in_memory_changes_nothing(tmp_path):
+    # Passes 3 and 4 replay the blocks pass 2 kept, or read the file again: same numbers.
+    path, _ = _counts_file(tmp_path, n_cells=1500, n_genes=400, seed=5)
+    kw = dict(n_top_genes=100, n_comps=10, min_genes=50, block_size=211, keep_hvg=True)
+    held = mc.pp.preprocess_backed(path, hvg_in_memory=True, **kw)
+    reread = mc.pp.preprocess_backed(path, hvg_in_memory=False, **kw)
+    assert held.uns["streaming"]["hvg_in_memory"] and not reread.uns["streaming"]["hvg_in_memory"]
+    np.testing.assert_array_equal(held.obsm["X_pca"], reread.obsm["X_pca"])
+    np.testing.assert_array_equal(held.varm["PCs"], reread.varm["PCs"])
+    assert (held.X != reread.X).nnz == 0
+    entries = int(held.var["n_cells"][held.var["highly_variable"]].sum())
+    assert held.X.nnz == entries
