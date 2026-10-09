@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2 (2026-10-09)
+
+Maintenance release. Results and performance are unchanged.
+
+- The Metal Shading Language source of every GPU kernel now lives in its own file under
+  `crates/metalcyte-gpu/src/shaders/`. The Rust code embeds the files at build time, so the shaders
+  sent to the GPU are byte for byte the same as in 0.3.1 and no Xcode is needed.
+- `docs/ARCHITECTURE.md` lists each shader file and whether Python reaches it.
+
 ## 0.3.1 (2026-10-07)
 
 Documentation release. The code is unchanged from 0.3.0.

@@ -11,7 +11,7 @@ crates/metalcyte-py                    PyO3: conversion only, no logic
         │
 crates/metalcyte-core                  data types and every algorithm, written against candle
         │
-        └── crates/metalcyte-gpu       Metal context and hand written kernels
+        └── crates/metalcyte-gpu       Metal context, hand-written kernels (src/shaders/*.metal)
 ```
 
 Each layer uses only the layer below it, and each layer has one job:
@@ -43,26 +43,26 @@ loops walk graphs or rank values, and contain no matrix calculations to move to 
 
 ## `metalcyte-gpu` sits beside the core
 
-`metalcyte-gpu` holds four hand-written Metal kernels: `knn`, `spmm`, `tsne_gradient` and
-`umap_sgd`. They do work that candle cannot express directly. That work is choosing the nearest
-neighbours, sparse matrix products without densifying, and the combined attract
-and repel steps of t-SNE and UMAP. With candle, each of these would need a full `(n, n)` matrix
-that is built only to be discarded.
+`metalcyte-gpu` holds the hand-written Metal kernels. Their Metal Shading Language source lives in
+`crates/metalcyte-gpu/src/shaders/*.metal`, one file per kernel family. The Rust side embeds each file
+with `include_str!` and the system Metal framework compiles it the first time it is used, so neither
+Xcode nor a prebuilt `.metallib` is needed. Compiled pipelines are cached for the rest of the process.
 
-**Python can reach one of them, `knn`.** `crates/metalcyte-py/Cargo.toml` depends on
-`metalcyte-gpu`. For a call on Metal, the `embedding` binding sends the k-NN search to `knn_metal`.
-On the CPU, or when Metal fails to start, it uses the candle version
-(`metalcyte-py/src/embedding.rs`). The kernel must give the same answer as the CPU reference. So
-its Metal Shading Language code repeats two steps of the core k-NN: it centres the data on the
-mean, and it sets tiny squared distances to zero. The device comparison test requires both devices
-to return the same neighbour lists.
+| shader file | kernels | connected to Python |
+|---|---|---|
+| `knn.metal`, `knn_tiled.metal`, `knn_simd.metal` | exact k-nearest-neighbour search | yes, `pp.neighbors` on Metal |
+| `tsne_fft.metal` | the FFT-accelerated t-SNE iteration: attraction, placement, spreading, FFT, gather, update | yes, `tl.tsne` above 20 000 cells on Metal |
+| `raster.metal` | point rasteriser (vertex and fragment shader) | yes, `pl.embedding` and the plots built on it |
+| `spmm.metal`, `column_moments.metal`, `scale_rows.metal` | sparse times dense product, column moments, row scaling | no |
+| `tsne_gradient.metal` | exact t-SNE gradient | no |
+| `umap_sgd.metal` | one UMAP epoch | no, on purpose: its lock-free updates would make a layout depend on the device |
+| `trivial.metal` | a one-line kernel that probes whether the GPU is usable | internal |
 
-**Python cannot reach the other three.** `spmm` has no caller. The core PCA multiplies a centred
-sparse matrix, which needs an extra rank-one correction, and the kernel computes only a plain sparse
-times dense product. `tsne_gradient` is not connected. `umap_sgd` is left unconnected on purpose. It
-uses lock-free Hogwild updates, so results vary from run to run. Connecting it would make a UMAP layout depend on whether the computer
-has a GPU. Each kernel is still tested against a simple CPU version in its own module. Outside of
-k-NN, when this repository mentions "the GPU path", it means candle, unless it names a kernel.
+Every kernel must give the answer of its CPU reference in the core. The exact neighbour search repeats
+two steps of the core search: it centres the data on the mean and sets tiny squared distances to zero,
+and the device test requires identical neighbour lists. The unconnected kernels are still tested
+against a CPU version in their own modules. Elsewhere, "the GPU path" means candle unless a kernel is
+named.
 
 If a kernel and its reference ever disagree, the core version is right.
 
