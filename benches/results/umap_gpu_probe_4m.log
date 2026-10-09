@@ -1,0 +1,2 @@
+cpu_parallel  seed 0:   222.6 s  kNN kept 0.008  cell-type vote 0.851  finite True
+gpu_hogwild   seed 0:    19.8 s  kNN kept 0.008  cell-type vote 0.856  finite True

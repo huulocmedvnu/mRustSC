@@ -235,6 +235,59 @@ fn umap_parallel<'py>(
     Ok(layout.into_pyarray(py))
 }
 
+/// UMAP with the layout optimised on the GPU (Hogwild kernel, all epochs resident), the
+/// Metal path of `tl.umap(..., parallel=True)`. Same edge list and initial layout as
+/// `umap_parallel`.
+#[pyfunction]
+#[pyo3(signature = (indptr, indices, values, n_cols, n_components, n_epochs, min_dist, spread,
+                    learning_rate, negative_sample_rate, seed))]
+#[allow(clippy::too_many_arguments)]
+fn umap_metal<'py>(
+    py: Python<'py>,
+    indptr: &Bound<'py, PyAny>,
+    indices: &Bound<'py, PyAny>,
+    values: &Bound<'py, PyAny>,
+    n_cols: usize,
+    n_components: usize,
+    n_epochs: usize,
+    min_dist: f32,
+    spread: f32,
+    learning_rate: f32,
+    negative_sample_rate: usize,
+    seed: u64,
+) -> PyResult<Bound<'py, PyArray2<f32>>> {
+    let graph = crate::convert::csr_from_py(indptr, indices, values, n_cols)?;
+    let params = metalcyte_core::umap::UmapParams {
+        n_components,
+        n_epochs,
+        min_dist,
+        spread,
+        learning_rate,
+        negative_sample_rate,
+        seed,
+    };
+    let layout = py
+        .allow_threads(|| -> metalcyte_core::error::Result<ndarray::Array2<f32>> {
+            let mut problem = metalcyte_core::umap::layout_problem(&graph, &params)?;
+            let context = metalcyte_gpu::MetalContext::new()?;
+            metalcyte_gpu::kernels::umap_sgd::umap_optimize(
+                &context,
+                &mut problem.embedding,
+                n_components,
+                &problem.head,
+                &problem.tail,
+                &problem.epochs_per_sample,
+                &params,
+            )?;
+            ndarray::Array2::from_shape_vec((problem.n_cells, n_components), problem.embedding)
+                .map_err(|e| {
+                    metalcyte_core::error::Error::shape("(n_cells, n_components)", e.to_string())
+                })
+        })
+        .map_err(to_py_error)?;
+    Ok(layout.into_pyarray(py))
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: the pieces a matrix too large for memory is pushed through one
 // row block at a time. Each takes a block's CSR arrays (or a dense block) and
@@ -583,6 +636,7 @@ pub(crate) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(scale_dense, module)?)?;
     module.add_function(wrap_pyfunction!(pca_dense, module)?)?;
     module.add_function(wrap_pyfunction!(umap_parallel, module)?)?;
+    module.add_function(wrap_pyfunction!(umap_metal, module)?)?;
     module.add_function(wrap_pyfunction!(column_nnz, module)?)?;
     module.add_function(wrap_pyfunction!(hvg_partial_sums, module)?)?;
     module.add_function(wrap_pyfunction!(highly_variable_genes_from_sums, module)?)?;

@@ -55,7 +55,7 @@ Xcode nor a prebuilt `.metallib` is needed. Compiled pipelines are cached for th
 | `raster.metal` | point rasteriser (vertex and fragment shader) | yes, `pl.embedding` and the plots built on it |
 | `spmm.metal`, `column_moments.metal`, `scale_rows.metal` | sparse times dense product, column moments, row scaling | no |
 | `tsne_gradient.metal` | exact t-SNE gradient | no |
-| `umap_sgd.metal` | one UMAP epoch | no, on purpose: its lock-free updates would make a layout depend on the device |
+| `umap_sgd.metal` | one UMAP epoch (Hogwild) | yes, `tl.umap(..., parallel=True)` on Metal; the default sequential layout stays on the CPU |
 | `trivial.metal` | a one-line kernel that probes whether the GPU is usable | internal |
 
 Every kernel must give the answer of its CPU reference in the core. The exact neighbour search repeats

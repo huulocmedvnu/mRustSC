@@ -1,0 +1,44 @@
+{
+  "n_cells": 953436,
+  "n_edges": 23438182,
+  "epochs": 200,
+  "neighbors_seconds": 17.106076291995123,
+  "rows": [
+    {
+      "optimiser": "cpu_parallel",
+      "seed": 0,
+      "seconds": 41.721808624919504,
+      "knn_preservation": 0.018086666666666668,
+      "celltype_vote": 0.8787,
+      "finite": true,
+      "spread": 30.357877731323242
+    },
+    {
+      "optimiser": "cpu_parallel",
+      "seed": 1,
+      "seconds": 41.38616454182193,
+      "knn_preservation": 0.018666666666666665,
+      "celltype_vote": 0.8687,
+      "finite": true,
+      "spread": 30.879487991333008
+    },
+    {
+      "optimiser": "gpu_hogwild",
+      "seed": 0,
+      "seconds": 4.613669374957681,
+      "knn_preservation": 0.018143333333333334,
+      "celltype_vote": 0.87685,
+      "finite": true,
+      "spread": 30.625755310058594
+    },
+    {
+      "optimiser": "gpu_hogwild",
+      "seed": 1,
+      "seconds": 4.603093083947897,
+      "knn_preservation": 0.01884666666666667,
+      "celltype_vote": 0.8733,
+      "finite": true,
+      "spread": 30.187803268432617
+    }
+  ]
+}

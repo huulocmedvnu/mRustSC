@@ -734,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "metalcyte-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "blas-src",
  "candle-core",
@@ -747,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "metalcyte-gpu"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "blas-src",
  "candle-core",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "metalcyte-py"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "candle-core",
  "metalcyte-core",

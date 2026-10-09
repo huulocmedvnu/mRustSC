@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (2026-10-09)
+
+- `tl.umap(parallel=True)` now optimises the layout on the GPU when one is available. It is about
+  9 times faster than all CPU cores at a million cells (4.6 s against 41.7 s) and 11 times at
+  four million (19.8 s against 222.6 s), with the same layout quality. `device="cpu"` keeps it on
+  the CPU. The default `parallel=False` is unchanged: sequential, deterministic, on the CPU.
+- Fixed: the GPU UMAP kernel failed to compile from the Python wheel, because the wheel's macOS 11
+  target selects an older Metal language version. Kernels can now request a version.
+
 ## 0.3.2 (2026-10-09)
 
 Maintenance release. Results and performance are unchanged.

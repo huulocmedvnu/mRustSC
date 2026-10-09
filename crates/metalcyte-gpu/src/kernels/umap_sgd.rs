@@ -108,7 +108,11 @@ pub fn umap_epoch(
     let tail_buffer = context.buffer(tail);
     let schedule_buffer = context.buffer(epochs_per_sample);
 
-    let pipeline = context.pipeline(KERNEL_NAME, KERNEL_SOURCE)?;
+    let pipeline = context.pipeline_with_language(
+        KERNEL_NAME,
+        KERNEL_SOURCE,
+        Some(metal::MTLLanguageVersion::V3_0),
+    )?;
     let command_buffer = context.queue().new_command_buffer();
     let encoder = command_buffer.new_compute_command_encoder();
     encoder.set_compute_pipeline_state(&pipeline);
@@ -146,6 +150,105 @@ pub fn umap_epoch(
 /// `initial_alpha` for both epoch 0 and epoch 1, then decaying. Computing
 /// `1 - epoch / n_epochs` here would run every epoch one step ahead of both
 /// umap-learn and the CPU loop in `metalcyte_core::umap`.
+/// The whole UMAP optimisation on the GPU, with every buffer resident for all epochs.
+///
+/// `umap_epoch` above rebuilds its buffers and copies the layout back after each
+/// epoch, which costs about half the wall time. This function uploads the layout and
+/// the edge arrays once, encodes one dispatch per epoch into a single command buffer
+/// (Metal orders the dispatches because they share the layout buffer), and reads the
+/// layout back once. The kernel and its Hogwild semantics are those of `umap_epoch`:
+/// reproducible in structure, not in coordinates. This is the Metal path of
+/// `tl.umap(..., parallel=True)`; the default sequential layout never comes here.
+pub fn umap_optimize(
+    context: &MetalContext,
+    embedding: &mut [f32],
+    dim: usize,
+    head: &[u32],
+    tail: &[u32],
+    epochs_per_sample: &[f32],
+    params: &UmapParams,
+) -> Result<()> {
+    if dim == 0 || dim > MAX_EMBEDDING_DIM || !embedding.len().is_multiple_of(dim) {
+        return Err(Error::shape(
+            format!("a row-major layout with 1..={MAX_EMBEDDING_DIM} columns"),
+            format!("{} values in {dim} columns", embedding.len()),
+        ));
+    }
+    let n_vertices = embedding.len() / dim;
+    if tail.len() != head.len() || epochs_per_sample.len() != head.len() {
+        return Err(Error::shape(
+            "head, tail and epochs_per_sample of equal length",
+            format!(
+                "{}, {}, {}",
+                head.len(),
+                tail.len(),
+                epochs_per_sample.len()
+            ),
+        ));
+    }
+    if head.iter().chain(tail).any(|&v| v as usize >= n_vertices) {
+        return Err(Error::shape(
+            format!("edge endpoints below {n_vertices}"),
+            "an endpoint outside the embedding",
+        ));
+    }
+    if head.is_empty() || params.n_epochs == 0 {
+        return Ok(());
+    }
+    let (a, b) = fit_ab_params(params.min_dist, params.spread)?;
+    let embedding_buffer = context.buffer(embedding);
+    let head_buffer = context.buffer(head);
+    let tail_buffer = context.buffer(tail);
+    let schedule_buffer = context.buffer(epochs_per_sample);
+    let pipeline = context.pipeline_with_language(
+        KERNEL_NAME,
+        KERNEL_SOURCE,
+        Some(metal::MTLLanguageVersion::V3_0),
+    )?;
+    let threads_per_group = pipeline
+        .max_total_threads_per_threadgroup()
+        .min(head.len() as u64);
+    let command_buffer = context.queue().new_command_buffer();
+    for epoch in 0..params.n_epochs {
+        let uniforms = EpochUniforms {
+            a,
+            b,
+            gamma: REPULSION_STRENGTH,
+            alpha: alpha_for_epoch(epoch, params),
+            dim: dim as u32,
+            n_vertices: n_vertices as u32,
+            n_edges: head.len() as u32,
+            negative_sample_rate: params.negative_sample_rate as u32,
+            epoch: epoch as u32,
+            seed_lo: params.seed as u32,
+            seed_hi: (params.seed >> 32) as u32,
+            padding: 0,
+        };
+        let encoder = command_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&pipeline);
+        encoder.set_buffer(0, Some(&embedding_buffer), 0);
+        encoder.set_buffer(1, Some(&head_buffer), 0);
+        encoder.set_buffer(2, Some(&tail_buffer), 0);
+        encoder.set_buffer(3, Some(&schedule_buffer), 0);
+        encoder.set_bytes(
+            4,
+            std::mem::size_of::<EpochUniforms>() as u64,
+            &uniforms as *const EpochUniforms as *const std::ffi::c_void,
+        );
+        encoder.dispatch_threads(
+            metal::MTLSize::new(head.len() as u64, 1, 1),
+            metal::MTLSize::new(threads_per_group, 1, 1),
+        );
+        encoder.end_encoding();
+    }
+    command_buffer.commit();
+    command_buffer.wait_until_completed();
+    // SAFETY: the buffer was created from, and has the same length as, `embedding`.
+    let updated = unsafe { MetalContext::read::<f32>(&embedding_buffer, embedding.len()) };
+    embedding.copy_from_slice(&updated);
+    Ok(())
+}
+
 fn alpha_for_epoch(epoch: usize, params: &UmapParams) -> f32 {
     let elapsed = epoch.saturating_sub(1) as f32;
     params.learning_rate * (1.0 - elapsed / params.n_epochs as f32)

@@ -508,3 +508,16 @@ NN-descent row heaps are updated from parallel threads in a scheduling-dependent
 
 Raw samples: `benches/results/energy_4m_metalcyte_{metal,cpu}.powermetrics.txt.gz` (gzip, about
 1.2 MB each).
+
+## 17. Addendum, 2026-10-09: UMAP layout optimisation on the GPU
+
+The Hogwild kernel `umap_sgd` had never run from Python: the wheel targets macOS 11, whose default
+Metal language version predates `atomic_float`, so the library failed to compile there (the Rust
+tests, built for a newer target, passed). The pipeline now asks for MSL 3.0. A new
+`umap_optimize` keeps the layout and edge buffers resident and encodes all epochs into one
+command buffer (the old per-epoch function copied the layout back every epoch).
+`benches/umap_gpu_probe.py`, same graph and initial layout, 200 epochs, M3 Pro:
+953 436 cells, 23.4 M edges: CPU parallel 41.7 / 41.4 s, GPU 4.6 / 4.6 s (seeds 0, 1);
+cell-type vote 0.879 / 0.869 against 0.877 / 0.873; PCA-neighbour preservation 0.018-0.019 both.
+4 062 980 cells: CPU 222.6 s, GPU 19.8 s; vote 0.851 against 0.856; preservation 0.008 both.
+Layouts inspected side by side: same clusters, different arrangement, as between any two seeds.
