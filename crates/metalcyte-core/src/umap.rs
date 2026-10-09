@@ -103,6 +103,43 @@ pub fn umap_parallel(connectivities: &CsrMatrix, params: &UmapParams) -> Result<
         .map_err(|error| Error::shape("an (n_cells, n_components) layout", error.to_string()))
 }
 
+/// The inputs of the layout optimisation, as flat arrays: the initial layout (row-major,
+/// `n_cells x n_components`), the directed edges and their firing intervals, and the
+/// fitted curve parameters. The CPU drivers above and the GPU optimiser in
+/// `metalcyte-gpu` start from exactly this, so they differ only in the optimiser.
+pub struct LayoutProblem {
+    pub n_cells: usize,
+    pub embedding: Vec<f32>,
+    pub head: Vec<u32>,
+    pub tail: Vec<u32>,
+    pub epochs_per_sample: Vec<f32>,
+    pub a: f32,
+    pub b: f32,
+}
+
+/// Build the [`LayoutProblem`] the CPU drivers optimise: same validation, edge list,
+/// random initial layout and rescaling.
+pub fn layout_problem(connectivities: &CsrMatrix, params: &UmapParams) -> Result<LayoutProblem> {
+    validate(connectivities, params)?;
+    let n_cells = connectivities.n_rows();
+    let (a, b) = fit_ab_params(params.min_dist, params.spread)?;
+    let graph = EdgeList::from_graph(connectivities, params.n_epochs);
+    if graph.head.is_empty() {
+        return Err(Error::shape("a graph with at least one edge", "no edges"));
+    }
+    let mut embedding = random_layout(n_cells, params.n_components, params.seed);
+    rescale_to_init_range(&mut embedding, params.n_components);
+    Ok(LayoutProblem {
+        n_cells,
+        embedding,
+        head: graph.head,
+        tail: graph.tail,
+        epochs_per_sample: graph.epochs_per_sample.iter().map(|&e| e as f32).collect(),
+        a,
+        b,
+    })
+}
+
 fn validate(connectivities: &CsrMatrix, params: &UmapParams) -> Result<()> {
     if params.n_components == 0 {
         return Err(Error::parameter("n_components", "at least 1", 0));

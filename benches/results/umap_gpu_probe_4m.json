@@ -1,0 +1,26 @@
+{
+  "n_cells": 3867533,
+  "n_edges": 95632728,
+  "epochs": 200,
+  "neighbors_seconds": 82.2487387501169,
+  "rows": [
+    {
+      "optimiser": "cpu_parallel",
+      "seed": 0,
+      "seconds": 222.59317154088058,
+      "knn_preservation": 0.007859999999999999,
+      "celltype_vote": 0.85095,
+      "finite": true,
+      "spread": 35.73347854614258
+    },
+    {
+      "optimiser": "gpu_hogwild",
+      "seed": 0,
+      "seconds": 19.750521749956533,
+      "knn_preservation": 0.007646666666666667,
+      "celltype_vote": 0.85605,
+      "finite": true,
+      "spread": 33.60363006591797
+    }
+  ]
+}

@@ -283,13 +283,15 @@ to `obsm["X_umap"]`. `n_epochs` defaults to 200. umap-learn uses 500 for small d
 UMAP gives a different layout for each random seed. Two layouts are compared by how
 well they keep the same neighbours, and they are never equal point by point.
 
-`parallel=True` runs the optimisation on all cores with lock-free (Hogwild) SGD, like
-umap-learn's `parallel=True`. This is several times faster on
-large graphs. The layout then depends on thread timing as well as on `random_state`,
-so it is no longer reproducible. For that reason the default stays sequential and
-reproducible.
+`parallel=True` runs the optimisation with lock-free (Hogwild) SGD, like umap-learn's
+`parallel=True`. With a usable GPU and `device` not `"cpu"` it runs on the GPU, about nine
+times faster than on all CPU cores at a million cells, with the same layout quality.
+Otherwise it runs on all CPU cores. The layout then depends on thread timing as well as on
+`random_state`, so it is no longer reproducible. For that reason the default stays
+sequential and reproducible.
 
-`device` is accepted and ignored. The layout always runs on the CPU.
+`device` matters only with `parallel=True`. The default sequential layout always runs on
+the CPU.
 
 #### `tl.tsne(adata, *, n_pcs=50, perplexity=30.0, early_exaggeration=12.0, learning_rate=None, method="auto", random_state=0, device=None)`
 
@@ -715,7 +717,7 @@ functions, `dendrogram`, `filter_rank_genes_groups`, `marker_gene_overlap`,
 device at all.
 
 Some functions accept a device and still run on the CPU. In the core they receive it
-as an unused `_device` parameter. This applies to `umap`, `leiden`, `louvain`,
+as an unused `_device` parameter. This applies to `umap` (except with `parallel=True`), `leiden`, `louvain`,
 `normalize_total`, `highly_variable_genes`, `wilcoxon` and the two t-tests. `paga` and
 `get.aggregate` also ignore it, as their sections say. The device is used by `pca`,
 `neighbors`, `tsne`, `scale`, `diffmap`, `draw_graph`, `embedding_density`,

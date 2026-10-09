@@ -87,9 +87,11 @@ names no device is on the GPU.
   it reproduces `neighbors::knn`'s f64 mean-centering and its
   `(n_dims + 2) * f32::EPSILON * (|a|^2 + |b|^2)` snapping inside the MSL, so
   `tests/test_device_parity.py` holds the two devices' neighbour lists equal (4 of 4).
-  The other three kernels (`spmm`, `tsne_gradient`, `umap_sgd`) sit on no path a Python
-  caller can take: `spmm` has no plain sparse×dense consumer, and `umap_sgd` is Hogwild
-  and left unwired on purpose. All other GPU work still goes through candle.
+  `spmm` and `tsne_gradient` sit on no path a Python caller can take (`spmm` has no plain
+  sparse×dense consumer). `umap_sgd` is Hogwild and runs only behind
+  `tl.umap(..., parallel=True)` on Metal, which already promises no reproducibility; the
+  default sequential UMAP never reaches it. The FFT t-SNE kernels and the point rasteriser
+  are also wired. Other GPU work goes through candle.
 
 ## scanpy is the reference
 

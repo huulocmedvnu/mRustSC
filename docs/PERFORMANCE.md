@@ -181,6 +181,25 @@ it by stacking the 1M atlas with a thinned copy of itself (`benches/double_count
 in 202 s on Metal (first steps 62, neighbours 38, UMAP 83, Leiden 20) and 222 s on the CPU
 cores. Streamed markers on 2 000 genes took 8.4 s.
 
+## UMAP on the GPU (0.3.3)
+
+From 0.3.3, `tl.umap(parallel=True)` runs the lock-free layout optimisation on the GPU when one
+is available. The comparison uses the same neighbour graph, initial layout and 200 epochs as the
+multi-core CPU optimiser in the tables above (`benches/umap_gpu_probe.py`, results in
+`benches/results/umap_gpu_probe_{1m,4m}.json`):
+
+| cells | edges | CPU, all cores | GPU | speed-up | cell-type vote, CPU / GPU |
+|---:|---:|---:|---:|---:|---:|
+| 953 436 | 23.4 M | 41.7 s, 41.4 s | 4.6 s, 4.6 s | 9x | 0.879, 0.869 / 0.877, 0.873 |
+| 4 062 980 | | 222.6 s | 19.8 s | 11x | 0.851 / 0.856 |
+
+Quality is the share of 20 000 sampled cells whose 15 nearest neighbours in the layout vote for
+their own annotated cell type. The share of PCA neighbours kept in the layout is also the same on
+both devices (0.018 and 0.019 at a million cells, 0.008 at four million). Both optimisers are
+Hogwild, so neither reproduces coordinates run to run. The default `parallel=False` stays
+sequential, deterministic and on the CPU. The pipeline timings above predate this change. With
+the GPU optimiser, the UMAP step of the four-million-cell run would fall from 237 s to about 20 s.
+
 ## Other steps at a million cells
 
 These are single runs on the 953 436-cell embryo embedding (50 principal components) on the

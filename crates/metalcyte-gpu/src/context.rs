@@ -46,6 +46,21 @@ impl MetalContext {
         function_name: &'static str,
         source: &str,
     ) -> Result<ComputePipelineState> {
+        self.pipeline_with_language(function_name, source, None)
+    }
+
+    /// As [`Self::pipeline`], compiled against an explicit Metal Shading Language version.
+    ///
+    /// The default language version follows the deployment target of the binary that
+    /// loads the library. The Python wheel targets macOS 11, whose default predates
+    /// MSL 3.0, so a kernel that needs a newer type (for example `atomic_float`) must
+    /// ask for it here.
+    pub fn pipeline_with_language(
+        &self,
+        function_name: &'static str,
+        source: &str,
+        language: Option<metal::MTLLanguageVersion>,
+    ) -> Result<ComputePipelineState> {
         let mut pipelines = self.pipelines.lock().expect("pipeline cache poisoned");
         if let Some(pipeline) = pipelines.get(function_name) {
             return Ok(pipeline.clone());
@@ -54,9 +69,13 @@ impl MetalContext {
             name: function_name,
             message,
         };
+        let options = metal::CompileOptions::new();
+        if let Some(version) = language {
+            options.set_language_version(version);
+        }
         let library = self
             .device
-            .new_library_with_source(source, &metal::CompileOptions::new())
+            .new_library_with_source(source, &options)
             .map_err(kernel)?;
         let function = library.get_function(function_name, None).map_err(kernel)?;
         let pipeline = self

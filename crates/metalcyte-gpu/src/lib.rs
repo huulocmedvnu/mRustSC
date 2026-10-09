@@ -22,14 +22,13 @@
 //! natural consumer, `core::pca`, does a *centred* product with a rank-one correction
 //! rather than the plain sparse×dense this kernel offers.
 //!
-//! **`umap_sgd` is deliberately not wired, and should stay that way for now.** It is
-//! Hogwild — it accepts racing writes between threads, so it does not reproduce bit for
-//! bit against itself, let alone against the sequential CPU sweep (see its module docs).
-//! `core::umap` also ignores `device` today, so wiring the kernel in would make a UMAP
-//! layout depend on whether the caller's machine has a GPU — the same failure mode the
-//! `knn` fix closes for k-NN, but across a whole stochastic algorithm — and it would
-//! break the `umap-learn` cross-checks in `tests/test_umap_audit.py`. Whoever revisits
-//! it should start with `docs/API_CONTRACT.md`, where the reproducibility promise lives.
+//! **`umap_sgd` is wired only behind `tl.umap(..., parallel=True)`.** It is Hogwild: it
+//! accepts racing writes between threads, so it does not reproduce bit for bit against
+//! itself. The opt-in CPU optimiser behind `parallel=True` has the same property, so the
+//! GPU takes that path when the device is Metal and the default sequential layout, which
+//! the `umap-learn` cross-checks in `tests/test_umap_audit.py` hold to, never reaches it.
+//! The kernel needs Metal Shading Language 3.0 (`atomic_float`) and asks for it
+//! explicitly, because the wheel's macOS 11 deployment target defaults to an older one.
 
 // Force-link Accelerate for ndarray's BLAS backend when the feature is on.
 #[cfg(feature = "accelerate")]
