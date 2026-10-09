@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 (2026-10-09)
 
 - `pp.preprocess_backed` is about twice as fast at four million cells (70 s against 152 s), with
   bit-identical results. The second pass keeps the variable-gene blocks in memory when they fit

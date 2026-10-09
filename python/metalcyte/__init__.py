@@ -13,7 +13,7 @@ from metalcyte import get, metrics, pp, tl
 from metalcyte._metalcyte import gpu_available as _gpu_available_native
 from metalcyte.settings import settings
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 
 def gpu_available() -> bool:
