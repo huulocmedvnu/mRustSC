@@ -16,6 +16,8 @@ of one block. Metalcyte chooses the block size from `metalcyte.settings.max_memo
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +28,6 @@ import scipy.sparse as sp
 from metalcyte.settings import settings
 
 if TYPE_CHECKING:
-    import os
     from collections.abc import Iterator
 
     import pandas as pd
@@ -86,6 +87,7 @@ class BackedMatrix:
     def __init__(self, adata: anndata.AnnData, path: Path) -> None:
         self._adata = adata
         self._path = path
+        self._direct_reader: _DirectCsr | bool | None = False
 
     @property
     def path(self) -> Path:
@@ -144,20 +146,45 @@ class BackedMatrix:
         return block_size_for(self.n_vars, self.density, max_memory_gb)
 
     def blocks(self, block_size: int | None = None) -> Iterator[tuple[int, sp.csr_matrix]]:
-        """Yield `(first cell index, block)` in row order, one HDF5 read each.
+        """Yield `(first cell index, block)` in row order.
 
-        `block_size` defaults to `self.block_size()`. Blocks are CSR with
-        `float32` values, the form the Rust core takes; the last one is short
-        whenever the cell count is not a multiple of the block size.
+        `block_size` defaults to `self.block_size()`. Blocks are CSR with `float32`
+        values, the form the Rust core takes; the last one is short whenever the cell
+        count is not a multiple of the block size.
+
+        When `X` is an uncompressed CSR, each block is read by the Rust core straight
+        from the file's chunks on all cores, and the next block is read while the caller
+        works on the current one. Any other layout is read through anndata.
         """
         if block_size is None:
             block_size = self.block_size()
         if block_size < 1:
             raise ValueError(f"block_size must be at least 1, got {block_size}")
-        matrix = self._x()
-        for start in range(0, self.n_obs, block_size):
-            stop = min(start + block_size, self.n_obs)
-            yield start, _as_csr(matrix[start:stop])
+        direct = self._direct()
+        if direct is None:
+            matrix = self._x()
+            for start in range(0, self.n_obs, block_size):
+                stop = min(start + block_size, self.n_obs)
+                yield start, _as_csr(matrix[start:stop])
+            return
+        starts = range(0, self.n_obs, block_size)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(direct.read, 0, min(block_size, self.n_obs)) if starts else None
+            for start in starts:
+                block = pending.result()
+                following = start + block_size
+                pending = (
+                    pool.submit(direct.read, following, min(following + block_size, self.n_obs))
+                    if following < self.n_obs
+                    else None
+                )
+                yield start, block
+
+    def _direct(self) -> _DirectCsr | None:
+        """The chunk map of an uncompressed CSR `X`, or `None` when anndata must read it."""
+        if self._direct_reader is False:
+            self._direct_reader = _DirectCsr.open(self._x(), self._path, self.n_vars)
+        return self._direct_reader
 
     def close(self) -> None:
         """Close the backing file. Idempotent, so `with` blocks nest safely."""
@@ -178,6 +205,83 @@ class BackedMatrix:
         if matrix is None:
             raise ValueError(f"{self._path.name} has no X to stream")
         return matrix
+
+
+class _DirectCsr:
+    """Reads row blocks of an uncompressed CSR `X` with the Rust chunk reader.
+
+    h5py reports the byte offset of every chunk of `data` and `indices` once. A block is
+    then a set of byte ranges, read in parallel with the GIL released. Gene indices
+    stored as `int64` come back as `int32`, so both file layouts give the same block.
+    """
+
+    def __init__(self, path: Path, n_vars: int, indptr: np.ndarray, data: tuple, indices: tuple):
+        self.path = str(path)
+        self.n_vars = n_vars
+        self.indptr = indptr
+        self.data_offsets, self.data_chunk = data
+        self.index_offsets, self.index_chunk, self.index_itemsize = indices
+
+    @classmethod
+    def open(cls, matrix: Any, path: Path, n_vars: int) -> _DirectCsr | None:
+        from metalcyte._shared import _extension
+
+        if os.environ.get("METALCYTE_DIRECT_READ", "1") == "0":
+            return None
+        if not _is_sparse_dataset(matrix) or not hasattr(_extension(), "read_csr_entries"):
+            return None
+        group = matrix.group
+        data_map = _chunk_map(group["data"], ("<f4",))
+        index_map = _chunk_map(group["indices"], ("<i4", "<i8"))
+        if data_map is None or index_map is None or n_vars > np.iinfo(np.int32).max:
+            return None
+        indptr = np.asarray(group["indptr"][:], dtype=np.int64)
+        return cls(path, n_vars, indptr, data_map[:2], index_map)
+
+    def read(self, start: int, stop: int) -> sp.csr_matrix:
+        from metalcyte._shared import _extension
+
+        lo, hi = int(self.indptr[start]), int(self.indptr[stop])
+        values, indices = _extension().read_csr_entries(
+            self.path,
+            self.data_offsets,
+            self.data_chunk,
+            self.index_offsets,
+            self.index_chunk,
+            self.index_itemsize,
+            lo,
+            hi,
+        )
+        local = (self.indptr[start : stop + 1] - lo).astype(np.int32)
+        return sp.csr_matrix((values, indices, local), shape=(stop - start, self.n_vars))
+
+
+def _chunk_map(dataset: Any, dtypes: tuple[str, ...]) -> tuple[np.ndarray, int, int] | None:
+    """`(byte offset of each chunk, elements per chunk, item size)` of a 1-D dataset that
+    can be read as raw bytes, or `None` when it is filtered, external or not allocated."""
+    if dataset.dtype.str not in dtypes or dataset.ndim != 1:
+        return None
+    if dataset.compression or dataset.shuffle or dataset.fletcher32 or dataset.scaleoffset:
+        return None
+    if dataset.is_virtual or dataset.external:
+        return None
+    n, itemsize = int(dataset.shape[0]), dataset.dtype.itemsize
+    if dataset.chunks is None:
+        offset = dataset.id.get_offset()
+        if offset is None:
+            return None
+        return np.array([offset], dtype=np.uint64), max(n, 1), itemsize
+    chunk = int(dataset.chunks[0])
+    n_chunks = -(-n // chunk)
+    if dataset.id.get_num_chunks() != n_chunks:
+        return None
+    offsets = np.zeros(n_chunks, dtype=np.uint64)
+    for k in range(n_chunks):
+        info = dataset.id.get_chunk_info(k)
+        if info.byte_offset is None or info.filter_mask != 0:
+            return None
+        offsets[info.chunk_offset[0] // chunk] = info.byte_offset
+    return offsets, chunk, itemsize
 
 
 def open_backed(path: str | os.PathLike[str]) -> BackedMatrix:

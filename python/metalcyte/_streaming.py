@@ -3,22 +3,28 @@
 `preprocess_backed` takes a counts `.h5ad` file on disk. It returns an in-memory
 `AnnData` with what the rest of the analysis needs: the per-cell QC columns, the
 highly variable gene flags and the PCA embedding. It never loads the whole count
-matrix. It reads the rows of `X` in blocks and goes through the file three times:
+matrix. It reads the rows of `X` in blocks, in four passes:
 
 1. **moments**: Metalcyte counts per-cell `n_genes` and `total_counts` and per-gene
    `n_cells`. It also adds up, per gene, the `sum` and `sum of squares` that
    `highly_variable_genes` needs. Each block is normalised and log-transformed as it is
    read. This uses the same core functions as the in-memory path, so the numbers match.
-2. **scatter**: Metalcyte scales the highly variable genes of each block with the
-   per-gene means and variances from pass 1. It then adds the block's `(g, g)` gene by
+2. **variable-gene moments**: Metalcyte keeps the highly variable genes of each
+   log-normalised block and adds up their means and variances for scaling. When these
+   blocks fit in half of the machine's memory, it keeps them for the next two passes.
+3. **scatter**: Metalcyte scales each variable-gene block and adds its `(g, g)` gene by
    gene scatter matrix to a running total on the GPU. PCA comes from the
    eigendecomposition of this covariance matrix.
-3. **project**: Metalcyte scales each block again and multiplies it by the loadings.
+4. **project**: Metalcyte scales each block again and multiplies it by the loadings.
    This gives the block's rows of `X_pca`.
 
-Memory use is one block (`metalcyte.settings.max_memory_gb`) plus the
-`(n_cells, n_comps)` embedding. For a million cells by 2 000 genes, that is the 400 MB
-embedding and one block. The dense scaled matrix alone would need 8 GB. On Apple
+Passes 3 and 4 read the file again only when the variable-gene blocks were not kept.
+For an uncompressed file, the Rust core reads each block straight from the file's
+chunks on all cores, and the next block is read while the current one is processed.
+
+Memory use is one block (`metalcyte.settings.max_memory_gb`), the `(n_cells, n_comps)`
+embedding and, when kept, the variable-gene blocks. For a million cells by 2 000 genes,
+the embedding takes 400 MB. The dense scaled matrix alone would need 8 GB. On Apple
 silicon the CPU and the GPU share one memory. The GPU multiplies the same buffer the CPU
 just scaled, and nothing is copied to a separate device. As in `pp.filter_cells` and
 `pp.filter_genes`, cells with fewer than `min_genes` genes are dropped before any
@@ -28,10 +34,11 @@ the variable-gene step.
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import anndata
 import numpy as np
@@ -42,15 +49,17 @@ from metalcyte._backed import block_size_for, open_backed
 from metalcyte._shared import _extension
 from metalcyte.settings import settings
 
-if TYPE_CHECKING:
-    import os
-
 _VALUE_DTYPE = np.float32
 
 
 def _blocks(backed: Any, block_size: int):
     for start, block in backed.blocks(block_size):
         yield start, block.astype(_VALUE_DTYPE, copy=False)
+
+
+def _physical_memory() -> int:
+    """Installed memory in bytes."""
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
 
 
 def _transform(ext: Any, block: sp.csr_matrix, target_sum: float, log: bool) -> sp.csr_matrix:
@@ -78,6 +87,7 @@ def preprocess_backed(
     device: str | None = None,
     obs_columns: tuple[str, ...] = (),
     keep_hvg: bool = False,
+    hvg_in_memory: bool | None = None,
     progress: Callable[[str, float], None] | None = None,
 ) -> anndata.AnnData:
     """QC, normalisation, gene selection, scaling and PCA for a count matrix kept on disk.
@@ -93,6 +103,12 @@ def preprocess_backed(
     variable genes' stored entries (about 1.6 GB for a million cells by 2 000 genes),
     so `tl.rank_genes_groups(adata[:, adata.var.highly_variable])` then runs in memory
     without reading the file again.
+
+    `hvg_in_memory` keeps the log-normalised variable-gene block of every cell in memory
+    from the second pass on, so the scatter and projection passes run without reading
+    the file again. Its size is known exactly after the first pass, from the per-gene
+    cell counts. `None` keeps it when it takes at most half of the machine's memory.
+    The numbers are the same either way: the same blocks are summed in the same order.
     """
     ext = _extension()
     dev = settings.resolve_device(device)
@@ -177,17 +193,30 @@ def preprocess_backed(
                 dtype=_VALUE_DTYPE,
             )
 
-        for start, block in _blocks(backed, size):
-            stop = start + block.shape[0]
-            keep = cell_mask[start:stop]
-            if not keep.any():
-                continue
-            if not keep.all():
-                block = block[keep]
-            block = hv_block(_transform(ext, block, target_sum, log=True))
+        # The variable-gene entries of the kept cells, counted exactly in pass 1.
+        hv_entries = int(gene_cells[hv_columns].sum())
+        hv_bytes = hv_entries * 8 + n_cells_kept * 4
+        if hvg_in_memory is None:
+            hvg_in_memory = hv_bytes <= _physical_memory() // 2
+
+        def hv_blocks():
+            """The log-normalised variable-gene block of every kept cell, from the file."""
+            for start, block in _blocks(backed, size):
+                stop = start + block.shape[0]
+                keep = cell_mask[start:stop]
+                if not keep.any():
+                    continue
+                if not keep.all():
+                    block = block[keep]
+                yield hv_block(_transform(ext, block, target_sum, log=True))
+
+        held: list[sp.csr_matrix] = []
+        for block in hv_blocks():
             s, q = ext.hvg_partial_sums(block.indptr, block.indices, block.data, n_hv, False)
             hv_sums += s
             hv_squares += q
+            if hvg_in_memory:
+                held.append(block)
         n = float(n_cells_kept)
         hv_mean = hv_sums / n
         hv_var = (hv_squares - n * hv_mean**2) / (n - 1.0)
@@ -197,17 +226,13 @@ def preprocess_backed(
         hv_std32 = np.ascontiguousarray(hv_std, dtype=_VALUE_DTYPE)
         tick("pass2_hv_moments", t)
 
+        def replay():
+            return iter(held) if hvg_in_memory else hv_blocks()
+
         # ---- pass 3: scatter of the scaled HVG block, on the device ---------------
         t = time.perf_counter()
         scatter = np.zeros((n_hv, n_hv), dtype=np.float64)
-        for start, block in _blocks(backed, size):
-            stop = start + block.shape[0]
-            keep = cell_mask[start:stop]
-            if not keep.any():
-                continue
-            if not keep.all():
-                block = block[keep]
-            block = hv_block(_transform(ext, block, target_sum, log=True))
+        for block in replay():
             dense = ext.scale_dense_with(
                 block.indptr, block.indices, block.data, n_hv, hv_mean32, hv_std32, True, max_value
             )
@@ -221,14 +246,7 @@ def preprocess_backed(
         embedding = np.empty((n_cells_kept, n_comps), dtype=_VALUE_DTYPE)
         cursor = 0
         kept_blocks: list[sp.csr_matrix] = []
-        for start, block in _blocks(backed, size):
-            stop = start + block.shape[0]
-            keep = cell_mask[start:stop]
-            if not keep.any():
-                continue
-            if not keep.all():
-                block = block[keep]
-            block = hv_block(_transform(ext, block, target_sum, log=True))
+        for block in replay():
             if keep_hvg:
                 # The block's variable-gene values under their global column ids.
                 kept_blocks.append(
@@ -244,6 +262,7 @@ def preprocess_backed(
             scores = ext.project_dense(dense, components, dev)
             embedding[cursor : cursor + scores.shape[0]] = scores
             cursor += scores.shape[0]
+        held.clear()
         tick("pass4_project", t)
 
     obs = pd.DataFrame(
@@ -280,7 +299,9 @@ def preprocess_backed(
     result.uns["streaming"] = {
         "block_size": int(size),
         "device": dev,
-        "n_passes": 4,
+        "n_passes": 2 if hvg_in_memory else 4,
+        "hvg_in_memory": bool(hvg_in_memory),
+        "hvg_bytes": hv_bytes,
         "timings": timings,
         "cells_dropped": int(n_obs - n_cells_kept),
         "genes_dropped": int((~gene_mask).sum()),

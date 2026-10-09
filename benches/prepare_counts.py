@@ -37,6 +37,8 @@ def main() -> int:
         var = read_elem(raw["var"])
         x = raw["X"]
         n_obs, n_vars = (int(v) for v in x.attrs["shape"])
+        if n_vars >= 2**31:
+            raise SystemExit(f"{n_vars} genes do not fit an int32 gene index")
         if args.cells:
             n_obs = min(n_obs, args.cells)
         indptr = x["indptr"][: n_obs + 1].astype(np.int64)
@@ -64,7 +66,8 @@ def main() -> int:
             g.attrs["encoding-type"] = "csr_matrix"
             g.attrs["encoding-version"] = "0.1.0"
             g.attrs["shape"] = np.array([n_obs, n_vars], dtype=np.int64)
-            # scipy wants indptr and indices in one dtype; int32 covers up to 2^31 stored values.
+            # The row pointer needs int64 past 2^31 stored values. The gene index never
+            # does: it only has to hold n_vars, and int32 makes the file a quarter smaller.
             g.create_dataset("indptr", data=indptr.astype(np.int32 if nnz < 2**31 else np.int64))
             data = g.create_dataset(
                 "data", shape=(nnz,), dtype=np.float32, chunks=(min(nnz, 1 << 20),)
@@ -72,7 +75,7 @@ def main() -> int:
             indices = g.create_dataset(
                 "indices",
                 shape=(nnz,),
-                dtype=np.int32 if nnz < 2**31 else np.int64,
+                dtype=np.int32,
                 chunks=(min(nnz, 1 << 20),),
             )
             for start in range(0, n_obs, BLOCK):

@@ -13,6 +13,7 @@ mod de;
 mod diffusion;
 mod embedding;
 mod fast;
+mod io;
 mod layout;
 mod metrics;
 mod paga;
@@ -47,6 +48,7 @@ fn _metalcyte(module: &Bound<'_, PyModule>) -> PyResult<()> {
     cluster::register(module)?;
     preprocess::register(module)?;
     fast::register(module)?;
+    io::register(module)?;
     embedding::register(module)?;
     raster::register(module)?;
     de::register(module)?;
